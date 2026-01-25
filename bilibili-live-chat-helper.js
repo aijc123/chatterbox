@@ -1278,8 +1278,6 @@ let replacementMap = null
     let sonioxAccumulatedFinalText = ''
     /** @type {string} */
     let sonioxAccumulatedTranslatedText = ''
-    /** @type {number} */
-    let sonioxLastProcessedFinalLength = 0
     /** @type {string} */
     let sonioxSendBuffer = ''
     /** @type {number|null} */
@@ -1363,7 +1361,6 @@ let replacementMap = null
       sonioxTextQueue = []
       sonioxProcessingQueue = false
       sonioxLastSendTime = 0
-      sonioxLastProcessedFinalLength = 0
       sonioxAccumulatedFinalText = ''
       sonioxAccumulatedTranslatedText = ''
       if (sonioxFlushTimeout) {
@@ -1516,7 +1513,6 @@ let replacementMap = null
         sonioxNonFinalText.textContent = ''
         sonioxAccumulatedFinalText = ''
         sonioxAccumulatedTranslatedText = ''
-        sonioxLastProcessedFinalLength = 0
 
         sonioxStartBtn.textContent = '启动中…'
         sonioxStatus.textContent = '正在连接…'
@@ -1555,37 +1551,30 @@ let replacementMap = null
               appendToLimitedLog(msgLogs, translationEnabled ? `🎤 同传已启动（翻译模式：${translationTarget}）` : '🎤 同传已启动', maxLogLines)
             },
             onPartialResult: result => {
-              // When translation is enabled, we send translated text; otherwise send original text
+              // Soniox sends each token ONCE with is_final: true (per official docs).
+              // We simply accumulate final tokens and enqueue them for sending.
               // translation_status: "none" (not translated), "original" (spoken text), "translation" (translated text)
-              // Note: Soniox sends ALL accumulated tokens each time, so we track deltas ourselves
 
-              let totalFinalText = ''
+              let newFinalText = ''
               let nonFinalText = ''
-              let totalTranslatedFinalText = ''
+              let newTranslatedFinalText = ''
               let translatedNonFinalText = ''
 
               for (const token of result.tokens) {
                 if (translationEnabled) {
-                  // When translation is enabled, collect both original and translated tokens
+                  // When translation is enabled, collect translated tokens for sending
                   if (token.translation_status === 'translation') {
-                    // This is a translated token
                     if (token.is_final) {
-                      totalTranslatedFinalText += token.text
+                      newTranslatedFinalText += token.text
                     } else {
                       translatedNonFinalText += token.text
                     }
-                  } else if (token.translation_status === 'original' || token.translation_status === 'none') {
-                    // This is original/untranslated token (for display purposes)
-                    if (token.is_final) {
-                      totalFinalText += token.text
-                    } else {
-                      nonFinalText += token.text
-                    }
                   }
+                  // Original tokens are ignored when translation is enabled (we send translations)
                 } else {
-                  // Without translation, just collect all tokens
+                  // Without translation, collect all tokens
                   if (token.is_final) {
-                    totalFinalText += token.text
+                    newFinalText += token.text
                   } else {
                     nonFinalText += token.text
                   }
@@ -1593,53 +1582,15 @@ let replacementMap = null
               }
 
               if (translationEnabled) {
-                // For translation mode: use translated tokens for sending
-                // Unlike original transcription, translation tokens may come in small chunks
-                // and may NOT include all previous tokens, so we accumulate them ourselves
-
-                // If we have new final translated tokens in this callback, add them to our accumulator
-                if (totalTranslatedFinalText.length > 0) {
-                  // Soniox translation behavior: check if this looks like accumulated tokens or just new chunks
-                  // If totalTranslatedFinalText starts with what we already have, it's accumulated
-                  // Otherwise, it's new chunks that we need to append
-                  if (totalTranslatedFinalText.length >= sonioxAccumulatedTranslatedText.length &&
-                      totalTranslatedFinalText.startsWith(sonioxAccumulatedTranslatedText)) {
-                    // Soniox sent accumulated tokens - extract the delta
-                    const deltaTranslatedText = totalTranslatedFinalText.slice(sonioxAccumulatedTranslatedText.length)
-                    if (deltaTranslatedText && autoSend) {
-                      enqueueText(deltaTranslatedText)
-                    }
-                    sonioxAccumulatedTranslatedText = totalTranslatedFinalText
-                  } else if (sonioxAccumulatedTranslatedText.length === 0) {
-                    // First batch of translated tokens
-                    if (autoSend) {
-                      enqueueText(totalTranslatedFinalText)
-                    }
-                    sonioxAccumulatedTranslatedText = totalTranslatedFinalText
-                  } else {
-                    // Text doesn't match expected patterns - ambiguous case
-                    // Be aggressive to avoid missing text (duplicates are less bad than silence)
-                    // Only skip if clearly a minor correction (very high overlap)
-                    let commonPrefixLen = 0
-                    const minLen = Math.min(totalTranslatedFinalText.length, sonioxAccumulatedTranslatedText.length)
-                    while (commonPrefixLen < minLen &&
-                           totalTranslatedFinalText[commonPrefixLen] === sonioxAccumulatedTranslatedText[commonPrefixLen]) {
-                      commonPrefixLen++
-                    }
-
-                    // Only skip if > 80% overlap (clearly a minor correction)
-                    const isClearCorrection = minLen > 0 && commonPrefixLen > minLen * 0.8
-
-                    if (!isClearCorrection && autoSend) {
-                      enqueueText(totalTranslatedFinalText)
-                    } else {
-                      console.warn('[Soniox] Translation correction detected, skipping send')
-                    }
-                    sonioxAccumulatedTranslatedText = totalTranslatedFinalText
-                  }
+                // Enqueue new translated final text for sending
+                if (newTranslatedFinalText && autoSend) {
+                  enqueueText(newTranslatedFinalText)
                 }
 
-                // Display: show accumulated translated text (don't clear if current callback has none)
+                // Accumulate for display
+                sonioxAccumulatedTranslatedText += newTranslatedFinalText
+
+                // Update display
                 const maxDisplayLen = 500
                 let displayText = sonioxAccumulatedTranslatedText
                 if (displayText.length > maxDisplayLen) {
@@ -1648,20 +1599,15 @@ let replacementMap = null
                 sonioxFinalText.textContent = displayText
                 sonioxNonFinalText.textContent = translatedNonFinalText
               } else {
-                // For non-translation mode: use original tokens
-                // Calculate delta - only the NEW final text since last callback
-                const deltaFinalText = totalFinalText.slice(sonioxLastProcessedFinalLength)
-
-                // If we got new final text, enqueue for sequential processing
-                if (deltaFinalText && autoSend) {
-                  enqueueText(deltaFinalText)
+                // Enqueue new final text for sending
+                if (newFinalText && autoSend) {
+                  enqueueText(newFinalText)
                 }
 
-                // Update tracking
-                sonioxLastProcessedFinalLength = totalFinalText.length
+                // Accumulate for display
+                sonioxAccumulatedFinalText += newFinalText
 
                 // Update display
-                sonioxAccumulatedFinalText = totalFinalText
                 const maxDisplayLen = 500
                 let displayText = sonioxAccumulatedFinalText
                 if (displayText.length > maxDisplayLen) {
