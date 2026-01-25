@@ -467,7 +467,7 @@ function trimText(text, maxLength) {
 function stripTrailingPunctuation(text) {
   if (!text) return text
   // Common punctuation: English (.,!?;:) Chinese/Japanese (。，、！？；：…)
-  return text.replace(/[.,!?;:。，、！？；：…]+$/g, '')
+  return text.replace(/[.,!?;:。，、！？；：…]+$/, '')
 }
 
 /**
