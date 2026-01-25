@@ -1324,7 +1324,7 @@ let replacementMap = null
     sonioxMaxLengthInput.addEventListener('input', () => {
       const value = parseInt(sonioxMaxLengthInput.value, 10)
       if (value < 1) sonioxMaxLengthInput.value = '1'
-      GM_setValue('sonioxMaxLength', sonioxMaxLengthInput.value)
+      GM_setValue('sonioxMaxLength', parseInt(sonioxMaxLengthInput.value, 10))
     })
 
     sonioxAutoSendInput.addEventListener('input', () => {
