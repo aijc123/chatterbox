@@ -1471,7 +1471,10 @@ let replacementMap = null
           if (sonioxState === 'running') {
             sonioxFlushTimeout = setTimeout(() => {
               sonioxTextQueue.push(null) // Signal flush
-              processTextQueue()
+              if (!sonioxProcessingQueue) {
+                processTextQueue()
+              }
+              // If already processing, the current loop will pick up the null
             }, SONIOX_FLUSH_DELAY_MS)
           }
         }
