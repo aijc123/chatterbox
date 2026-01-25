@@ -1363,6 +1363,7 @@ let replacementMap = null
       sonioxProcessingQueue = false
       sonioxLastSendTime = 0
       sonioxLastProcessedFinalLength = 0
+      sonioxAccumulatedFinalText = ''
       sonioxAccumulatedTranslatedText = ''
       if (sonioxFlushTimeout) {
         clearTimeout(sonioxFlushTimeout)
