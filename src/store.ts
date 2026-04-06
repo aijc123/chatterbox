@@ -18,6 +18,7 @@ export const randomChar = gmSignal('randomChar', false)
 export const aiEvasion = gmSignal('aiEvasion', false)
 export const forceScrollDanmaku = gmSignal('forceScrollDanmaku', false)
 export const optimizeLayout = gmSignal('optimizeLayout', false)
+export const danmakuDirectMode = gmSignal('danmakuDirectMode', true)
 export const activeTab = gmSignal('activeTab', 'dulunche')
 export const msgTemplates = gmSignal<string[]>('MsgTemplates', [])
 export const activeTemplateIndex = gmSignal('activeTemplateIndex', 0)
@@ -45,6 +46,9 @@ export const cachedRoomId = signal<number | null>(null)
 export const cachedStreamerUid = signal<number | null>(null)
 export const availableDanmakuColors = signal<string[] | null>(null)
 export const replacementMap = signal<Map<string, string> | null>(null)
+
+// Fasong tab shared text
+export const fasongText = signal('')
 
 // Shared log
 export const logLines = signal<string[]>([])

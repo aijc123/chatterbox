@@ -7,6 +7,7 @@ import { buildReplacementMap } from '../replacement.js'
 import {
   appendLog,
   cachedRoomId,
+  danmakuDirectMode,
   forceScrollDanmaku,
   maxLogLines,
   optimizeLayout,
@@ -404,6 +405,17 @@ export function SettingsTab() {
       <div style={{ margin: '.5em 0' }}>
         <div style={{ fontWeight: 'bold', marginBottom: '.5em' }}>其他设置</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '.5em' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
+            <input
+              id='danmakuDirectMode'
+              type='checkbox'
+              checked={danmakuDirectMode.value}
+              onInput={e => {
+                danmakuDirectMode.value = (e.target as HTMLInputElement).checked
+              }}
+            />
+            <label htmlFor='danmakuDirectMode'>弹幕+1模式（在聊天消息旁显示复制和+1按钮）</label>
+          </span>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
             <input
               id='forceScrollDanmaku'

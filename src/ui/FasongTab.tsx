@@ -1,16 +1,11 @@
-import { useSignal } from '@preact/signals'
-
 import { ensureRoomId, getCsrfToken, sendDanmaku } from '../api.js'
 import { applyReplacements } from '../replacement.js'
-import { aiEvasion, appendLog } from '../store.js'
+import { aiEvasion, appendLog, fasongText } from '../store.js'
 import { tryAiEvasion } from './ai-evasion.js'
 
 export function FasongTab() {
-  const text = useSignal('')
-  const counter = useSignal(0)
-
   const sendMessage = async () => {
-    const originalMessage = text.value.trim()
+    const originalMessage = fasongText.value.trim()
     if (!originalMessage) {
       appendLog('⚠️ 消息内容不能为空')
       return
@@ -18,8 +13,7 @@ export function FasongTab() {
 
     const processedMessage = applyReplacements(originalMessage)
     const wasReplaced = originalMessage !== processedMessage
-    text.value = ''
-    counter.value = 0
+    fasongText.value = ''
 
     try {
       const roomId = await ensureRoomId()
@@ -52,10 +46,9 @@ export function FasongTab() {
     <>
       <div style={{ margin: '.5em 0', position: 'relative' }}>
         <textarea
-          value={text.value}
+          value={fasongText.value}
           onInput={e => {
-            text.value = (e.target as HTMLTextAreaElement).value
-            counter.value = text.value.length
+            fasongText.value = (e.target as HTMLTextAreaElement).value
           }}
           onKeyDown={e => {
             if (e.key === 'Enter' && !e.shiftKey && !(e as KeyboardEvent).isComposing) {
@@ -81,7 +74,7 @@ export function FasongTab() {
             pointerEvents: 'none',
           }}
         >
-          {counter.value}
+          {fasongText.value.length}
         </div>
       </div>
       <div style={{ margin: '.5em 0' }}>
