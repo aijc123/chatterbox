@@ -48,10 +48,10 @@ export function EmoteIds() {
                   title={`${emo.emoji}\n点击复制: ${emo.emoticon_unique}`}
                   onClick={() => void handleCopy(emo.emoticon_unique)}
                   style={{
-                    display: 'inline-flex',
+                    display: 'flex',
+                    flexDirection: 'column',
                     alignItems: 'center',
                     gap: '2px',
-                    padding: '1px 4px',
                     border: '1px solid var(--Ga2, #ddd)',
                     borderRadius: '3px',
                     background: isCopied ? '#36a185' : 'var(--bg2, #f5f5f5)',
@@ -62,8 +62,13 @@ export function EmoteIds() {
                     transition: 'background .15s, color .15s',
                   }}
                 >
-                  <img src={emo.url} alt={emo.emoji} style={{ width: '16px', height: '16px' }} loading='lazy' />
-                  {isCopied ? '已复制' : emo.emoticon_unique}
+                  <img
+                    src={emo.url}
+                    alt={emo.emoji}
+                    style={{ width: '48px', height: '48px', objectFit: 'contain' }}
+                    loading='lazy'
+                  />
+                  {isCopied ? '已复制' : emo.emoji}
                 </button>
               )
             })}

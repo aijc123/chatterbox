@@ -64,7 +64,8 @@ export async function fetchEmoticons(roomId: number): Promise<void> {
   if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`)
   const json: BilibiliGetEmoticonsResponse = await resp.json()
   if (json?.code === 0 && json.data?.data) {
-    cachedEmoticonPackages.value = json.data.data
+    // 把傻逼b豆表情移除（pkg_id === 100）
+    cachedEmoticonPackages.value = json.data.data.filter(pkg => pkg.pkg_id !== 100)
   }
 }
 
