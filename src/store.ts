@@ -1,5 +1,7 @@
 import { effect, signal } from '@preact/signals'
 
+import type { BilibiliEmoticonPackage } from './types'
+
 import { GM_getValue, GM_setValue } from '$'
 
 function gmSignal<T>(key: string, defaultValue: T) {
@@ -48,6 +50,12 @@ export const cachedRoomId = signal<number | null>(null)
 export const cachedStreamerUid = signal<number | null>(null)
 export const availableDanmakuColors = signal<string[] | null>(null)
 export const replacementMap = signal<Map<string, string> | null>(null)
+
+export const cachedEmoticonPackages = signal<BilibiliEmoticonPackage[]>([])
+
+export function isEmoticonUnique(msg: string): boolean {
+  return cachedEmoticonPackages.value.some(pkg => pkg.emoticons.some(e => e.emoticon_unique === msg))
+}
 
 // Fasong tab shared text
 export const fasongText = signal('')

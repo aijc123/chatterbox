@@ -1,0 +1,75 @@
+import { useSignal } from '@preact/signals'
+
+import { cachedEmoticonPackages } from '../store'
+
+export function EmoteIds() {
+  const packages = cachedEmoticonPackages.value
+  const copiedId = useSignal<string | null>(null)
+
+  if (packages.length === 0) {
+    return <div style={{ color: '#999' }}>表情数据加载中…</div>
+  }
+
+  const handleCopy = async (unique: string) => {
+    try {
+      await navigator.clipboard.writeText(unique)
+    } catch {
+      alert(`复制失败，请手动复制：${unique}`)
+      return
+    }
+    copiedId.value = unique
+    setTimeout(() => {
+      if (copiedId.peek() === unique) copiedId.value = null
+    }, 1500)
+  }
+
+  return (
+    <>
+      {packages.map(pkg => (
+        <div key={pkg.pkg_id} style={{ marginBottom: '.75em' }}>
+          <div
+            style={{
+              fontWeight: 'bold',
+              marginBottom: '.25em',
+              color: '#666',
+              fontSize: '11px',
+            }}
+          >
+            {pkg.pkg_name}
+            <span style={{ fontWeight: 'normal', marginLeft: '.5em' }}>({pkg.emoticons.length})</span>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+            {pkg.emoticons.map(emo => {
+              const isCopied = copiedId.value === emo.emoticon_unique
+              return (
+                <button
+                  type='button'
+                  key={emo.emoticon_id}
+                  title={`${emo.emoji}\n点击复制: ${emo.emoticon_unique}`}
+                  onClick={() => void handleCopy(emo.emoticon_unique)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '2px',
+                    padding: '1px 4px',
+                    border: '1px solid var(--Ga2, #ddd)',
+                    borderRadius: '3px',
+                    background: isCopied ? '#36a185' : 'var(--bg2, #f5f5f5)',
+                    color: isCopied ? '#fff' : '#555',
+                    cursor: 'pointer',
+                    fontSize: '10px',
+                    lineHeight: 1.6,
+                    transition: 'background .15s, color .15s',
+                  }}
+                >
+                  <img src={emo.url} alt={emo.emoji} style={{ width: '16px', height: '16px' }} loading='lazy' />
+                  {isCopied ? '已复制' : emo.emoticon_unique}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      ))}
+    </>
+  )
+}

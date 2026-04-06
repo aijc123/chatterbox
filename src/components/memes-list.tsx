@@ -99,9 +99,8 @@ function MemeItem({
     try {
       await navigator.clipboard.writeText(meme.content)
     } catch {
-      const blob = new Blob([meme.content], { type: 'text/plain' })
-      const item = new ClipboardItem({ 'text/plain': blob })
-      await navigator.clipboard.write([item])
+      alert(`复制失败，请手动复制：${meme.content}`)
+      return
     }
     copyLabel.value = '已复制'
     setTimeout(() => {

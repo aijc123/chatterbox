@@ -16,6 +16,7 @@ import {
   remoteKeywordsLastSync,
   replacementRules,
 } from '../store'
+import { EmoteIds } from './emote-ids'
 
 const SYNC_INTERVAL = 10 * 60 * 1000
 
@@ -400,6 +401,13 @@ export function SettingsTab() {
             }}
           />
           <span style={{ color: '#999', fontSize: '0.9em' }}>(1-1000)</span>
+        </div>
+      </div>
+
+      <div style={{ margin: '.5em 0', paddingBottom: '.5em', borderBottom: '1px solid var(--Ga2, #eee)' }}>
+        <div style={{ fontWeight: 'bold', marginBottom: '.5em' }}>表情 ID</div>
+        <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+          <EmoteIds />
         </div>
       </div>
 

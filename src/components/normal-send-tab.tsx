@@ -24,16 +24,17 @@ export function NormalSendTab() {
       }
 
       const result = await sendDanmaku(processedMessage, roomId, csrfToken)
+      const label = result.isEmoticon ? '手动表情' : '手动'
 
       if (result.success) {
         const displayMsg = wasReplaced ? `${originalMessage} → ${processedMessage}` : processedMessage
-        appendLog(`✅ 手动: ${displayMsg}`)
+        appendLog(`✅ ${label}: ${displayMsg}`)
       } else {
         let errorMsg = result.error ?? '未知错误'
         if (result.error === 'f' || result.error?.includes('f')) errorMsg = 'f - 包含全局屏蔽词'
         else if (result.error === 'k' || result.error?.includes('k')) errorMsg = 'k - 包含房间屏蔽词'
         const displayMsg = wasReplaced ? `${originalMessage} → ${processedMessage}` : processedMessage
-        appendLog(`❌ 手动: ${displayMsg}，原因：${errorMsg}`)
+        appendLog(`❌ ${label}: ${displayMsg}，原因：${errorMsg}`)
         await tryAiEvasion(processedMessage, roomId, csrfToken, '')
       }
     } catch (err) {

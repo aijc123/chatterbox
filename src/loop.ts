@@ -1,6 +1,6 @@
 import type { DanmakuConfigResponse } from './types'
 
-import { ensureRoomId, getCsrfToken, getSpmPrefix, sendDanmaku } from './api'
+import { ensureRoomId, fetchEmoticons, getCsrfToken, getSpmPrefix, sendDanmaku } from './api'
 import { BASE_URL } from './const'
 import { applyReplacements, buildReplacementMap } from './replacement'
 import {
@@ -9,6 +9,7 @@ import {
   availableDanmakuColors,
   cachedRoomId,
   forceScrollDanmaku,
+  isEmoticonUnique,
   maxLength,
   msgSendInterval,
   msgTemplates,
@@ -73,12 +74,18 @@ export async function loop(): Promise<void> {
             }
             if (colors.length > 0) {
               availableDanmakuColors.value = colors
-              console.log('[LAPLACE Chatterbox Helper] Available colors:', colors)
+              console.log('[LAPLACE Chatterbox] Available colors:', colors)
             }
           }
         } catch {
           // non-critical
         }
+      }
+
+      try {
+        await fetchEmoticons(roomId)
+      } catch {
+        // non-critical
       }
 
       if (forceScrollDanmaku.value) {
@@ -124,13 +131,22 @@ export async function loop(): Promise<void> {
       const enableRandomColor = randomColor.value
       const enableRandomInterval = randomInterval.value
       const enableRandomChar = randomChar.value
-      const Msg = processMessages(currentTemplate, maxLength.value, enableRandomChar)
+
+      const Msg: string[] = []
+      for (const line of currentTemplate.split('\n').filter(l => l?.trim())) {
+        if (isEmoticonUnique(line.trim())) {
+          Msg.push(line.trim())
+        } else {
+          Msg.push(...processMessages(line, maxLength.value, enableRandomChar))
+        }
+      }
 
       for (const message of Msg) {
         if (sendMsg.value) {
+          const isEmote = isEmoticonUnique(message)
           const originalMessage = message
-          const processedMessage = applyReplacements(message)
-          const wasReplaced = originalMessage !== processedMessage
+          const processedMessage = isEmote ? message : applyReplacements(message)
+          const wasReplaced = !isEmote && originalMessage !== processedMessage
 
           if (enableRandomColor) {
             const colorSet = availableDanmakuColors.value ?? DEFAULT_COLORS
@@ -154,9 +170,10 @@ export async function loop(): Promise<void> {
 
           const result = await sendDanmaku(processedMessage, roomId, csrfToken ?? '')
           const displayMsg = wasReplaced ? `${originalMessage} → ${processedMessage}` : processedMessage
+          const label = result.isEmoticon ? '自动表情' : '自动'
           const logMessage = result.success
-            ? `✅ 自动: ${displayMsg}`
-            : `❌ 自动: ${displayMsg}，原因：${result.error}。`
+            ? `✅ ${label}: ${displayMsg}`
+            : `❌ ${label}: ${displayMsg}，原因：${result.error}。`
           appendLog(logMessage)
 
           const resolvedRandomInterval = enableRandomInterval ? Math.floor(Math.random() * 500) : 0

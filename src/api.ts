@@ -1,5 +1,7 @@
+import type { BilibiliGetEmoticonsResponse } from './types'
+
 import { BASE_URL } from './const'
-import { cachedRoomId, cachedStreamerUid } from './store'
+import { cachedEmoticonPackages, cachedRoomId, cachedStreamerUid, isEmoticonUnique } from './store'
 import { extractRoomNumber } from './utils'
 import { cachedWbiKeys, encodeWbi } from './wbi'
 
@@ -54,9 +56,22 @@ export async function ensureRoomId(): Promise<number> {
   return roomId
 }
 
+export async function fetchEmoticons(roomId: number): Promise<void> {
+  const resp = await fetch(`${BASE_URL.BILIBILI_GET_EMOTICONS}?platform=pc&room_id=${roomId}`, {
+    method: 'GET',
+    credentials: 'include',
+  })
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`)
+  const json: BilibiliGetEmoticonsResponse = await resp.json()
+  if (json?.code === 0 && json.data?.data) {
+    cachedEmoticonPackages.value = json.data.data
+  }
+}
+
 export interface SendDanmakuResult {
   success: boolean
   message: string
+  isEmoticon: boolean
   error?: string
 }
 
@@ -64,6 +79,8 @@ export interface SendDanmakuResult {
  * Sends a single danmaku message to the Bilibili live room.
  */
 export async function sendDanmaku(message: string, roomId: number, csrfToken: string): Promise<SendDanmakuResult> {
+  const emoticon = isEmoticonUnique(message)
+
   const form = new FormData()
   form.append('bubble', '2')
   form.append('msg', message)
@@ -80,6 +97,11 @@ export async function sendDanmaku(message: string, roomId: number, csrfToken: st
   form.append('roomid', String(roomId))
   form.append('csrf', csrfToken)
   form.append('csrf_token', csrfToken)
+
+  if (emoticon) {
+    form.append('dm_type', '1')
+    form.append('emoticon_options', '{}')
+  }
 
   try {
     let query = ''
@@ -105,6 +127,7 @@ export async function sendDanmaku(message: string, roomId: number, csrfToken: st
       return {
         success: false,
         message,
+        isEmoticon: emoticon,
         error: json.message,
       }
     }
@@ -112,11 +135,13 @@ export async function sendDanmaku(message: string, roomId: number, csrfToken: st
     return {
       success: true,
       message,
+      isEmoticon: emoticon,
     }
   } catch (err) {
     return {
       success: false,
       message,
+      isEmoticon: emoticon,
       error: err instanceof Error ? err.message : String(err),
     }
   }
