@@ -58,7 +58,7 @@ export function AutoSendControls() {
     <>
       <div style={{ margin: '.5em 0', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '.25em' }}>
         <button type='button' onClick={toggleSend}>
-          {sendMsg.value ? '关闭独轮车' : '开启独轮车'}
+          {sendMsg.value ? '停车' : '开车'}
         </button>
         <select
           style={{ width: '16ch' }}

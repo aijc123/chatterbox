@@ -405,7 +405,7 @@ export function SettingsTab() {
       </div>
 
       <div style={{ margin: '.5em 0', paddingBottom: '.5em', borderBottom: '1px solid var(--Ga2, #eee)' }}>
-        <div style={{ fontWeight: 'bold', marginBottom: '.5em' }}>表情 ID</div>
+        <div style={{ fontWeight: 'bold', marginBottom: '.5em' }}>表情（复制后可在独轮车或常规发送中直接发送）</div>
         <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
           <EmoteIds />
         </div>

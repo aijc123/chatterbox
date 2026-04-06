@@ -23,12 +23,11 @@ export function Configurator() {
         background: 'var(--bg1, #fff)',
         display: visible ? (optimized ? 'flex' : 'block') : 'none',
         flexDirection: optimized ? 'column' : undefined,
-        padding: '10px',
         boxShadow: '0 0 0 1px var(--Ga2, rgba(0, 0, 0, .2))',
         borderRadius: '4px',
         minWidth: '50px',
-        height: optimized ? 'calc(100vh - 125px)' : undefined,
-        maxHeight: optimized ? undefined : 'calc(100vh - 125px)',
+        height: optimized ? 'calc(100vh - 110px)' : undefined,
+        maxHeight: optimized ? undefined : 'calc(100vh - 110px)',
         overflowY: optimized ? 'hidden' : 'auto',
         width: '300px',
       }}
@@ -40,6 +39,7 @@ export function Configurator() {
           display: tab === 'dulunche' ? (optimized ? 'flex' : 'block') : 'none',
           flexDirection: optimized ? 'column' : undefined,
           flex: optimized ? 1 : undefined,
+          paddingInline: '10px',
           minHeight: optimized ? 0 : undefined,
         }}
       >
@@ -56,19 +56,48 @@ export function Configurator() {
         </div>
       </div>
 
-      <div style={{ display: tab === 'fasong' ? 'block' : 'none' }}>
+      <div
+        style={{
+          display: tab === 'fasong' ? (optimized ? 'flex' : 'block') : 'none',
+          flexDirection: optimized ? 'column' : undefined,
+          flex: optimized ? 1 : undefined,
+          paddingInline: '10px',
+          minHeight: optimized ? 0 : undefined,
+          overflowY: optimized ? 'auto' : undefined,
+        }}
+      >
         <NormalSendTab />
       </div>
 
-      <div style={{ display: tab === 'tongchuan' ? 'block' : 'none' }}>
+      <div
+        style={{
+          display: tab === 'tongchuan' ? (optimized ? 'flex' : 'block') : 'none',
+          flexDirection: optimized ? 'column' : undefined,
+          flex: optimized ? 1 : undefined,
+          paddingInline: '10px',
+          minHeight: optimized ? 0 : undefined,
+          overflowY: optimized ? 'auto' : undefined,
+        }}
+      >
         <SttTab />
       </div>
 
-      <div style={{ display: tab === 'settings' ? 'block' : 'none' }}>
+      <div
+        style={{
+          display: tab === 'settings' ? (optimized ? 'flex' : 'block') : 'none',
+          flexDirection: optimized ? 'column' : undefined,
+          flex: optimized ? 1 : undefined,
+          paddingInline: '10px',
+          minHeight: optimized ? 0 : undefined,
+          overflowY: optimized ? 'auto' : undefined,
+        }}
+      >
         <SettingsTab />
       </div>
 
-      <LogPanel />
+      <div style={{ paddingInline: '10px', paddingBlockEnd: '5px' }}>
+        <LogPanel />
+      </div>
     </div>
   )
 }

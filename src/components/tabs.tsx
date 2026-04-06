@@ -14,8 +14,8 @@ export function Tabs() {
     <div
       style={{
         display: 'flex',
-        marginBlock: '-5px .75em',
-        marginInline: '-10px',
+        marginInline: '-5px',
+        marginBlockEnd: '5px',
         padding: '0 10px',
         gap: '.25em',
         borderBottom: '1px solid var(--Ga2, #ddd)',
