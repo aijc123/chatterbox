@@ -1,14 +1,13 @@
+import preact from '@preact/preset-vite'
 import { defineConfig } from 'vite'
 import monkey, { util } from 'vite-plugin-monkey'
 
+// https://vitejs.dev/config/
 export default defineConfig({
-  esbuild: {
-    jsxFactory: 'h',
-    jsxFragment: 'Fragment',
-  },
   plugins: [
+    preact(),
     monkey({
-      entry: 'src/main.ts',
+      entry: 'src/main.tsx',
       userscript: {
         name: 'LAPLACE 弹幕助手 - 哔哩哔哩直播间独轮车、弹幕发送',
         namespace: 'https://greasyfork.org/users/1524935',

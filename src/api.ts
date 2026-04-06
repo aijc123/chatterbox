@@ -1,7 +1,7 @@
-import { BASE_URL } from './const.js'
-import { cachedRoomId, cachedStreamerUid } from './store.js'
-import { extractRoomNumber } from './utils.js'
-import { cachedWbiKeys, encodeWbi } from './wbi.js'
+import { BASE_URL } from './const'
+import { cachedRoomId, cachedStreamerUid } from './store'
+import { extractRoomNumber } from './utils'
+import { cachedWbiKeys, encodeWbi } from './wbi'
 
 /**
  * Gets the spm_prefix value from the meta tag for web_location.

@@ -1,7 +1,7 @@
-import { sendDanmaku } from '../api.js'
-import { BASE_URL } from '../const.js'
-import { aiEvasion, appendLog } from '../store.js'
-import { getGraphemes } from '../utils.js'
+import { sendDanmaku } from '../api'
+import { BASE_URL } from '../const'
+import { aiEvasion, appendLog } from '../store'
+import { getGraphemes } from '../utils'
 
 interface DetectionResult {
   hasSensitiveContent?: boolean

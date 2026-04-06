@@ -1,7 +1,7 @@
-import { ensureRoomId, getCsrfToken, sendDanmaku } from './api.js'
-import { showConfirm } from './components/ui/alert-dialog.js'
-import { applyReplacements } from './replacement.js'
-import { activeTab, appendLog, danmakuDirectConfirm, danmakuDirectMode, fasongText } from './store.js'
+import { ensureRoomId, getCsrfToken, sendDanmaku } from './api'
+import { showConfirm } from './components/ui/alert-dialog'
+import { applyReplacements } from './replacement'
+import { activeTab, appendLog, danmakuDirectConfirm, danmakuDirectMode, fasongText } from './store'
 
 const MARKER = 'lc-dm-direct'
 const STYLE_ID = 'lc-dm-direct-style'

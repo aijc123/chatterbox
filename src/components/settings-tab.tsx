@@ -1,9 +1,9 @@
 import { useSignal } from '@preact/signals'
 import { useEffect, useRef } from 'preact/hooks'
 
-import { ensureRoomId, getCsrfToken, sendDanmaku } from '../api.js'
-import { BASE_URL } from '../const.js'
-import { buildReplacementMap } from '../replacement.js'
+import { ensureRoomId, getCsrfToken, sendDanmaku } from '../api'
+import { BASE_URL } from '../const'
+import { buildReplacementMap } from '../replacement'
 import {
   appendLog,
   cachedRoomId,
@@ -15,7 +15,7 @@ import {
   remoteKeywords,
   remoteKeywordsLastSync,
   replacementRules,
-} from '../store.js'
+} from '../store'
 
 const SYNC_INTERVAL = 10 * 60 * 1000
 

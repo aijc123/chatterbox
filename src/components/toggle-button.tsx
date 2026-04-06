@@ -1,6 +1,6 @@
 import { useComputed } from '@preact/signals'
 
-import { sendMsg } from '../store.js'
+import { sendMsg } from '../store'
 
 export function ToggleButton() {
   const bg = useComputed(() => (sendMsg.value ? 'rgb(0 186 143)' : '#777'))

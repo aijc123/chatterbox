@@ -1,4 +1,4 @@
-import { cachedRoomId, remoteKeywords, replacementMap, replacementRules } from './store.js'
+import { cachedRoomId, remoteKeywords, replacementMap, replacementRules } from './store'
 
 /**
  * Builds the replacement map from remote and local rules.

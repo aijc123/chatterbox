@@ -1,6 +1,6 @@
-import type { BilibiliWbiKeys } from './types.js'
+import type { BilibiliWbiKeys } from './types'
 
-import { md5 } from './md5.js'
+import { md5 } from './md5'
 
 /** WBI keys captured by XHR hijack; set when /x/web-interface/nav response is received. */
 export let cachedWbiKeys: BilibiliWbiKeys | null = null

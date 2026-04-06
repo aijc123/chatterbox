@@ -8,8 +8,8 @@ import {
   randomColor,
   randomInterval,
   sendMsg,
-} from '../store.js'
-import { getGraphemes, processMessages, trimText } from '../utils.js'
+} from '../store'
+import { getGraphemes, processMessages, trimText } from '../utils'
 
 function getPreview(template: string): string {
   const firstLine = (template.split('\n')[0] ?? '').trim()

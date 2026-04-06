@@ -1,11 +1,11 @@
-import { activeTab } from '../store.js'
-import { AutoSendControls } from './auto-send-controls.js'
-import { LogPanel } from './log-panel.js'
-import { MemesList } from './memes-list.js'
-import { NormalSendTab } from './normal-send-tab.js'
-import { SettingsTab } from './settings-tab.js'
-import { SttTab } from './stt-tab.js'
-import { Tabs } from './tabs.js'
+import { activeTab } from '../store'
+import { AutoSendControls } from './auto-send-controls'
+import { LogPanel } from './log-panel'
+import { MemesList } from './memes-list'
+import { NormalSendTab } from './normal-send-tab'
+import { SettingsTab } from './settings-tab'
+import { SttTab } from './stt-tab'
+import { Tabs } from './tabs'
 
 export function Configurator() {
   const tab = activeTab.value

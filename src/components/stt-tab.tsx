@@ -2,8 +2,8 @@ import { useSignal } from '@preact/signals'
 import { SonioxClient } from '@soniox/speech-to-text-web'
 import { useRef } from 'preact/hooks'
 
-import { ensureRoomId, getCsrfToken, sendDanmaku } from '../api.js'
-import { applyReplacements } from '../replacement.js'
+import { ensureRoomId, getCsrfToken, sendDanmaku } from '../api'
+import { applyReplacements } from '../replacement'
 import {
   appendLog,
   sonioxApiKey,
@@ -12,9 +12,9 @@ import {
   sonioxMaxLength,
   sonioxTranslationEnabled,
   sonioxTranslationTarget,
-} from '../store.js'
-import { stripTrailingPunctuation, trimText } from '../utils.js'
-import { tryAiEvasion } from './ai-evasion.js'
+} from '../store'
+import { stripTrailingPunctuation, trimText } from '../utils'
+import { tryAiEvasion } from './ai-evasion'
 
 const SONIOX_SEND_INTERVAL_MS = 1100
 const SONIOX_FLUSH_DELAY_MS = 5000

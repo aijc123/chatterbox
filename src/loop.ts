@@ -1,8 +1,8 @@
-import type { DanmakuConfigResponse } from './types.js'
+import type { DanmakuConfigResponse } from './types'
 
-import { ensureRoomId, getCsrfToken, getSpmPrefix, sendDanmaku } from './api.js'
-import { BASE_URL } from './const.js'
-import { applyReplacements, buildReplacementMap } from './replacement.js'
+import { ensureRoomId, getCsrfToken, getSpmPrefix, sendDanmaku } from './api'
+import { BASE_URL } from './const'
+import { applyReplacements, buildReplacementMap } from './replacement'
 import {
   activeTemplateIndex,
   appendLog,
@@ -16,9 +16,9 @@ import {
   randomColor,
   randomInterval,
   sendMsg,
-} from './store.js'
-import { processMessages } from './utils.js'
-import { cachedWbiKeys, encodeWbi, waitForWbiKeys } from './wbi.js'
+} from './store'
+import { processMessages } from './utils'
+import { cachedWbiKeys, encodeWbi, waitForWbiKeys } from './wbi'
 
 const DEFAULT_COLORS = [
   '0xe33fff',

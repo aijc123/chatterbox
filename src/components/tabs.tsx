@@ -1,4 +1,4 @@
-import { activeTab } from '../store.js'
+import { activeTab } from '../store'
 
 const TABS = [
   { id: 'dulunche', label: '独轮车' },

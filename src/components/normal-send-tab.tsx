@@ -1,7 +1,7 @@
-import { ensureRoomId, getCsrfToken, sendDanmaku } from '../api.js'
-import { applyReplacements } from '../replacement.js'
-import { aiEvasion, appendLog, fasongText } from '../store.js'
-import { tryAiEvasion } from './ai-evasion.js'
+import { ensureRoomId, getCsrfToken, sendDanmaku } from '../api'
+import { applyReplacements } from '../replacement'
+import { aiEvasion, appendLog, fasongText } from '../store'
+import { tryAiEvasion } from './ai-evasion'
 
 export function NormalSendTab() {
   const sendMessage = async () => {

@@ -1,11 +1,11 @@
 import { useEffect } from 'preact/hooks'
 
-import { startDanmakuDirect, stopDanmakuDirect } from '../danmaku-direct.js'
-import { loop } from '../loop.js'
-import { danmakuDirectMode, optimizeLayout } from '../store.js'
-import { Configurator } from './configurator.js'
-import { ToggleButton } from './toggle-button.js'
-import { AlertDialog } from './ui/alert-dialog.js'
+import { startDanmakuDirect, stopDanmakuDirect } from '../danmaku-direct'
+import { loop } from '../loop'
+import { danmakuDirectMode, optimizeLayout } from '../store'
+import { Configurator } from './configurator'
+import { ToggleButton } from './toggle-button'
+import { AlertDialog } from './ui/alert-dialog'
 
 export function App() {
   useEffect(() => {
