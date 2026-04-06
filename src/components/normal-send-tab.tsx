@@ -3,7 +3,7 @@ import { applyReplacements } from '../replacement.js'
 import { aiEvasion, appendLog, fasongText } from '../store.js'
 import { tryAiEvasion } from './ai-evasion.js'
 
-export function FasongTab() {
+export function NormalSendTab() {
   const sendMessage = async () => {
     const originalMessage = fasongText.value.trim()
     if (!originalMessage) {

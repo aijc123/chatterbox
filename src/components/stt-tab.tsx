@@ -19,7 +19,7 @@ import { tryAiEvasion } from './ai-evasion.js'
 const SONIOX_SEND_INTERVAL_MS = 1100
 const SONIOX_FLUSH_DELAY_MS = 5000
 
-export function TongchuanTab() {
+export function SttTab() {
   const apiKeyVisible = useSignal(false)
   const state = useSignal<'stopped' | 'starting' | 'running' | 'stopping'>('stopped')
   const statusText = useSignal('未启动')

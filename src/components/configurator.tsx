@@ -1,13 +1,13 @@
 import { activeTab } from '../store.js'
-import { AutoSendControls } from './AutoSendControls.js'
-import { FasongTab } from './FasongTab.js'
-import { LogPanel } from './LogPanel.js'
-import { MemesList } from './MemesList.js'
-import { SettingsTab } from './SettingsTab.js'
-import { TabBar } from './TabBar.js'
-import { TongchuanTab } from './TongchuanTab.js'
+import { AutoSendControls } from './auto-send-controls.js'
+import { LogPanel } from './log-panel.js'
+import { MemesList } from './memes-list.js'
+import { NormalSendTab } from './normal-send-tab.js'
+import { SettingsTab } from './settings-tab.js'
+import { SttTab } from './stt-tab.js'
+import { Tabs } from './tabs.js'
 
-export function Dialog() {
+export function Configurator() {
   const tab = activeTab.value
 
   return (
@@ -29,7 +29,7 @@ export function Dialog() {
         width: '300px',
       }}
     >
-      <TabBar />
+      <Tabs />
 
       <div style={{ display: tab === 'dulunche' ? 'block' : 'none' }}>
         <AutoSendControls />
@@ -39,11 +39,11 @@ export function Dialog() {
       </div>
 
       <div style={{ display: tab === 'fasong' ? 'block' : 'none' }}>
-        <FasongTab />
+        <NormalSendTab />
       </div>
 
       <div style={{ display: tab === 'tongchuan' ? 'block' : 'none' }}>
-        <TongchuanTab />
+        <SttTab />
       </div>
 
       <div style={{ display: tab === 'settings' ? 'block' : 'none' }}>

@@ -7,7 +7,7 @@ const TABS = [
   { id: 'settings', label: '设置' },
 ] as const
 
-export function TabBar() {
+export function Tabs() {
   const current = activeTab.value
 
   return (

@@ -3,9 +3,9 @@ import { useEffect } from 'preact/hooks'
 import { startDanmakuDirect, stopDanmakuDirect } from '../danmaku-direct.js'
 import { loop } from '../loop.js'
 import { danmakuDirectMode, optimizeLayout } from '../store.js'
-import { AlertDialog } from './AlertDialog.js'
-import { Dialog } from './Dialog.js'
-import { ToggleButton } from './ToggleButton.js'
+import { Configurator } from './configurator.js'
+import { ToggleButton } from './toggle-button.js'
+import { AlertDialog } from './ui/alert-dialog.js'
 
 export function App() {
   useEffect(() => {
@@ -48,7 +48,7 @@ export function App() {
   return (
     <>
       <ToggleButton />
-      <Dialog />
+      <Configurator />
       <AlertDialog />
     </>
   )
