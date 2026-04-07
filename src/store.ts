@@ -2,7 +2,7 @@ import { effect, signal } from '@preact/signals'
 
 import type { BilibiliEmoticonPackage } from './types'
 
-import { GM_getValue, GM_setValue } from '$'
+import { GM_deleteValue, GM_getValue, GM_setValue } from '$'
 
 function gmSignal<T>(key: string, defaultValue: T) {
   const s = signal<T>(GM_getValue(key, defaultValue))
@@ -37,8 +37,21 @@ export const sonioxMaxLength = gmSignal('sonioxMaxLength', 40)
 export const sonioxTranslationEnabled = gmSignal('sonioxTranslationEnabled', false)
 export const sonioxTranslationTarget = gmSignal('sonioxTranslationTarget', 'en')
 
+// Migrate legacy flat replacementRules → localGlobalRules (one-time, then delete old key)
+;(() => {
+  const old = GM_getValue<Array<{ from?: string; to?: string }>>('replacementRules', [])
+  if (old.length > 0) {
+    const existing = GM_getValue<Array<{ from?: string; to?: string }>>('localGlobalRules', [])
+    if (existing.length === 0) {
+      GM_setValue('localGlobalRules', old)
+    }
+    GM_deleteValue('replacementRules')
+  }
+})()
+
 // Replacement rules
-export const replacementRules = gmSignal<Array<{ from?: string; to?: string }>>('replacementRules', [])
+export const localGlobalRules = gmSignal<Array<{ from?: string; to?: string }>>('localGlobalRules', [])
+export const localRoomRules = gmSignal<Record<string, Array<{ from?: string; to?: string }>>>('localRoomRules', {})
 export const remoteKeywords = gmSignal<{
   global?: { keywords?: Record<string, string> }
   rooms?: Array<{ room: string; keywords?: Record<string, string> }>

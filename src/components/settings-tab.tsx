@@ -11,11 +11,12 @@ import {
   danmakuDirectConfirm,
   danmakuDirectMode,
   forceScrollDanmaku,
+  localGlobalRules,
+  localRoomRules,
   maxLogLines,
   optimizeLayout,
   remoteKeywords,
   remoteKeywordsLastSync,
-  replacementRules,
 } from '../store'
 import { EmoteIds } from './emote-ids'
 
@@ -38,8 +39,14 @@ export function SettingsTab() {
   const syncing = useSignal(false)
   const testingRemote = useSignal(false)
   const testingLocal = useSignal(false)
-  const replaceFrom = useSignal('')
-  const replaceTo = useSignal('')
+
+  const globalReplaceFrom = useSignal('')
+  const globalReplaceTo = useSignal('')
+
+  const roomReplaceFrom = useSignal('')
+  const roomReplaceTo = useSignal('')
+  const editingRoomId = useSignal(cachedRoomId.value !== null ? String(cachedRoomId.value) : '')
+  const newRoomId = useSignal('')
 
   const updateRemoteStatus = () => {
     const rk = remoteKeywords.value
@@ -218,22 +225,49 @@ export function SettingsTab() {
         appendLog('❌ 未找到登录信息，请先登录 Bilibili')
         return
       }
-      const rules = replacementRules.value.filter(r => r.from)
-      if (rules.length === 0) {
+      const globalRules = localGlobalRules.value.filter(r => r.from)
+      const rid = cachedRoomId.value
+      const roomRules = rid !== null ? (localRoomRules.value[String(rid)] ?? []).filter(r => r.from) : []
+      const total = globalRules.length + roomRules.length
+      if (total === 0) {
         appendLog('⚠️ 没有本地替换词可供测试，请先添加本地替换规则')
         return
       }
-      appendLog(`🔵 开始测试本地替换词 ${rules.length} 个`)
+      appendLog(`🔵 开始测试本地替换词 ${total} 个（全局 ${globalRules.length} + 当前房间 ${roomRules.length}）`)
       let tested = 0
-      let blocked = 0
-      for (const rule of rules) {
-        tested++
-        appendLog(`[${tested}/${rules.length}] 测试: ${rule.from}`)
-        const result = await testKeywordPair(rule.from ?? '', rule.to ?? '', roomId, csrfToken)
-        blocked += logTestResult(result, rule.to ?? '')
-        if (tested < rules.length) await new Promise(r => setTimeout(r, 2000))
+      let totalBlocked = 0
+
+      if (globalRules.length > 0) {
+        appendLog(`\n📋 测试本地全局替换词 (${globalRules.length} 个)`)
+        let blockedCount = 0
+        for (const rule of globalRules) {
+          tested++
+          appendLog(`[${tested}/${total}] 测试: ${rule.from}`)
+          const result = await testKeywordPair(rule.from ?? '', rule.to ?? '', roomId, csrfToken)
+          const b = logTestResult(result, rule.to ?? '')
+          blockedCount += b
+          totalBlocked += b
+          if (tested < total) await new Promise(r => setTimeout(r, 2000))
+        }
+        appendLog(`📋 本地全局替换词测试完成：${blockedCount}/${globalRules.length} 个原词被屏蔽`)
       }
-      appendLog(`\n🔵 本地测试完成！共测试 ${rules.length} 个词，其中 ${blocked} 个原词被屏蔽`)
+
+      if (roomRules.length > 0) {
+        appendLog(`\n🏠 测试本地房间替换词 (${roomRules.length} 个)`)
+        let blockedCount = 0
+        for (const rule of roomRules) {
+          tested++
+          appendLog(`[${tested}/${total}] 测试: ${rule.from}`)
+          const result = await testKeywordPair(rule.from ?? '', rule.to ?? '', roomId, csrfToken)
+          const b = logTestResult(result, rule.to ?? '')
+          blockedCount += b
+          totalBlocked += b
+          if (tested < total) await new Promise(r => setTimeout(r, 2000))
+        }
+        appendLog(`🏠 本地房间替换词测试完成：${blockedCount}/${roomRules.length} 个原词被屏蔽`)
+      }
+
+      appendLog(`\n🔵 本地测试完成！共测试 ${total} 个词，其中 ${totalBlocked} 个原词被屏蔽`)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       appendLog(`🔴 测试出错：${msg}`)
@@ -242,21 +276,80 @@ export function SettingsTab() {
     }
   }
 
-  const addRule = () => {
-    if (!replaceFrom.value) {
+  const addGlobalRule = () => {
+    if (!globalReplaceFrom.value) {
       appendLog('⚠️ 替换前的内容不能为空')
       return
     }
-    replacementRules.value = [...replacementRules.value, { from: replaceFrom.value, to: replaceTo.value }]
+    localGlobalRules.value = [...localGlobalRules.value, { from: globalReplaceFrom.value, to: globalReplaceTo.value }]
     buildReplacementMap()
-    replaceFrom.value = ''
-    replaceTo.value = ''
+    globalReplaceFrom.value = ''
+    globalReplaceTo.value = ''
   }
 
-  const removeRule = (index: number) => {
-    const next = [...replacementRules.value]
+  const removeGlobalRule = (index: number) => {
+    const next = [...localGlobalRules.value]
     next.splice(index, 1)
-    replacementRules.value = next
+    localGlobalRules.value = next
+    buildReplacementMap()
+  }
+
+  const addRoomRule = () => {
+    const rid = editingRoomId.value
+    if (!rid) {
+      appendLog('⚠️ 请先选择一个直播间')
+      return
+    }
+    if (!roomReplaceFrom.value) {
+      appendLog('⚠️ 替换前的内容不能为空')
+      return
+    }
+    const all = { ...localRoomRules.value }
+    const existing = all[rid] ?? []
+    all[rid] = [...existing, { from: roomReplaceFrom.value, to: roomReplaceTo.value }]
+    localRoomRules.value = all
+    buildReplacementMap()
+    roomReplaceFrom.value = ''
+    roomReplaceTo.value = ''
+  }
+
+  const removeRoomRule = (index: number) => {
+    const rid = editingRoomId.value
+    if (!rid) return
+    const all = { ...localRoomRules.value }
+    const existing = [...(all[rid] ?? [])]
+    existing.splice(index, 1)
+    if (existing.length === 0) {
+      delete all[rid]
+    } else {
+      all[rid] = existing
+    }
+    localRoomRules.value = all
+    buildReplacementMap()
+  }
+
+  const addRoom = () => {
+    const rid = newRoomId.value.trim()
+    if (!rid) return
+    if (knownRoomIds.includes(rid)) {
+      editingRoomId.value = rid
+      newRoomId.value = ''
+      return
+    }
+    const all = { ...localRoomRules.value }
+    all[rid] = all[rid] ?? []
+    localRoomRules.value = all
+    editingRoomId.value = rid
+    newRoomId.value = ''
+  }
+
+  const deleteRoom = (rid: string) => {
+    const all = { ...localRoomRules.value }
+    delete all[rid]
+    localRoomRules.value = all
+    if (editingRoomId.value === rid) {
+      editingRoomId.value = cachedRoomId.value !== null ? String(cachedRoomId.value) : ''
+    }
     buildReplacementMap()
   }
 
@@ -274,11 +367,17 @@ export function SettingsTab() {
     return () => clearInterval(timer)
   }, [])
 
-  const rules = replacementRules.value
+  const globalRules = localGlobalRules.value
+  const knownRoomIds = Object.keys(localRoomRules.value)
+  const currentRoomStr = cachedRoomId.value !== null ? String(cachedRoomId.value) : null
+  if (currentRoomStr && !knownRoomIds.includes(currentRoomStr)) {
+    knownRoomIds.unshift(currentRoomStr)
+  }
+  const editingRules = editingRoomId.value ? (localRoomRules.value[editingRoomId.value] ?? []) : []
 
   return (
     <>
-      <div style={{ margin: '.5em 0', paddingBottom: '.5em', borderBottom: '1px solid var(--Ga2, #eee)' }}>
+      <div style={{ margin: '.5em 0', paddingBottom: '1em', borderBottom: '1px solid var(--Ga2, #eee)' }}>
         <div style={{ fontWeight: 'bold', marginBottom: '.5em' }}>
           云端规则替换{' '}
           <a
@@ -302,19 +401,19 @@ export function SettingsTab() {
         </div>
       </div>
 
-      <div style={{ margin: '.5em 0', paddingBottom: '.5em', borderBottom: '1px solid var(--Ga2, #eee)' }}>
+      <div style={{ margin: '.5em 0', paddingBottom: '1em', borderBottom: '1px solid var(--Ga2, #eee)' }}>
         <div style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.5em' }}>
-          <div style={{ fontWeight: 'bold' }}>本地规则替换</div>
+          <div style={{ fontWeight: 'bold' }}>本地全局规则</div>
           <button type='button' disabled={testingLocal.value} onClick={() => void testLocal()}>
             {testingLocal.value ? '测试中…' : '测试本地词库'}
           </button>
         </div>
-        <div style={{ marginBlock: '.5em', color: '#666' }}>规则从上至下执行；本地规则总是最后执行</div>
+        <div style={{ marginBlock: '.5em', color: '#666' }}>适用于所有直播间，优先级高于云端规则</div>
         <div style={{ marginBottom: '.5em', maxHeight: '160px', overflowY: 'auto' }}>
-          {rules.length === 0 ? (
-            <div style={{ color: '#999' }}>暂无替换规则，请在下方添加</div>
+          {globalRules.length === 0 ? (
+            <div style={{ color: '#999' }}>暂无全局替换规则，请在下方添加</div>
           ) : (
-            rules.map((rule, i) => (
+            globalRules.map((rule, i) => (
               <div
                 key={i}
                 style={{
@@ -330,7 +429,7 @@ export function SettingsTab() {
                 </span>
                 <button
                   type='button'
-                  onClick={() => removeRule(i)}
+                  onClick={() => removeGlobalRule(i)}
                   style={{
                     cursor: 'pointer',
                     background: 'transparent',
@@ -349,14 +448,14 @@ export function SettingsTab() {
           <input
             placeholder='替换前'
             style={{ flex: 1, minWidth: '80px' }}
-            value={replaceFrom.value}
+            value={globalReplaceFrom.value}
             onInput={e => {
-              replaceFrom.value = e.currentTarget.value
+              globalReplaceFrom.value = e.currentTarget.value
             }}
             onKeyDown={e => {
               if (e.key === 'Enter' && !e.isComposing) {
                 e.preventDefault()
-                addRule()
+                addGlobalRule()
               }
             }}
           />
@@ -364,55 +463,155 @@ export function SettingsTab() {
           <input
             placeholder='替换后'
             style={{ flex: 1, minWidth: '80px' }}
-            value={replaceTo.value}
+            value={globalReplaceTo.value}
             onInput={e => {
-              replaceTo.value = e.currentTarget.value
+              globalReplaceTo.value = e.currentTarget.value
             }}
             onKeyDown={e => {
               if (e.key === 'Enter' && !e.isComposing) {
                 e.preventDefault()
-                addRule()
+                addGlobalRule()
               }
             }}
           />
-          <button type='button' onClick={addRule}>
+          <button type='button' onClick={addGlobalRule}>
             添加
           </button>
         </div>
       </div>
 
-      <div style={{ margin: '.5em 0', paddingBottom: '.5em', borderBottom: '1px solid var(--Ga2, #eee)' }}>
-        <div style={{ fontWeight: 'bold', marginBottom: '.5em' }}>日志设置</div>
-        <div style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap' }}>
-          <label htmlFor='maxLogLines' style={{ color: '#666' }}>
-            最大日志行数:
-          </label>
-          <input
-            id='maxLogLines'
-            type='number'
-            min='1'
-            max='1000'
-            style={{ width: '80px' }}
-            value={maxLogLines.value}
+      <div style={{ margin: '.5em 0', paddingBottom: '1em', borderBottom: '1px solid var(--Ga2, #eee)' }}>
+        <div style={{ fontWeight: 'bold', marginBottom: '.5em' }}>本地直播间规则</div>
+        <div style={{ marginBlock: '.5em', color: '#666' }}>仅在对应直播间生效；优先级高于全局规则</div>
+        <div style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.5em' }}>
+          <select
+            value={editingRoomId.value}
             onChange={e => {
-              let v = parseInt(e.currentTarget.value, 10)
-              if (Number.isNaN(v) || v < 1) v = 1
-              else if (v > 1000) v = 1000
-              maxLogLines.value = v
+              editingRoomId.value = e.currentTarget.value
             }}
-          />
-          <span style={{ color: '#999', fontSize: '0.9em' }}>(1-1000)</span>
+            style={{ minWidth: '120px' }}
+          >
+            <option value='' disabled>
+              选择直播间
+            </option>
+            {knownRoomIds.map(rid => (
+              <option key={rid} value={rid}>
+                {rid}
+                {rid === currentRoomStr ? ' (当前)' : ''}
+              </option>
+            ))}
+          </select>
+          <div style={{ display: 'flex', gap: '.25em', alignItems: 'center' }}>
+            <input
+              placeholder='房间号'
+              style={{ width: '80px' }}
+              value={newRoomId.value}
+              onInput={e => {
+                newRoomId.value = e.currentTarget.value.replace(/\D/g, '')
+              }}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !e.isComposing) {
+                  e.preventDefault()
+                  addRoom()
+                }
+              }}
+            />
+            <button type='button' onClick={addRoom}>
+              添加房间
+            </button>
+          </div>
+          {editingRoomId.value && editingRoomId.value !== currentRoomStr && (
+            <button type='button' onClick={() => deleteRoom(editingRoomId.value)} style={{ color: 'red' }}>
+              删除此房间
+            </button>
+          )}
         </div>
+
+        {editingRoomId.value ? (
+          <>
+            <div style={{ marginBottom: '.5em', maxHeight: '160px', overflowY: 'auto' }}>
+              {editingRules.length === 0 ? (
+                <div style={{ color: '#999' }}>暂无此房间的替换规则，请在下方添加</div>
+              ) : (
+                editingRules.map((rule, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '.5em',
+                      padding: '.2em',
+                      borderBottom: '1px solid var(--Ga2, #eee)',
+                    }}
+                  >
+                    <span style={{ flex: 1, wordBreak: 'break-all', fontFamily: 'monospace' }}>
+                      {rule.from ?? '(空)'} → {rule.to ?? '(空)'}
+                    </span>
+                    <button
+                      type='button'
+                      onClick={() => removeRoomRule(i)}
+                      style={{
+                        cursor: 'pointer',
+                        background: 'transparent',
+                        color: 'red',
+                        border: 'none',
+                        borderRadius: '2px',
+                      }}
+                    >
+                      删除
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: '.25em', alignItems: 'center', flexWrap: 'wrap' }}>
+              <input
+                placeholder='替换前'
+                style={{ flex: 1, minWidth: '80px' }}
+                value={roomReplaceFrom.value}
+                onInput={e => {
+                  roomReplaceFrom.value = e.currentTarget.value
+                }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.isComposing) {
+                    e.preventDefault()
+                    addRoomRule()
+                  }
+                }}
+              />
+              <span>→</span>
+              <input
+                placeholder='替换后'
+                style={{ flex: 1, minWidth: '80px' }}
+                value={roomReplaceTo.value}
+                onInput={e => {
+                  roomReplaceTo.value = e.currentTarget.value
+                }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.isComposing) {
+                    e.preventDefault()
+                    addRoomRule()
+                  }
+                }}
+              />
+              <button type='button' onClick={addRoomRule}>
+                添加
+              </button>
+            </div>
+          </>
+        ) : (
+          <div style={{ color: '#999' }}>请选择或添加一个直播间</div>
+        )}
       </div>
 
-      <div style={{ margin: '.5em 0', paddingBottom: '.5em', borderBottom: '1px solid var(--Ga2, #eee)' }}>
+      <div style={{ margin: '.5em 0', paddingBottom: '1em', borderBottom: '1px solid var(--Ga2, #eee)' }}>
         <div style={{ fontWeight: 'bold', marginBottom: '.5em' }}>表情（复制后可在独轮车或常规发送中直接发送）</div>
         <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
           <EmoteIds />
         </div>
       </div>
 
-      <div style={{ margin: '.5em 0' }}>
+      <div style={{ margin: '.5em 0', paddingBottom: '1em', borderBottom: '1px solid var(--Ga2, #eee)' }}>
         <div style={{ fontWeight: 'bold', marginBottom: '.5em' }}>其他设置</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '.5em' }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
@@ -476,6 +675,30 @@ export function SettingsTab() {
             />
             <label htmlFor='optimizeLayout'>优化布局</label>
           </span>
+        </div>
+      </div>
+
+      <div style={{ margin: '.5em 0', paddingBottom: '1em' }}>
+        <div style={{ fontWeight: 'bold', marginBottom: '.5em' }}>日志设置</div>
+        <div style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap' }}>
+          <label htmlFor='maxLogLines' style={{ color: '#666' }}>
+            最大日志行数:
+          </label>
+          <input
+            id='maxLogLines'
+            type='number'
+            min='1'
+            max='1000'
+            style={{ width: '80px' }}
+            value={maxLogLines.value}
+            onChange={e => {
+              let v = parseInt(e.currentTarget.value, 10)
+              if (Number.isNaN(v) || v < 1) v = 1
+              else if (v > 1000) v = 1000
+              maxLogLines.value = v
+            }}
+          />
+          <span style={{ color: '#999', fontSize: '0.9em' }}>(1-1000)</span>
         </div>
       </div>
     </>

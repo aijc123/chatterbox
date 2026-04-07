@@ -1,8 +1,8 @@
-import { cachedRoomId, remoteKeywords, replacementMap, replacementRules } from './store'
+import { cachedRoomId, localGlobalRules, localRoomRules, remoteKeywords, replacementMap } from './store'
 
 /**
  * Builds the replacement map from remote and local rules.
- * Priority: remote global < remote room-specific < local rules.
+ * Priority: remote global < remote room < local global < local room.
  */
 export function buildReplacementMap(): void {
   const map = new Map<string, string>()
@@ -24,8 +24,16 @@ export function buildReplacementMap(): void {
     }
   }
 
-  for (const rule of replacementRules.value) {
+  for (const rule of localGlobalRules.value) {
     if (rule.from) map.set(rule.from, rule.to ?? '')
+  }
+
+  const rid = cachedRoomId.value
+  if (rid !== null) {
+    const roomRules = localRoomRules.value[String(rid)] ?? []
+    for (const rule of roomRules) {
+      if (rule.from) map.set(rule.from, rule.to ?? '')
+    }
   }
 
   replacementMap.value = map
