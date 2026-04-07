@@ -329,7 +329,7 @@ export function MemesList() {
                 if (isMemeSortBy(v)) sortBy.value = v
               }}
             >
-              <option value='lastCopiedAt'>最近复制</option>
+              <option value='lastCopiedAt'>最近使用</option>
               <option value='copyCount'>最多复制</option>
               <option value='createdAt'>最新添加</option>
             </select>
