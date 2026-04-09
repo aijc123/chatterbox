@@ -3,7 +3,6 @@ import { effect as signalEffect } from '@preact/signals'
 import { ensureRoomId, getCsrfToken, sendDanmaku } from './api'
 import { showConfirm } from './components/ui/alert-dialog'
 import { applyReplacements } from './replacement'
-import { formatDanmakuError } from './utils'
 import {
   activeTab,
   appendLog,
@@ -13,6 +12,7 @@ import {
   dialogOpen,
   fasongText,
 } from './store'
+import { formatDanmakuError } from './utils'
 
 const MARKER = 'lc-dm-direct'
 const STYLE_ID = 'lc-dm-direct-style'
@@ -154,6 +154,75 @@ let styleEl: HTMLStyleElement | null = null
 let delegateTarget: HTMLElement | null = null
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let alwaysShowDispose: (() => void) | null = null
+let contextMenuHandler: (() => void) | null = null
+
+function closeNativeContextMenu(): void {
+  for (const li of document.querySelectorAll('li')) {
+    if (li.textContent?.trim() === '关闭') {
+      li.click()
+      return
+    }
+  }
+}
+
+function createContextMenuItem(source: HTMLLIElement, label: string): HTMLLIElement {
+  const item = document.createElement('li')
+  item.className = source.className
+  item.dataset.lc = ''
+  item.textContent = label
+  return item
+}
+
+function tryInjectContextMenuItems(li: HTMLLIElement): void {
+  if (li.textContent?.trim() !== '复制弹幕') return
+
+  const ul = li.parentElement
+  if (!ul || ul.querySelector('[data-lc]')) return
+
+  const repeatEl = createContextMenuItem(li, '弹幕 +1')
+
+  repeatEl.onclick = (e: MouseEvent) => {
+    const text = ul.parentElement?.querySelector('span')?.textContent?.trim() ?? null
+    if (text) {
+      void handleRepeat(text, { x: e.clientX, y: e.clientY })
+    }
+    closeNativeContextMenu()
+  }
+
+  const stealEl = createContextMenuItem(li, '偷弹幕')
+
+  stealEl.onclick = () => {
+    const text = ul.parentElement?.querySelector('span')?.textContent?.trim() ?? null
+    if (text) {
+      handleSteal(text)
+    }
+    closeNativeContextMenu()
+  }
+
+  ul.insertBefore(stealEl, li.nextSibling)
+  ul.insertBefore(repeatEl, li.nextSibling)
+}
+
+function initContextMenuHijack(): void {
+  if (contextMenuHandler) return
+
+  contextMenuHandler = () => {
+    requestAnimationFrame(() => {
+      for (const li of document.querySelectorAll<HTMLLIElement>('li')) {
+        tryInjectContextMenuItems(li)
+      }
+    })
+  }
+
+  document.addEventListener('contextmenu', contextMenuHandler)
+}
+
+function stopContextMenuHijack(): void {
+  if (contextMenuHandler) {
+    document.removeEventListener('contextmenu', contextMenuHandler)
+    contextMenuHandler = null
+  }
+}
 
 function processExistingNodes(container: HTMLElement): void {
   const nodes = Array.from(container.querySelectorAll<HTMLElement>('.chat-item.danmaku-item'))
@@ -202,6 +271,8 @@ export function startDanmakuDirect(): void {
     document.documentElement.classList.toggle('lc-dm-direct-always', danmakuDirectAlwaysShow.value)
   })
 
+  initContextMenuHijack()
+
   if (tryAttach()) return
 
   // Bilibili's SPA may not have rendered .chat-items yet; poll until it appears
@@ -214,6 +285,7 @@ export function startDanmakuDirect(): void {
 }
 
 export function stopDanmakuDirect(): void {
+  stopContextMenuHijack()
   if (alwaysShowDispose) {
     alwaysShowDispose()
     alwaysShowDispose = null
