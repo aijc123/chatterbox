@@ -1,3 +1,4 @@
+import { cancelLoop } from '../loop'
 import {
   activeTemplateIndex,
   appendLog,
@@ -33,6 +34,7 @@ export function AutoSendControls() {
       }
       sendMsg.value = true
     } else {
+      cancelLoop()
       sendMsg.value = false
     }
   }

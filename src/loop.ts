@@ -16,7 +16,6 @@ import {
   randomChar,
   randomColor,
   randomInterval,
-  restoreSendState,
   sendMsg,
 } from './store'
 import { formatDanmakuError, processMessages } from './utils'
@@ -35,6 +34,31 @@ const DEFAULT_COLORS = [
   '0xffed4f',
   '0xff9800',
 ]
+
+let currentAbort: AbortController | null = null
+
+export function cancelLoop(): void {
+  currentAbort?.abort()
+  currentAbort = null
+}
+
+function abortableSleep(ms: number, signal: AbortSignal): Promise<boolean> {
+  return new Promise(resolve => {
+    if (signal.aborted) {
+      resolve(false)
+      return
+    }
+    const timer = setTimeout(() => resolve(true), ms)
+    signal.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer)
+        resolve(false)
+      },
+      { once: true }
+    )
+  })
+}
 
 /**
  * Main loop: handles auto-send (独轮车), room init, danmaku config, and message sending.
@@ -116,17 +140,20 @@ export async function loop(): Promise<void> {
       return
     }
 
-    restoreSendState()
   }
 
   const csrfToken = getCsrfToken()
 
   while (true) {
     if (sendMsg.value) {
+      currentAbort = new AbortController()
+      const { signal } = currentAbort
+
       const currentTemplate = msgTemplates.value[activeTemplateIndex.value] ?? ''
       if (!currentTemplate.trim()) {
         appendLog('⚠️ 当前模板为空，已自动停止运行')
         sendMsg.value = false
+        currentAbort = null
         continue
       }
 
@@ -145,7 +172,12 @@ export async function loop(): Promise<void> {
       }
 
       const total = Msg.length
+      let completed = true
       for (let i = 0; i < total; i++) {
+        if (signal.aborted) {
+          completed = false
+          break
+        }
         const message = Msg[i]
         if (sendMsg.value) {
           const isEmote = isEmoticonUnique(message)
@@ -183,12 +215,20 @@ export async function loop(): Promise<void> {
           appendLog(logMessage)
 
           const resolvedRandomInterval = enableRandomInterval ? Math.floor(Math.random() * 500) : 0
-          await new Promise(r => setTimeout(r, interval * 1000 - resolvedRandomInterval))
+          const ok = await abortableSleep(interval * 1000 - resolvedRandomInterval, signal)
+          if (!ok) {
+            completed = false
+            break
+          }
         }
       }
 
-      count += 1
-      appendLog(`🔵第 ${count} 轮发送完成`)
+      currentAbort = null
+
+      if (completed) {
+        count += 1
+        appendLog(`🔵第 ${count} 轮发送完成`)
+      }
     } else {
       count = 0
       await new Promise(r => setTimeout(r, 1000))
