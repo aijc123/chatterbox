@@ -25,7 +25,7 @@ export function LogPanel() {
         placeholder={`此处将输出日志（最多保留 ${maxLogLines.value} 条）`}
         style={{
           boxSizing: 'border-box',
-          height: '80px',
+          height: '60px',
           width: '100%',
           resize: 'vertical',
           marginTop: '.5em',
