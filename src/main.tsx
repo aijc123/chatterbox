@@ -1,5 +1,7 @@
 import { render } from 'preact'
 
+import './fetch-hijack'
+
 import { App } from './components/app'
 
 function mount() {

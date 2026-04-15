@@ -17,6 +17,7 @@ import {
   optimizeLayout,
   remoteKeywords,
   remoteKeywordsLastSync,
+  unlockForbidLive,
 } from '../store'
 import { EmoteIds } from './emote-ids'
 
@@ -674,6 +675,17 @@ export function SettingsTab() {
               }}
             />
             <label htmlFor='forceScrollDanmaku'>脚本载入时强制配置弹幕位置为滚动方向</label>
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
+            <input
+              id='unlockForbidLive'
+              type='checkbox'
+              checked={unlockForbidLive.value}
+              onInput={e => {
+                unlockForbidLive.value = e.currentTarget.checked
+              }}
+            />
+            <label htmlFor='unlockForbidLive'>拉黑直播间解锁（刷新生效，仅布局解锁）</label>
           </span>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
             <input
