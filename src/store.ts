@@ -62,7 +62,7 @@ export const remoteKeywordsLastSync = gmSignal<number | null>('remoteKeywordsLas
 export const persistSendState = gmSignal<Record<string, boolean>>('persistSendState', {})
 
 // Runtime state (not GM-persisted)
-export const dialogOpen = signal(false)
+export const dialogOpen = gmSignal('dialogOpen', false)
 export const sendMsg = signal(false)
 export const cachedRoomId = signal<number | null>(null)
 
