@@ -29,6 +29,7 @@ export const msgTemplates = gmSignal<string[]>('MsgTemplates', [])
 export const activeTemplateIndex = gmSignal('activeTemplateIndex', 0)
 export const logPanelOpen = gmSignal('logPanelOpen', false)
 export const memesPanelOpen = gmSignal('memesPanelOpen', true)
+export const dialogOpen = gmSignal('dialogOpen', false)
 
 // Soniox settings
 export const sonioxApiKey = gmSignal('sonioxApiKey', '')
@@ -62,7 +63,6 @@ export const remoteKeywordsLastSync = gmSignal<number | null>('remoteKeywordsLas
 export const persistSendState = gmSignal<Record<string, boolean>>('persistSendState', {})
 
 // Runtime state (not GM-persisted)
-export const dialogOpen = gmSignal('dialogOpen', false)
 export const sendMsg = signal(false)
 export const cachedRoomId = signal<number | null>(null)
 
