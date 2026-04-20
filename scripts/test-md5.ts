@@ -1,4 +1,4 @@
-import { md5 } from './src/md5.ts'
+import { md5 } from '../src/md5.ts'
 
 function bunMd5(str: string): string {
   return new Bun.CryptoHasher('md5').update(str).digest('hex')
