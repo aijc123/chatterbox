@@ -34,13 +34,13 @@ export const dialogOpen = gmSignal('dialogOpen', false)
 // by weighted random choice for sustained multi-topic trends.
 // Optional: require N distinct users for a stricter social-consensus trigger.
 export const autoBlendWindowSec = gmSignal('autoBlendWindowSec', 8) // rolling window W
-export const autoBlendThreshold = gmSignal('autoBlendThreshold', 2) // burst threshold N
+export const autoBlendThreshold = gmSignal('autoBlendThreshold', 3) // burst threshold N
 export const autoBlendCooldownSec = gmSignal('autoBlendCooldownSec', 12) // post-send freeze C
 export const autoBlendRoutineIntervalSec = gmSignal('autoBlendRoutineIntervalSec', 30) // routine timer period
 export const autoBlendIncludeReply = gmSignal('autoBlendIncludeReply', false)
 export const autoBlendUseReplacements = gmSignal('autoBlendUseReplacements', true)
-export const autoBlendRequireDistinctUsers = gmSignal('autoBlendRequireDistinctUsers', false)
-export const autoBlendMinDistinctUsers = gmSignal('autoBlendMinDistinctUsers', 3)
+export const autoBlendRequireDistinctUsers = gmSignal('autoBlendRequireDistinctUsers', true)
+export const autoBlendMinDistinctUsers = gmSignal('autoBlendMinDistinctUsers', 2)
 export const autoBlendSendCount = gmSignal('autoBlendSendCount', 1)
 
 // Meme Contributor (社区烂梗贡献者)

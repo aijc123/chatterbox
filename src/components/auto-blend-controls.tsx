@@ -1,4 +1,3 @@
-import { ignoreMemeCandidate } from '../lib/meme-contributor'
 import {
   autoBlendCooldownSec,
   autoBlendEnabled,
@@ -11,9 +10,6 @@ import {
   autoBlendThreshold,
   autoBlendUseReplacements,
   autoBlendWindowSec,
-  cachedStreamerUid,
-  enableMemeContribution,
-  memeContributorCandidates,
 } from '../lib/store'
 
 function NumberInput({
@@ -50,14 +46,6 @@ function NumberInput({
 export function AutoBlendControls() {
   const toggleEnabled = () => {
     autoBlendEnabled.value = !autoBlendEnabled.value
-  }
-
-  const handleContribute = (text: string) => {
-    void navigator.clipboard.writeText(text)
-    const uid = cachedStreamerUid.value
-    const url = `https://laplace.live/memes${uid ? `?contribute=${uid}` : ''}`
-    window.open(url, '_blank', 'noopener')
-    ignoreMemeCandidate(text)
   }
 
   return (
@@ -131,7 +119,7 @@ export function AutoBlendControls() {
           <span>秒</span>
         </span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
-          <span>例行</span>
+          <span>每隔</span>
           <NumberInput
             value={autoBlendRoutineIntervalSec.value}
             min={10}
@@ -140,7 +128,7 @@ export function AutoBlendControls() {
               autoBlendRoutineIntervalSec.value = v
             }}
           />
-          <span>秒</span>
+          <span>秒轮查</span>
         </span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
           <span>跟车</span>
@@ -227,59 +215,9 @@ export function AutoBlendControls() {
       </div>
 
       <div style={{ color: '#999', fontSize: '12px', lineHeight: 1.5 }}>
-        监测弹幕爆发，在窗口内重复达到阈值时立即跟发（爆发触发），并以加权随机定时检测持续热门（例行触发）。会复用「独轮车」面板里的随机字符
+        监测弹幕爆发，在窗口内重复达到阈值时立即跟发，并每隔一段时间从热门候选中加权随机挑一条跟发。会复用「独轮车」面板里的随机字符
         / 随机颜色 / 最大字数；自己发出的弹幕不会被计入
       </div>
-
-      <div style={{ margin: '.5em 0' }}>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
-          <input
-            id='enableMemeContribution'
-            type='checkbox'
-            checked={enableMemeContribution.value}
-            onInput={e => {
-              enableMemeContribution.value = e.currentTarget.checked
-            }}
-          />
-          <label for='enableMemeContribution'>参与社区梗库建设</label>
-        </span>
-      </div>
-
-      {enableMemeContribution.value && memeContributorCandidates.value.length > 0 && (
-        <div style={{ margin: '.25em 0' }}>
-          <div style={{ fontSize: '12px', color: '#666', marginBottom: '.25em' }}>
-            待贡献梗（{memeContributorCandidates.value.length} 条）：
-          </div>
-          {memeContributorCandidates.value.map(text => (
-            <div
-              key={text}
-              style={{
-                display: 'flex',
-                gap: '.4em',
-                alignItems: 'center',
-                padding: '.2em 0',
-                borderBottom: '1px solid var(--Ga2, #eee)',
-              }}
-            >
-              <span style={{ flex: 1, fontSize: '12px', wordBreak: 'break-all' }}>{text}</span>
-              <button
-                type='button'
-                style={{ fontSize: '11px', cursor: 'pointer', padding: '.1em .4em', flexShrink: 0 }}
-                onClick={() => handleContribute(text)}
-              >
-                复制+贡献
-              </button>
-              <button
-                type='button'
-                style={{ fontSize: '11px', cursor: 'pointer', padding: '.1em .4em', flexShrink: 0 }}
-                onClick={() => ignoreMemeCandidate(text)}
-              >
-                忽略
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
     </details>
   )
 }

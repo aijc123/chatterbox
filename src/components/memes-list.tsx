@@ -5,9 +5,18 @@ import { useEffect, useLayoutEffect, useRef } from 'preact/hooks'
 import { ensureRoomId, getCsrfToken } from '../lib/api'
 import { BASE_URL } from '../lib/const'
 import { appendLog } from '../lib/log'
+import { ignoreMemeCandidate } from '../lib/meme-contributor'
 import { applyReplacements } from '../lib/replacement'
 import { enqueueDanmaku, SendPriority } from '../lib/send-queue'
-import { cachedStreamerUid, maxLength, memesPanelOpen, msgSendInterval, optimizeLayout } from '../lib/store'
+import {
+  cachedStreamerUid,
+  enableMemeContribution,
+  maxLength,
+  memeContributorCandidates,
+  memesPanelOpen,
+  msgSendInterval,
+  optimizeLayout,
+} from '../lib/store'
 import { processMessages } from '../lib/utils'
 
 type MemeSortBy = NonNullable<LaplaceInternal.HTTPS.Workers.MemeListQuery['sortBy']>
@@ -369,6 +378,64 @@ export function MemesList() {
               贡献烂梗
             </a>
           </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.25em', marginBottom: '.5em' }}>
+            <input
+              id='enableMemeContribution'
+              type='checkbox'
+              checked={enableMemeContribution.value}
+              onInput={e => {
+                enableMemeContribution.value = e.currentTarget.checked
+              }}
+            />
+            <label for='enableMemeContribution' style={{ fontSize: '12px' }}>自动挖掘待贡献梗</label>
+          </div>
+
+          {enableMemeContribution.value && memeContributorCandidates.value.length > 0 && (
+            <div style={{ marginBottom: '.5em' }}>
+              <div style={{ fontSize: '12px', color: '#666', marginBottom: '.25em' }}>
+                候选梗（{memeContributorCandidates.value.length} 条）：
+              </div>
+              {memeContributorCandidates.value.map(text => (
+                <div
+                  key={text}
+                  style={{
+                    display: 'flex',
+                    gap: '.4em',
+                    alignItems: 'center',
+                    padding: '.2em 0',
+                    borderBottom: '1px solid var(--Ga2, #eee)',
+                  }}
+                >
+                  <span style={{ flex: 1, fontSize: '12px', wordBreak: 'break-all' }}>{text}</span>
+                  <button
+                    type='button'
+                    style={{ fontSize: '11px', cursor: 'pointer', padding: '.1em .4em', flexShrink: 0 }}
+                    onClick={() => {
+                      void navigator.clipboard.writeText(text)
+                      const uid = cachedStreamerUid.value
+                      window.open(
+                        `https://laplace.live/memes${uid ? `?contribute=${uid}` : ''}`,
+                        '_blank',
+                        'noopener',
+                      )
+                      ignoreMemeCandidate(text)
+                    }}
+                  >
+                    复制+贡献
+                  </button>
+                  <button
+                    type='button'
+                    style={{ fontSize: '11px', cursor: 'pointer', padding: '.1em .4em', flexShrink: 0 }}
+                    onClick={() => ignoreMemeCandidate(text)}
+                  >
+                    忽略
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
           {memes.value.length > 0 && (
             <input
               type='text'
