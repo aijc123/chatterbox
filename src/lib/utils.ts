@@ -75,7 +75,9 @@ export function splitTextSmart(
   if (graphemes.length <= maxLen) return [text]
 
   const lookback = opts.lookback ?? Math.max(4, Math.floor(maxLen / 3))
-  const minTail = opts.minTail ?? Math.max(3, Math.floor(maxLen / 8))
+  // Cap minTail at maxLen so the rebalance below can never grow a chunk past
+  // maxLen — the maxLen contract takes precedence over the no-orphan goal.
+  const minTail = Math.min(maxLen, opts.minTail ?? Math.max(3, Math.floor(maxLen / 8)))
 
   const parts: string[] = []
   let i = 0
