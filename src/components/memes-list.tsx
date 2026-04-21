@@ -334,7 +334,7 @@ export function MemesList() {
           memesPanelOpen.value = e.currentTarget.open
         }}
       >
-        <summary style={{ cursor: 'pointer', userSelect: 'none', fontWeight: 'bold' }}>烂梗</summary>
+        <summary style={{ cursor: 'pointer', userSelect: 'none', fontWeight: 'bold' }}>烂梗库</summary>
       </details>
       {memesPanelOpen.value && (
         <>
