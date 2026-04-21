@@ -57,7 +57,11 @@ const CLAUSE_PUNCT = new Set([',', ';', ':', '、', '，', '；', '：'])
  *  2. Otherwise look for a sentence-ending punct (`。？！…` etc.) within the
  *     last `lookback` graphemes of the maxLen window; cut just after it.
  *  3. If none, fall back to clause punct (`，、；：` etc.) in the same window.
- *  4. If still none, hard-cut at maxLen.
+ *  4. If still none, fall back to whitespace (word boundary) in the same
+ *     window — important for English/translated text. The whitespace
+ *     grapheme itself is dropped so it doesn't appear as trailing space
+ *     inside the chunk or leading space in the next.
+ *  5. If still none, hard-cut at maxLen.
  *
  * Tail rebalance: if the final chunk would be smaller than `minTail`
  * graphemes, transfer just enough graphemes from the end of the previous
@@ -79,9 +83,17 @@ export function splitTextSmart(
   // maxLen — the maxLen contract takes precedence over the no-orphan goal.
   const minTail = Math.min(maxLen, opts.minTail ?? Math.max(3, Math.floor(maxLen / 8)))
 
+  const isWs = (g: string): boolean => g.length === 1 && /\s/.test(g)
+
   const parts: string[] = []
   let i = 0
   while (i < graphemes.length) {
+    // Skip leading whitespace from the start of each chunk so a cut after a
+    // punct that's followed by a space (e.g. "Hello, world") doesn't leave a
+    // stray leading space in the next chunk.
+    while (i < graphemes.length && isWs(graphemes[i])) i++
+    if (i >= graphemes.length) break
+
     const remaining = graphemes.length - i
     if (remaining <= maxLen) {
       parts.push(graphemes.slice(i).join(''))
@@ -90,6 +102,7 @@ export function splitTextSmart(
     const windowEnd = i + maxLen
     const minBreak = Math.max(i + 1, windowEnd - lookback)
     let cut = -1
+    let skipNext = 0
     for (let j = windowEnd - 1; j >= minBreak; j--) {
       if (SENTENCE_PUNCT.has(graphemes[j])) {
         cut = j + 1
@@ -104,9 +117,19 @@ export function splitTextSmart(
         }
       }
     }
+    if (cut === -1) {
+      for (let j = windowEnd - 1; j >= minBreak; j--) {
+        if (isWs(graphemes[j])) {
+          // Cut at the space and consume it so neither chunk includes it.
+          cut = j
+          skipNext = 1
+          break
+        }
+      }
+    }
     if (cut === -1) cut = windowEnd
     parts.push(graphemes.slice(i, cut).join(''))
-    i = cut
+    i = cut + skipNext
   }
 
   if (parts.length >= 2) {
