@@ -29,29 +29,24 @@ export const normalSendPanelOpen = gmSignal('normalSendPanelOpen', true)
 export const memesPanelOpen = gmSignal('memesPanelOpen', true)
 export const dialogOpen = gmSignal('dialogOpen', false)
 
-// Auto-blend (自动融入): when x distinct users send the same danmaku z+ times
-// within y seconds, auto-send it a times, then freeze the entire detector
-// for b seconds (every incoming danmaku is discarded during the freeze).
-export const autoBlendUniqueUsers = gmSignal('autoBlendUniqueUsers', 3) // x
-export const autoBlendWindowSec = gmSignal('autoBlendWindowSec', 15) // y
-export const autoBlendMinOccurrences = gmSignal('autoBlendMinOccurrences', 3) // z
-export const autoBlendSendCount = gmSignal('autoBlendSendCount', 1) // a
-export const autoBlendCooldownSec = gmSignal('autoBlendCooldownSec', 10) // b
+// Auto-blend (自动融入): send when any message hits N repeats within W seconds,
+// then freeze the detector for C seconds. A routine timer picks from active candidates
+// by weighted random choice for sustained multi-topic trends.
+// Optional: require N distinct users for a stricter social-consensus trigger.
+export const autoBlendWindowSec = gmSignal('autoBlendWindowSec', 8) // rolling window W
+export const autoBlendThreshold = gmSignal('autoBlendThreshold', 2) // burst threshold N
+export const autoBlendCooldownSec = gmSignal('autoBlendCooldownSec', 12) // post-send freeze C
+export const autoBlendRoutineIntervalSec = gmSignal('autoBlendRoutineIntervalSec', 30) // routine timer period
 export const autoBlendIncludeReply = gmSignal('autoBlendIncludeReply', false)
 export const autoBlendUseReplacements = gmSignal('autoBlendUseReplacements', true)
-// Per-room opt-in to remember 自动融入 on/off state across reloads.
-export const persistAutoBlendState = gmSignal<Record<string, boolean>>('persistAutoBlendState', {})
+export const autoBlendRequireDistinctUsers = gmSignal('autoBlendRequireDistinctUsers', false)
+export const autoBlendMinDistinctUsers = gmSignal('autoBlendMinDistinctUsers', 3)
+export const autoBlendSendCount = gmSignal('autoBlendSendCount', 1)
 
-// Auto-parrot (自动鹦鹉): immediate send when any message hits N repeats within W seconds,
-// then freeze the detector for C seconds. A routine timer also picks from active candidates
-// by weighted random choice for sustained multi-topic trends.
-export const autoParrotWindowSec = gmSignal('autoParrotWindowSec', 8) // rolling window W
-export const autoParrotThreshold = gmSignal('autoParrotThreshold', 2) // burst threshold N
-export const autoParrotCooldownSec = gmSignal('autoParrotCooldownSec', 12) // post-send freeze C
-export const autoParrotRoutineIntervalSec = gmSignal('autoParrotRoutineIntervalSec', 30) // routine timer period
-export const autoParrotIncludeReply = gmSignal('autoParrotIncludeReply', false)
-export const autoParrotUseReplacements = gmSignal('autoParrotUseReplacements', true)
-export const autoParrotPanelOpen = gmSignal('autoParrotPanelOpen', true)
+// Meme Contributor (社区烂梗贡献者)
+export const enableMemeContribution = gmSignal('enableMemeContribution', false)
+export const memeContributorCandidates = gmSignal<string[]>('memeContributorCandidates', [])
+export const memeContributorSeenTexts = gmSignal<string[]>('memeContributorSeenTexts', [])
 
 // Soniox settings
 export const sonioxApiKey = gmSignal('sonioxApiKey', '')
@@ -90,10 +85,8 @@ export const sendMsg = signal(false)
 export const sttRunning = signal(false)
 export const cachedRoomId = signal<number | null>(null)
 export const autoBlendEnabled = signal(false)
-export const autoParrotEnabled = signal(false)
 
 let sendStateRestored = false
-let autoBlendStateRestored = false
 
 effect(() => {
   const persist = persistSendState.value
@@ -122,32 +115,6 @@ effect(() => {
   }
 })
 
-effect(() => {
-  const persist = persistAutoBlendState.value
-  const roomId = cachedRoomId.value
-  const enabled = autoBlendEnabled.value
-  if (roomId === null) return
-  const key = String(roomId)
-  if (persist[key]) {
-    if (!autoBlendStateRestored) {
-      autoBlendStateRestored = true
-      const stored = GM_getValue<Record<string, boolean>>('persistedAutoBlendEnabled', {})
-      if (stored[key]) {
-        autoBlendEnabled.value = true
-        appendLog('🔄 已恢复自动融入运行状态')
-      }
-      return
-    }
-    const stored = GM_getValue<Record<string, boolean>>('persistedAutoBlendEnabled', {})
-    GM_setValue('persistedAutoBlendEnabled', { ...stored, [key]: enabled })
-  } else {
-    const stored = GM_getValue<Record<string, boolean>>('persistedAutoBlendEnabled', {})
-    if (key in stored) {
-      const { [key]: _, ...rest } = stored
-      GM_setValue('persistedAutoBlendEnabled', rest)
-    }
-  }
-})
 
 export const cachedStreamerUid = signal<number | null>(null)
 export const availableDanmakuColors = signal<string[] | null>(null)

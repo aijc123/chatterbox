@@ -1,15 +1,19 @@
+import { ignoreMemeCandidate } from '../lib/meme-contributor'
 import {
   autoBlendCooldownSec,
   autoBlendEnabled,
   autoBlendIncludeReply,
-  autoBlendMinOccurrences,
+  autoBlendMinDistinctUsers,
   autoBlendPanelOpen,
+  autoBlendRequireDistinctUsers,
+  autoBlendRoutineIntervalSec,
   autoBlendSendCount,
-  autoBlendUniqueUsers,
+  autoBlendThreshold,
   autoBlendUseReplacements,
   autoBlendWindowSec,
-  cachedRoomId,
-  persistAutoBlendState,
+  cachedStreamerUid,
+  enableMemeContribution,
+  memeContributorCandidates,
 } from '../lib/store'
 
 function NumberInput({
@@ -48,6 +52,14 @@ export function AutoBlendControls() {
     autoBlendEnabled.value = !autoBlendEnabled.value
   }
 
+  const handleContribute = (text: string) => {
+    void navigator.clipboard.writeText(text)
+    const uid = cachedStreamerUid.value
+    const url = `https://laplace.live/memes${uid ? `?contribute=${uid}` : ''}`
+    window.open(url, '_blank', 'noopener')
+    ignoreMemeCandidate(text)
+  }
+
   return (
     <details
       open={autoBlendPanelOpen.value}
@@ -78,14 +90,6 @@ export function AutoBlendControls() {
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
           <span>触发：</span>
           <NumberInput
-            value={autoBlendUniqueUsers.value}
-            min={1}
-            onChange={v => {
-              autoBlendUniqueUsers.value = v
-            }}
-          />
-          <span>人在</span>
-          <NumberInput
             value={autoBlendWindowSec.value}
             min={3}
             onChange={v => {
@@ -94,10 +98,10 @@ export function AutoBlendControls() {
           />
           <span>秒内重复</span>
           <NumberInput
-            value={autoBlendMinOccurrences.value}
-            min={autoBlendUniqueUsers.value}
+            value={autoBlendThreshold.value}
+            min={2}
             onChange={v => {
-              autoBlendMinOccurrences.value = v
+              autoBlendThreshold.value = v
             }}
           />
           <span>次</span>
@@ -115,19 +119,7 @@ export function AutoBlendControls() {
         }}
       >
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
-          <span>跟车</span>
-          <NumberInput
-            value={autoBlendSendCount.value}
-            min={1}
-            max={20}
-            onChange={v => {
-              autoBlendSendCount.value = v
-            }}
-          />
-          <span>次</span>
-        </span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
-          <span>自动融入冷却</span>
+          <span>冷却</span>
           <NumberInput
             value={autoBlendCooldownSec.value}
             min={4}
@@ -137,6 +129,31 @@ export function AutoBlendControls() {
             }}
           />
           <span>秒</span>
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
+          <span>例行</span>
+          <NumberInput
+            value={autoBlendRoutineIntervalSec.value}
+            min={10}
+            width='50px'
+            onChange={v => {
+              autoBlendRoutineIntervalSec.value = v
+            }}
+          />
+          <span>秒</span>
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
+          <span>跟车</span>
+          <NumberInput
+            value={autoBlendSendCount.value}
+            min={1}
+            max={20}
+            width='40px'
+            onChange={v => {
+              autoBlendSendCount.value = v
+            }}
+          />
+          <span>次</span>
         </span>
       </div>
 
@@ -170,29 +187,99 @@ export function AutoBlendControls() {
           />
           <label for='autoBlendUseReplacements'>应用替换规则</label>
         </span>
+      </div>
+
+      <div
+        style={{
+          margin: '.5em 0',
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '.5em',
+          alignItems: 'center',
+          color: autoBlendEnabled.value ? undefined : '#999',
+        }}
+      >
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
           <input
-            id='persistAutoBlendState'
+            id='autoBlendRequireDistinctUsers'
             type='checkbox'
-            disabled={cachedRoomId.value === null}
-            checked={cachedRoomId.value !== null && !!persistAutoBlendState.value[String(cachedRoomId.value)]}
+            checked={autoBlendRequireDistinctUsers.value}
             onInput={e => {
-              const roomId = cachedRoomId.value
-              if (roomId === null) return
-              persistAutoBlendState.value = {
-                ...persistAutoBlendState.value,
-                [String(roomId)]: e.currentTarget.checked,
-              }
+              autoBlendRequireDistinctUsers.value = e.currentTarget.checked
             }}
           />
-          <label for='persistAutoBlendState'>保持当前直播间自动融入开关状态</label>
+          <label for='autoBlendRequireDistinctUsers'>要求来自不同用户</label>
         </span>
+        {autoBlendRequireDistinctUsers.value && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
+            <span>至少</span>
+            <NumberInput
+              value={autoBlendMinDistinctUsers.value}
+              min={2}
+              width='40px'
+              onChange={v => {
+                autoBlendMinDistinctUsers.value = v
+              }}
+            />
+            <span>人</span>
+          </span>
+        )}
       </div>
 
       <div style={{ color: '#999', fontSize: '12px', lineHeight: 1.5 }}>
-        监测当前直播间弹幕，自动跟车热门弹幕。会复用「独轮车」面板里的随机字符 / 随机颜色 /
-        间隔随机性以及发送间隔与最大字数；自己发出的弹幕不会被计入
+        监测弹幕爆发，在窗口内重复达到阈值时立即跟发（爆发触发），并以加权随机定时检测持续热门（例行触发）。会复用「独轮车」面板里的随机字符
+        / 随机颜色 / 最大字数；自己发出的弹幕不会被计入
       </div>
+
+      <div style={{ margin: '.5em 0' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
+          <input
+            id='enableMemeContribution'
+            type='checkbox'
+            checked={enableMemeContribution.value}
+            onInput={e => {
+              enableMemeContribution.value = e.currentTarget.checked
+            }}
+          />
+          <label for='enableMemeContribution'>参与社区梗库建设</label>
+        </span>
+      </div>
+
+      {enableMemeContribution.value && memeContributorCandidates.value.length > 0 && (
+        <div style={{ margin: '.25em 0' }}>
+          <div style={{ fontSize: '12px', color: '#666', marginBottom: '.25em' }}>
+            待贡献梗（{memeContributorCandidates.value.length} 条）：
+          </div>
+          {memeContributorCandidates.value.map(text => (
+            <div
+              key={text}
+              style={{
+                display: 'flex',
+                gap: '.4em',
+                alignItems: 'center',
+                padding: '.2em 0',
+                borderBottom: '1px solid var(--Ga2, #eee)',
+              }}
+            >
+              <span style={{ flex: 1, fontSize: '12px', wordBreak: 'break-all' }}>{text}</span>
+              <button
+                type='button'
+                style={{ fontSize: '11px', cursor: 'pointer', padding: '.1em .4em', flexShrink: 0 }}
+                onClick={() => handleContribute(text)}
+              >
+                复制+贡献
+              </button>
+              <button
+                type='button'
+                style={{ fontSize: '11px', cursor: 'pointer', padding: '.1em .4em', flexShrink: 0 }}
+                onClick={() => ignoreMemeCandidate(text)}
+              >
+                忽略
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </details>
   )
 }
