@@ -745,603 +745,607 @@ export function SettingsTab() {
     <>
       <details className='cb-settings-accordion' open>
         <summary>云端规则替换</summary>
-      <div
-        className='cb-section cb-stack'
-        style={{ margin: '.5em 0', paddingBottom: '1em', borderBottom: '1px solid var(--Ga2, #eee)' }}
-      >
-        <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.5em' }}>
-          云端规则替换{' '}
-          <a
-            href='https://github.com/laplace-live/public/blob/master/artifacts/livesrtream-keywords.json'
-            target='_blank'
-            style={{ color: '#288bb8', textDecoration: 'none' }}
-            rel='noopener'
-          >
-            我要贡献规则
-          </a>
-        </div>
-        <div className='cb-note' style={{ marginBlock: '.5em', color: '#666' }}>
-          每10分钟会自动同步云端替换规则
-        </div>
         <div
-          className='cb-row'
-          style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.5em' }}
+          className='cb-section cb-stack'
+          style={{ margin: '.5em 0', paddingBottom: '1em', borderBottom: '1px solid var(--Ga2, #eee)' }}
         >
-          <button type='button' disabled={syncing.value} onClick={() => void syncRemote()}>
-            {syncing.value ? '同步中…' : '同步'}
-          </button>
-          <button type='button' disabled={testingRemote.value} onClick={() => void testRemote()}>
-            {testingRemote.value ? '测试中…' : '测试云端词库'}
-          </button>
-          <span style={{ color: syncStatusColor.value }}>{syncStatus.value}</span>
+          <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.5em' }}>
+            云端规则替换{' '}
+            <a
+              href='https://github.com/laplace-live/public/blob/master/artifacts/livesrtream-keywords.json'
+              target='_blank'
+              style={{ color: '#288bb8', textDecoration: 'none' }}
+              rel='noopener'
+            >
+              我要贡献规则
+            </a>
+          </div>
+          <div className='cb-note' style={{ marginBlock: '.5em', color: '#666' }}>
+            每10分钟会自动同步云端替换规则
+          </div>
+          <div
+            className='cb-row'
+            style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.5em' }}
+          >
+            <button type='button' disabled={syncing.value} onClick={() => void syncRemote()}>
+              {syncing.value ? '同步中…' : '同步'}
+            </button>
+            <button type='button' disabled={testingRemote.value} onClick={() => void testRemote()}>
+              {testingRemote.value ? '测试中…' : '测试云端词库'}
+            </button>
+            <span style={{ color: syncStatusColor.value }}>{syncStatus.value}</span>
+          </div>
         </div>
-      </div>
       </details>
 
       <details className='cb-settings-accordion' open>
         <summary>本地全局规则</summary>
-      <div
-        className='cb-section cb-stack'
-        style={{ margin: '.5em 0', paddingBottom: '1em', borderBottom: '1px solid var(--Ga2, #eee)' }}
-      >
         <div
-          className='cb-row'
-          style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.5em' }}
+          className='cb-section cb-stack'
+          style={{ margin: '.5em 0', paddingBottom: '1em', borderBottom: '1px solid var(--Ga2, #eee)' }}
         >
-          <div className='cb-heading' style={{ fontWeight: 'bold' }}>
-            本地全局规则
+          <div
+            className='cb-row'
+            style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.5em' }}
+          >
+            <div className='cb-heading' style={{ fontWeight: 'bold' }}>
+              本地全局规则
+            </div>
+            <button type='button' disabled={testingLocal.value} onClick={() => void testLocal()}>
+              {testingLocal.value ? '测试中…' : '测试本地词库'}
+            </button>
           </div>
-          <button type='button' disabled={testingLocal.value} onClick={() => void testLocal()}>
-            {testingLocal.value ? '测试中…' : '测试本地词库'}
-          </button>
+          <div className='cb-note' style={{ marginBlock: '.5em', color: '#666' }}>
+            适用于所有直播间，优先级高于云端规则
+          </div>
+          <ReplacementRuleList
+            rules={globalRules}
+            emptyText='暂无全局替换规则，请在下方添加'
+            onRemove={removeGlobalRule}
+          />
+          <ReplacementRuleForm
+            from={globalReplaceFrom.value}
+            to={globalReplaceTo.value}
+            onFromChange={value => {
+              globalReplaceFrom.value = value
+            }}
+            onToChange={value => {
+              globalReplaceTo.value = value
+            }}
+            onAdd={addGlobalRule}
+          />
         </div>
-        <div className='cb-note' style={{ marginBlock: '.5em', color: '#666' }}>
-          适用于所有直播间，优先级高于云端规则
-        </div>
-        <ReplacementRuleList rules={globalRules} emptyText='暂无全局替换规则，请在下方添加' onRemove={removeGlobalRule} />
-        <ReplacementRuleForm
-          from={globalReplaceFrom.value}
-          to={globalReplaceTo.value}
-          onFromChange={value => {
-            globalReplaceFrom.value = value
-          }}
-          onToChange={value => {
-            globalReplaceTo.value = value
-          }}
-          onAdd={addGlobalRule}
-        />
-      </div>
       </details>
 
       <details className='cb-settings-accordion'>
         <summary>本地直播间规则</summary>
-      <div
-        className='cb-section cb-stack'
-        style={{ margin: '.5em 0', paddingBottom: '1em', borderBottom: '1px solid var(--Ga2, #eee)' }}
-      >
-        <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.5em' }}>
-          本地直播间规则
-        </div>
-        <div className='cb-note' style={{ marginBlock: '.5em', color: '#666' }}>
-          仅在对应直播间生效；优先级高于全局规则
-        </div>
-        <div className='cb-rule-room-form'>
-          <label>
-            <span className='cb-label'>正在编辑</span>
-            <select
-              value={editingRoomId.value}
-              onChange={e => {
-                editingRoomId.value = e.currentTarget.value
-              }}
-            >
-              <option value='' disabled>
-                选择直播间
-              </option>
-              {knownRoomIds.map(rid => (
-                <option key={rid} value={rid}>
-                  {rid}
-                  {rid === currentRoomStr ? ' (当前)' : ''}
+        <div
+          className='cb-section cb-stack'
+          style={{ margin: '.5em 0', paddingBottom: '1em', borderBottom: '1px solid var(--Ga2, #eee)' }}
+        >
+          <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.5em' }}>
+            本地直播间规则
+          </div>
+          <div className='cb-note' style={{ marginBlock: '.5em', color: '#666' }}>
+            仅在对应直播间生效；优先级高于全局规则
+          </div>
+          <div className='cb-rule-room-form'>
+            <label>
+              <span className='cb-label'>正在编辑</span>
+              <select
+                value={editingRoomId.value}
+                onChange={e => {
+                  editingRoomId.value = e.currentTarget.value
+                }}
+              >
+                <option value='' disabled>
+                  选择直播间
                 </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span className='cb-label'>添加房间号</span>
-            <input
-              placeholder='输入房间号'
-              value={newRoomId.value}
-              onInput={e => {
-                newRoomId.value = e.currentTarget.value.replace(/\D/g, '')
-              }}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && !e.isComposing) {
-                  e.preventDefault()
-                  addRoom()
-                }
-              }}
-            />
-          </label>
-          <div className='cb-rule-room-actions'>
-            <button type='button' onClick={addRoom}>
-              添加房间
-            </button>
-            {editingRoomId.value && editingRoomId.value !== currentRoomStr && (
-              <button type='button' className='cb-rule-remove' onClick={() => deleteRoom(editingRoomId.value)}>
-                删除此房间
+                {knownRoomIds.map(rid => (
+                  <option key={rid} value={rid}>
+                    {rid}
+                    {rid === currentRoomStr ? ' (当前)' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span className='cb-label'>添加房间号</span>
+              <input
+                placeholder='输入房间号'
+                value={newRoomId.value}
+                onInput={e => {
+                  newRoomId.value = e.currentTarget.value.replace(/\D/g, '')
+                }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.isComposing) {
+                    e.preventDefault()
+                    addRoom()
+                  }
+                }}
+              />
+            </label>
+            <div className='cb-rule-room-actions'>
+              <button type='button' onClick={addRoom}>
+                添加房间
               </button>
-            )}
+              {editingRoomId.value && editingRoomId.value !== currentRoomStr && (
+                <button type='button' className='cb-rule-remove' onClick={() => deleteRoom(editingRoomId.value)}>
+                  删除此房间
+                </button>
+              )}
+            </div>
           </div>
-        </div>
 
-        {editingRoomId.value ? (
-          <>
-            <ReplacementRuleList
-              rules={editingRules}
-              emptyText='暂无此房间的替换规则，请在下方添加'
-              onRemove={removeRoomRule}
-            />
-            <ReplacementRuleForm
-              from={roomReplaceFrom.value}
-              to={roomReplaceTo.value}
-              onFromChange={value => {
-                roomReplaceFrom.value = value
-              }}
-              onToChange={value => {
-                roomReplaceTo.value = value
-              }}
-              onAdd={addRoomRule}
-            />
-          </>
-        ) : (
-          <div className='cb-empty' style={{ color: '#999' }}>
-            请选择或添加一个直播间
-          </div>
-        )}
-      </div>
+          {editingRoomId.value ? (
+            <>
+              <ReplacementRuleList
+                rules={editingRules}
+                emptyText='暂无此房间的替换规则，请在下方添加'
+                onRemove={removeRoomRule}
+              />
+              <ReplacementRuleForm
+                from={roomReplaceFrom.value}
+                to={roomReplaceTo.value}
+                onFromChange={value => {
+                  roomReplaceFrom.value = value
+                }}
+                onToChange={value => {
+                  roomReplaceTo.value = value
+                }}
+                onAdd={addRoomRule}
+              />
+            </>
+          ) : (
+            <div className='cb-empty' style={{ color: '#999' }}>
+              请选择或添加一个直播间
+            </div>
+          )}
+        </div>
       </details>
 
       <details className='cb-settings-accordion'>
         <summary>表情</summary>
-      <div
-        className='cb-section cb-stack'
-        style={{ margin: '.5em 0', paddingBottom: '1em', borderBottom: '1px solid var(--Ga2, #eee)' }}
-      >
-        <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.5em' }}>
-          表情（复制后可在独轮车或常规发送中直接发送）
+        <div
+          className='cb-section cb-stack'
+          style={{ margin: '.5em 0', paddingBottom: '1em', borderBottom: '1px solid var(--Ga2, #eee)' }}
+        >
+          <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.5em' }}>
+            表情（复制后可在独轮车或常规发送中直接发送）
+          </div>
+          <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+            <EmoteIds />
+          </div>
         </div>
-        <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
-          <EmoteIds />
-        </div>
-      </div>
       </details>
 
       <details className='cb-settings-accordion'>
         <summary>粉丝牌禁言巡检</summary>
-      <div
-        className='cb-section cb-stack'
-        style={{ margin: '.5em 0', paddingBottom: '1em', borderBottom: '1px solid var(--Ga2, #eee)' }}
-      >
-        <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.5em' }}>
-          粉丝牌禁言巡检
-        </div>
-        <div className='cb-note' style={{ marginBlock: '.5em', color: '#666' }}>
-          只读取 B 站接口，不发送弹幕。结果会按限制、无法确认、主播注销、正常排序；上次巡检会自动保留。
-        </div>
-        <div className='cb-panel cb-stack' style={{ marginBottom: '.5em' }}>
-          <div className='cb-heading' style={{ marginBottom: 0 }}>
-            直播间保安室同步
-          </div>
-          <input
-            type='text'
-            placeholder='https://bilibili-guard-room.vercel.app'
-            value={guardRoomEndpoint.value}
-            onInput={e => {
-              guardRoomEndpoint.value = e.currentTarget.value
-            }}
-          />
-          <input
-            type='text'
-            placeholder='spaceId@syncSecret'
-            value={guardRoomSyncKey.value}
-            onInput={e => {
-              guardRoomSyncKey.value = e.currentTarget.value
-            }}
-          />
-          <div className='cb-row'>
-            <button
-              type='button'
-              disabled={guardRoomSyncing.value || medalCheckResults.value.length === 0}
-              onClick={() => void syncGuardRoomInspection()}
-            >
-              {guardRoomSyncing.value ? '同步中…' : '保存并同步'}
-            </button>
-            {guardRoomSyncStatus.value && <span className='cb-note'>{guardRoomSyncStatus.value}</span>}
-          </div>
-        </div>
         <div
-          className='cb-row'
-          style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.5em' }}
+          className='cb-section cb-stack'
+          style={{ margin: '.5em 0', paddingBottom: '1em', borderBottom: '1px solid var(--Ga2, #eee)' }}
         >
-          <button type='button' disabled={checkingMedalRooms.value} onClick={() => void checkMedalRooms()}>
-            {checkingMedalRooms.value ? '检查中…' : '检查粉丝牌禁言'}
-          </button>
-          <button
-            type='button'
-            disabled={medalCheckResults.value.length === 0}
-            onClick={() => void copyMedalCheckResults()}
-          >
-            复制巡检结果
-          </button>
-          <span style={{ color: medalCheckStatus.value.includes('发现限制') ? '#a15c00' : '#666' }}>
-            {medalCheckStatus.value}
-          </span>
-          {medalCheckCopyStatus.value && <span className='cb-note'>{medalCheckCopyStatus.value}</span>}
-        </div>
-        {medalCheckResults.value.length > 0 && (
-          <div className='cb-stack'>
-            {(() => {
-              const counts = getMedalCheckCounts(medalCheckResults.value)
-              const filter = medalCheckFilter.value
-              const shownCount = getFilteredMedalResults(medalCheckResults.value, filter).length
-              const filterButtonStyle = (
-                active: boolean,
-                color?: string
-              ): Record<string, string | number | undefined> => ({
-                minHeight: '24px',
-                padding: '2px 6px',
-                borderColor: active ? color : undefined,
-                background: active ? 'rgba(0, 122, 255, .08)' : undefined,
-                color,
-                boxShadow: active ? 'inset 0 0 0 1px currentColor' : undefined,
-              })
-              return (
-                <div className='cb-panel' style={{ display: 'grid', gap: '6px' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
-                    <button
-                      type='button'
-                      aria-pressed={filter === 'issues'}
-                      onClick={() => {
-                        medalCheckFilter.value = 'issues'
-                      }}
-                      style={filterButtonStyle(filter === 'issues', '#a15c00')}
-                    >
-                      异常 {counts.restricted + counts.unknown + counts.deactivated}
-                    </button>
-                    <button
-                      type='button'
-                      aria-pressed={filter === 'all'}
-                      onClick={() => {
-                        medalCheckFilter.value = 'all'
-                      }}
-                      style={filterButtonStyle(filter === 'all')}
-                    >
-                      全部 {medalCheckResults.value.length}
-                    </button>
-                    <button
-                      type='button'
-                      aria-pressed={filter === 'restricted'}
-                      onClick={() => {
-                        medalCheckFilter.value = 'restricted'
-                      }}
-                      style={filterButtonStyle(filter === 'restricted', '#a15c00')}
-                    >
-                      限制 {counts.restricted}
-                    </button>
-                    <button
-                      type='button'
-                      aria-pressed={filter === 'unknown'}
-                      onClick={() => {
-                        medalCheckFilter.value = 'unknown'
-                      }}
-                      style={filterButtonStyle(filter === 'unknown', '#666')}
-                    >
-                      未知 {counts.unknown}
-                    </button>
-                    <button
-                      type='button'
-                      aria-pressed={filter === 'deactivated'}
-                      onClick={() => {
-                        medalCheckFilter.value = 'deactivated'
-                      }}
-                      style={filterButtonStyle(filter === 'deactivated', '#8e8e93')}
-                    >
-                      注销 {counts.deactivated}
-                    </button>
-                    <button
-                      type='button'
-                      aria-pressed={filter === 'ok'}
-                      onClick={() => {
-                        medalCheckFilter.value = 'ok'
-                      }}
-                      style={filterButtonStyle(filter === 'ok', '#0a7f55')}
-                    >
-                      正常 {counts.ok}
-                    </button>
-                  </div>
-                  <div className='cb-note'>
-                    当前显示：{medalFilterLabel(filter)} {shownCount} / {medalCheckResults.value.length} 条
-                  </div>
-                </div>
-              )
-            })()}
-            <div style={{ maxHeight: '220px', overflowY: 'auto', display: 'grid', gap: '.35em' }}>
-              {getFilteredMedalResults(medalCheckResults.value, medalCheckFilter.value).map(result => {
-                const color = medalStatusColor(result.status)
-                const title = medalStatusTitle(result.status)
-                return (
-                  <div
-                    key={result.room.roomId}
-                    className='cb-panel'
-                    style={{
-                      display: 'grid',
-                      gap: '.25em',
-                      borderColor: result.status === 'restricted' ? '#f0b35a' : undefined,
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '.5em' }}>
-                      <strong style={{ wordBreak: 'break-all' }}>
-                        {result.room.anchorName} / {result.room.medalName}
-                      </strong>
-                      <span style={{ color, whiteSpace: 'nowrap' }}>{title}</span>
-                    </div>
-                    <div className='cb-note'>
-                      房间号：{result.room.roomId} · 检查时间：{formatCheckTime(result.checkedAt)}
-                    </div>
-                    {result.signals.length > 0 ? (
-                      result.signals.map((signal, index) => (
-                        <div key={index} style={{ color, wordBreak: 'break-all', lineHeight: 1.5 }}>
-                          {signalKindLabel(signal.kind)}：{signal.message}
-                          <br />
-                          时长：{signal.duration} · 来源：{signal.source}
-                        </div>
-                      ))
-                    ) : (
-                      <div className='cb-note'>{result.note ?? '接口未发现禁言/封禁信号'}</div>
-                    )}
-                  </div>
-                )
-              })}
+          <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.5em' }}>
+            粉丝牌禁言巡检
+          </div>
+          <div className='cb-note' style={{ marginBlock: '.5em', color: '#666' }}>
+            只读取 B 站接口，不发送弹幕。结果会按限制、无法确认、主播注销、正常排序；上次巡检会自动保留。
+          </div>
+          <div className='cb-panel cb-stack' style={{ marginBottom: '.5em' }}>
+            <div className='cb-heading' style={{ marginBottom: 0 }}>
+              直播间保安室同步
+            </div>
+            <input
+              type='text'
+              placeholder='https://bilibili-guard-room.vercel.app'
+              value={guardRoomEndpoint.value}
+              onInput={e => {
+                guardRoomEndpoint.value = e.currentTarget.value
+              }}
+            />
+            <input
+              type='text'
+              placeholder='spaceId@syncSecret'
+              value={guardRoomSyncKey.value}
+              onInput={e => {
+                guardRoomSyncKey.value = e.currentTarget.value
+              }}
+            />
+            <div className='cb-row'>
+              <button
+                type='button'
+                disabled={guardRoomSyncing.value || medalCheckResults.value.length === 0}
+                onClick={() => void syncGuardRoomInspection()}
+              >
+                {guardRoomSyncing.value ? '同步中…' : '保存并同步'}
+              </button>
+              {guardRoomSyncStatus.value && <span className='cb-note'>{guardRoomSyncStatus.value}</span>}
             </div>
           </div>
-        )}
-      </div>
+          <div
+            className='cb-row'
+            style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.5em' }}
+          >
+            <button type='button' disabled={checkingMedalRooms.value} onClick={() => void checkMedalRooms()}>
+              {checkingMedalRooms.value ? '检查中…' : '检查粉丝牌禁言'}
+            </button>
+            <button
+              type='button'
+              disabled={medalCheckResults.value.length === 0}
+              onClick={() => void copyMedalCheckResults()}
+            >
+              复制巡检结果
+            </button>
+            <span style={{ color: medalCheckStatus.value.includes('发现限制') ? '#a15c00' : '#666' }}>
+              {medalCheckStatus.value}
+            </span>
+            {medalCheckCopyStatus.value && <span className='cb-note'>{medalCheckCopyStatus.value}</span>}
+          </div>
+          {medalCheckResults.value.length > 0 && (
+            <div className='cb-stack'>
+              {(() => {
+                const counts = getMedalCheckCounts(medalCheckResults.value)
+                const filter = medalCheckFilter.value
+                const shownCount = getFilteredMedalResults(medalCheckResults.value, filter).length
+                const filterButtonStyle = (
+                  active: boolean,
+                  color?: string
+                ): Record<string, string | number | undefined> => ({
+                  minHeight: '24px',
+                  padding: '2px 6px',
+                  borderColor: active ? color : undefined,
+                  background: active ? 'rgba(0, 122, 255, .08)' : undefined,
+                  color,
+                  boxShadow: active ? 'inset 0 0 0 1px currentColor' : undefined,
+                })
+                return (
+                  <div className='cb-panel' style={{ display: 'grid', gap: '6px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
+                      <button
+                        type='button'
+                        aria-pressed={filter === 'issues'}
+                        onClick={() => {
+                          medalCheckFilter.value = 'issues'
+                        }}
+                        style={filterButtonStyle(filter === 'issues', '#a15c00')}
+                      >
+                        异常 {counts.restricted + counts.unknown + counts.deactivated}
+                      </button>
+                      <button
+                        type='button'
+                        aria-pressed={filter === 'all'}
+                        onClick={() => {
+                          medalCheckFilter.value = 'all'
+                        }}
+                        style={filterButtonStyle(filter === 'all')}
+                      >
+                        全部 {medalCheckResults.value.length}
+                      </button>
+                      <button
+                        type='button'
+                        aria-pressed={filter === 'restricted'}
+                        onClick={() => {
+                          medalCheckFilter.value = 'restricted'
+                        }}
+                        style={filterButtonStyle(filter === 'restricted', '#a15c00')}
+                      >
+                        限制 {counts.restricted}
+                      </button>
+                      <button
+                        type='button'
+                        aria-pressed={filter === 'unknown'}
+                        onClick={() => {
+                          medalCheckFilter.value = 'unknown'
+                        }}
+                        style={filterButtonStyle(filter === 'unknown', '#666')}
+                      >
+                        未知 {counts.unknown}
+                      </button>
+                      <button
+                        type='button'
+                        aria-pressed={filter === 'deactivated'}
+                        onClick={() => {
+                          medalCheckFilter.value = 'deactivated'
+                        }}
+                        style={filterButtonStyle(filter === 'deactivated', '#8e8e93')}
+                      >
+                        注销 {counts.deactivated}
+                      </button>
+                      <button
+                        type='button'
+                        aria-pressed={filter === 'ok'}
+                        onClick={() => {
+                          medalCheckFilter.value = 'ok'
+                        }}
+                        style={filterButtonStyle(filter === 'ok', '#0a7f55')}
+                      >
+                        正常 {counts.ok}
+                      </button>
+                    </div>
+                    <div className='cb-note'>
+                      当前显示：{medalFilterLabel(filter)} {shownCount} / {medalCheckResults.value.length} 条
+                    </div>
+                  </div>
+                )
+              })()}
+              <div style={{ maxHeight: '220px', overflowY: 'auto', display: 'grid', gap: '.35em' }}>
+                {getFilteredMedalResults(medalCheckResults.value, medalCheckFilter.value).map(result => {
+                  const color = medalStatusColor(result.status)
+                  const title = medalStatusTitle(result.status)
+                  return (
+                    <div
+                      key={result.room.roomId}
+                      className='cb-panel'
+                      style={{
+                        display: 'grid',
+                        gap: '.25em',
+                        borderColor: result.status === 'restricted' ? '#f0b35a' : undefined,
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '.5em' }}>
+                        <strong style={{ wordBreak: 'break-all' }}>
+                          {result.room.anchorName} / {result.room.medalName}
+                        </strong>
+                        <span style={{ color, whiteSpace: 'nowrap' }}>{title}</span>
+                      </div>
+                      <div className='cb-note'>
+                        房间号：{result.room.roomId} · 检查时间：{formatCheckTime(result.checkedAt)}
+                      </div>
+                      {result.signals.length > 0 ? (
+                        result.signals.map((signal, index) => (
+                          <div key={index} style={{ color, wordBreak: 'break-all', lineHeight: 1.5 }}>
+                            {signalKindLabel(signal.kind)}：{signal.message}
+                            <br />
+                            时长：{signal.duration} · 来源：{signal.source}
+                          </div>
+                        ))
+                      ) : (
+                        <div className='cb-note'>{result.note ?? '接口未发现禁言/封禁信号'}</div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
       </details>
 
       <details className='cb-settings-accordion'>
         <summary>其他设置</summary>
-      <div
-        className='cb-section cb-stack'
-        style={{ margin: '.5em 0', paddingBottom: '1em', borderBottom: '1px solid var(--Ga2, #eee)' }}
-      >
-        <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.5em' }}>
-          其他设置
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '.5em' }}>
-          <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
-            <input
-              id='customChatEnabled'
-              type='checkbox'
-              checked={customChatEnabled.value}
-              onInput={e => {
-                customChatEnabled.value = e.currentTarget.checked
-              }}
-            />
-            <label htmlFor='customChatEnabled'>接管 B 站评论区（Chatterbox Chat）</label>
-          </span>
-          <span
-            className='cb-switch-row'
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em', paddingLeft: '1.5em' }}
-          >
-            <input
-              id='customChatHideNative'
-              type='checkbox'
-              checked={customChatHideNative.value}
-              disabled={!customChatEnabled.value}
-              onInput={e => {
-                customChatHideNative.value = e.currentTarget.checked
-              }}
-            />
-            <label htmlFor='customChatHideNative' style={{ color: customChatEnabled.value ? undefined : '#999' }}>
-              隐藏 B 站原评论列表和原发送框
-            </label>
-          </span>
-          <span
-            className='cb-switch-row'
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em', paddingLeft: '1.5em' }}
-          >
-            <input
-              id='customChatUseWs'
-              type='checkbox'
-              checked={customChatUseWs.value}
-              disabled={!customChatEnabled.value}
-              onInput={e => {
-                customChatUseWs.value = e.currentTarget.checked
-              }}
-            />
-            <label htmlFor='customChatUseWs' style={{ color: customChatEnabled.value ? undefined : '#999' }}>
-              直连 WebSocket 获取礼物、醒目留言、进场等事件（DOM 兜底）
-            </label>
-          </span>
-          <div className='cb-row' style={{ paddingLeft: '1.5em' }}>
-            <label htmlFor='customChatTheme'>评论区主题</label>
-            <select
-              id='customChatTheme'
-              value={customChatTheme.value}
-              disabled={!customChatEnabled.value}
-              onChange={e => {
-                customChatTheme.value = e.currentTarget.value as typeof customChatTheme.value
-              }}
-            >
-              <option value='laplace'>iMessage Dark</option>
-              <option value='light'>iMessage Light</option>
-              <option value='compact'>Compact Bubble</option>
-            </select>
+        <div
+          className='cb-section cb-stack'
+          style={{ margin: '.5em 0', paddingBottom: '1em', borderBottom: '1px solid var(--Ga2, #eee)' }}
+        >
+          <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.5em' }}>
+            其他设置
           </div>
-          <details style={{ marginLeft: '1.5em' }}>
-            <summary>自定义评论区 CSS</summary>
-            <div className='cb-body cb-stack'>
-              <div className='cb-row'>
-                <button
-                  type='button'
-                  disabled={!customChatEnabled.value}
-                  onClick={() => {
-                    customChatCss.value = MILK_GREEN_IMESSAGE_CSS
-                  }}
-                >
-                  奶绿 iMessage
-                </button>
-                <button
-                  type='button'
-                  disabled={!customChatEnabled.value || !customChatCss.value.trim()}
-                  onClick={() => {
-                    customChatCss.value = ''
-                  }}
-                >
-                  清空 CSS
-                </button>
-              </div>
-              <textarea
-                value={customChatCss.value}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '.5em' }}>
+            <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
+              <input
+                id='customChatEnabled'
+                type='checkbox'
+                checked={customChatEnabled.value}
+                onInput={e => {
+                  customChatEnabled.value = e.currentTarget.checked
+                }}
+              />
+              <label htmlFor='customChatEnabled'>接管 B 站评论区（Chatterbox Chat）</label>
+            </span>
+            <span
+              className='cb-switch-row'
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em', paddingLeft: '1.5em' }}
+            >
+              <input
+                id='customChatHideNative'
+                type='checkbox'
+                checked={customChatHideNative.value}
                 disabled={!customChatEnabled.value}
                 onInput={e => {
-                  customChatCss.value = e.currentTarget.value
+                  customChatHideNative.value = e.currentTarget.checked
                 }}
-                placeholder={'#laplace-custom-chat .lc-chat-message { ... }'}
-                style={{ minHeight: '90px', resize: 'vertical', width: '100%' }}
               />
-              <div className='cb-note'>
-                可覆盖 #laplace-custom-chat 的 --lc-chat-* 变量，以及
-                .lc-chat-bubble、.lc-chat-medal、.lc-chat-name、.lc-chat-action、.lc-chat-card-event、[data-kind]、[data-card]、[data-guard]
-                等选择器。
-              </div>
+              <label htmlFor='customChatHideNative' style={{ color: customChatEnabled.value ? undefined : '#999' }}>
+                隐藏 B 站原评论列表和原发送框
+              </label>
+            </span>
+            <span
+              className='cb-switch-row'
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em', paddingLeft: '1.5em' }}
+            >
+              <input
+                id='customChatUseWs'
+                type='checkbox'
+                checked={customChatUseWs.value}
+                disabled={!customChatEnabled.value}
+                onInput={e => {
+                  customChatUseWs.value = e.currentTarget.checked
+                }}
+              />
+              <label htmlFor='customChatUseWs' style={{ color: customChatEnabled.value ? undefined : '#999' }}>
+                直连 WebSocket 获取礼物、醒目留言、进场等事件（DOM 兜底）
+              </label>
+            </span>
+            <div className='cb-row' style={{ paddingLeft: '1.5em' }}>
+              <label htmlFor='customChatTheme'>评论区主题</label>
+              <select
+                id='customChatTheme'
+                value={customChatTheme.value}
+                disabled={!customChatEnabled.value}
+                onChange={e => {
+                  customChatTheme.value = e.currentTarget.value as typeof customChatTheme.value
+                }}
+              >
+                <option value='laplace'>iMessage Dark</option>
+                <option value='light'>iMessage Light</option>
+                <option value='compact'>Compact Bubble</option>
+              </select>
             </div>
-          </details>
-          <span
-            className='cb-switch-row'
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em', paddingLeft: '1.5em' }}
-          >
-            <input
-              id='customChatPerfDebug'
-              type='checkbox'
-              checked={customChatPerfDebug.value}
-              disabled={!customChatEnabled.value}
-              onInput={e => {
-                customChatPerfDebug.value = e.currentTarget.checked
-              }}
-            />
-            <label htmlFor='customChatPerfDebug' style={{ color: customChatEnabled.value ? undefined : '#999' }}>
-              显示 Chatterbox 性能调试信息
-            </label>
-          </span>
-          <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
-            <input
-              id='danmakuDirectMode'
-              type='checkbox'
-              checked={danmakuDirectMode.value}
-              onInput={e => {
-                danmakuDirectMode.value = e.currentTarget.checked
-              }}
-            />
-            <label htmlFor='danmakuDirectMode'>+1模式（在聊天消息旁显示偷弹幕和+1按钮）</label>
-          </span>
-          <span
-            className='cb-switch-row'
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em', paddingLeft: '1.5em' }}
-          >
-            <input
-              id='danmakuDirectConfirm'
-              type='checkbox'
-              checked={danmakuDirectConfirm.value}
-              disabled={!danmakuDirectMode.value}
-              onInput={e => {
-                danmakuDirectConfirm.value = e.currentTarget.checked
-              }}
-            />
-            <label htmlFor='danmakuDirectConfirm' style={{ color: danmakuDirectMode.value ? undefined : '#999' }}>
-              +1弹幕发送前需确认（防误触）
-            </label>
-          </span>
-          <span
-            className='cb-switch-row'
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em', paddingLeft: '1.5em' }}
-          >
-            <input
-              id='danmakuDirectAlwaysShow'
-              type='checkbox'
-              checked={danmakuDirectAlwaysShow.value}
-              disabled={!danmakuDirectMode.value}
-              onInput={e => {
-                danmakuDirectAlwaysShow.value = e.currentTarget.checked
-              }}
-            />
-            <label htmlFor='danmakuDirectAlwaysShow' style={{ color: danmakuDirectMode.value ? undefined : '#999' }}>
-              总是显示偷/+1按钮
-            </label>
-          </span>
-          <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
-            <input
-              id='forceScrollDanmaku'
-              type='checkbox'
-              checked={forceScrollDanmaku.value}
-              onInput={e => {
-                forceScrollDanmaku.value = e.currentTarget.checked
-              }}
-            />
-            <label htmlFor='forceScrollDanmaku'>脚本载入时强制配置弹幕位置为滚动方向</label>
-          </span>
-          <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
-            <input
-              id='unlockForbidLive'
-              type='checkbox'
-              checked={unlockForbidLive.value}
-              onInput={e => {
-                unlockForbidLive.value = e.currentTarget.checked
-              }}
-            />
-            <label htmlFor='unlockForbidLive'>拉黑直播间解锁（刷新生效，仅布局解锁）</label>
-          </span>
-          <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
-            <input
-              id='optimizeLayout'
-              type='checkbox'
-              checked={optimizeLayout.value}
-              onInput={e => {
-                optimizeLayout.value = e.currentTarget.checked
-              }}
-            />
-            <label htmlFor='optimizeLayout'>优化布局</label>
-          </span>
+            <details style={{ marginLeft: '1.5em' }}>
+              <summary>自定义评论区 CSS</summary>
+              <div className='cb-body cb-stack'>
+                <div className='cb-row'>
+                  <button
+                    type='button'
+                    disabled={!customChatEnabled.value}
+                    onClick={() => {
+                      customChatCss.value = MILK_GREEN_IMESSAGE_CSS
+                    }}
+                  >
+                    奶绿 iMessage
+                  </button>
+                  <button
+                    type='button'
+                    disabled={!customChatEnabled.value || !customChatCss.value.trim()}
+                    onClick={() => {
+                      customChatCss.value = ''
+                    }}
+                  >
+                    清空 CSS
+                  </button>
+                </div>
+                <textarea
+                  value={customChatCss.value}
+                  disabled={!customChatEnabled.value}
+                  onInput={e => {
+                    customChatCss.value = e.currentTarget.value
+                  }}
+                  placeholder={'#laplace-custom-chat .lc-chat-message { ... }'}
+                  style={{ minHeight: '90px', resize: 'vertical', width: '100%' }}
+                />
+                <div className='cb-note'>
+                  可覆盖 #laplace-custom-chat 的 --lc-chat-* 变量，以及
+                  .lc-chat-bubble、.lc-chat-medal、.lc-chat-name、.lc-chat-action、.lc-chat-card-event、[data-kind]、[data-card]、[data-guard]
+                  等选择器。
+                </div>
+              </div>
+            </details>
+            <span
+              className='cb-switch-row'
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em', paddingLeft: '1.5em' }}
+            >
+              <input
+                id='customChatPerfDebug'
+                type='checkbox'
+                checked={customChatPerfDebug.value}
+                disabled={!customChatEnabled.value}
+                onInput={e => {
+                  customChatPerfDebug.value = e.currentTarget.checked
+                }}
+              />
+              <label htmlFor='customChatPerfDebug' style={{ color: customChatEnabled.value ? undefined : '#999' }}>
+                显示 Chatterbox 性能调试信息
+              </label>
+            </span>
+            <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
+              <input
+                id='danmakuDirectMode'
+                type='checkbox'
+                checked={danmakuDirectMode.value}
+                onInput={e => {
+                  danmakuDirectMode.value = e.currentTarget.checked
+                }}
+              />
+              <label htmlFor='danmakuDirectMode'>+1模式（在聊天消息旁显示偷弹幕和+1按钮）</label>
+            </span>
+            <span
+              className='cb-switch-row'
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em', paddingLeft: '1.5em' }}
+            >
+              <input
+                id='danmakuDirectConfirm'
+                type='checkbox'
+                checked={danmakuDirectConfirm.value}
+                disabled={!danmakuDirectMode.value}
+                onInput={e => {
+                  danmakuDirectConfirm.value = e.currentTarget.checked
+                }}
+              />
+              <label htmlFor='danmakuDirectConfirm' style={{ color: danmakuDirectMode.value ? undefined : '#999' }}>
+                +1弹幕发送前需确认（防误触）
+              </label>
+            </span>
+            <span
+              className='cb-switch-row'
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em', paddingLeft: '1.5em' }}
+            >
+              <input
+                id='danmakuDirectAlwaysShow'
+                type='checkbox'
+                checked={danmakuDirectAlwaysShow.value}
+                disabled={!danmakuDirectMode.value}
+                onInput={e => {
+                  danmakuDirectAlwaysShow.value = e.currentTarget.checked
+                }}
+              />
+              <label htmlFor='danmakuDirectAlwaysShow' style={{ color: danmakuDirectMode.value ? undefined : '#999' }}>
+                总是显示偷/+1按钮
+              </label>
+            </span>
+            <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
+              <input
+                id='forceScrollDanmaku'
+                type='checkbox'
+                checked={forceScrollDanmaku.value}
+                onInput={e => {
+                  forceScrollDanmaku.value = e.currentTarget.checked
+                }}
+              />
+              <label htmlFor='forceScrollDanmaku'>脚本载入时强制配置弹幕位置为滚动方向</label>
+            </span>
+            <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
+              <input
+                id='unlockForbidLive'
+                type='checkbox'
+                checked={unlockForbidLive.value}
+                onInput={e => {
+                  unlockForbidLive.value = e.currentTarget.checked
+                }}
+              />
+              <label htmlFor='unlockForbidLive'>拉黑直播间解锁（刷新生效，仅布局解锁）</label>
+            </span>
+            <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
+              <input
+                id='optimizeLayout'
+                type='checkbox'
+                checked={optimizeLayout.value}
+                onInput={e => {
+                  optimizeLayout.value = e.currentTarget.checked
+                }}
+              />
+              <label htmlFor='optimizeLayout'>优化布局</label>
+            </span>
+          </div>
         </div>
-      </div>
       </details>
 
       <details className='cb-settings-accordion'>
         <summary>日志设置</summary>
-      <div className='cb-section cb-stack' style={{ margin: '.5em 0', paddingBottom: '1em' }}>
-        <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.5em' }}>
-          日志设置
+        <div className='cb-section cb-stack' style={{ margin: '.5em 0', paddingBottom: '1em' }}>
+          <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.5em' }}>
+            日志设置
+          </div>
+          <div className='cb-row' style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap' }}>
+            <label htmlFor='maxLogLines' style={{ color: '#666' }}>
+              最大日志行数:
+            </label>
+            <input
+              id='maxLogLines'
+              type='number'
+              min='1'
+              max='1000'
+              style={{ width: '80px' }}
+              value={maxLogLines.value}
+              onChange={e => {
+                let v = parseInt(e.currentTarget.value, 10)
+                if (Number.isNaN(v) || v < 1) v = 1
+                else if (v > 1000) v = 1000
+                maxLogLines.value = v
+              }}
+            />
+            <span style={{ color: '#999', fontSize: '0.9em' }}>(1-1000)</span>
+          </div>
         </div>
-        <div className='cb-row' style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap' }}>
-          <label htmlFor='maxLogLines' style={{ color: '#666' }}>
-            最大日志行数:
-          </label>
-          <input
-            id='maxLogLines'
-            type='number'
-            min='1'
-            max='1000'
-            style={{ width: '80px' }}
-            value={maxLogLines.value}
-            onChange={e => {
-              let v = parseInt(e.currentTarget.value, 10)
-              if (Number.isNaN(v) || v < 1) v = 1
-              else if (v > 1000) v = 1000
-              maxLogLines.value = v
-            }}
-          />
-          <span style={{ color: '#999', fontSize: '0.9em' }}>(1-1000)</span>
-        </div>
-      </div>
       </details>
     </>
   )

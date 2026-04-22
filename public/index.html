@@ -6,7 +6,7 @@
     <title>B站独轮车 + 自动跟车 | Bilibili Live Chatterbox</title>
     <meta
       name="description"
-      content="B站/哔哩哔哩直播间弹幕助手 userscript，支持独轮车循环发送、自动跟车、Chatterbox Chat 评论区、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避，可通过 Greasy Fork、Tampermonkey 或 Violentmonkey 安装。"
+      content="给 B 站/哔哩哔哩直播间使用的精致弹幕助手 userscript，支持独轮车循环发送、自动跟车、Chatterbox Chat 评论区、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。"
     >
     <meta
       name="keywords"
@@ -16,7 +16,7 @@
     <meta property="og:title" content="B站独轮车 + 自动跟车">
     <meta
       property="og:description"
-      content="给 B 站直播间用的弹幕助手：独轮车、自动跟车、Chatterbox Chat 评论区、粉丝牌禁言巡检、同传、烂梗库和弹幕替换。"
+      content="一款给 B 站直播间使用的弹幕助手：独轮车、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库和弹幕替换。"
     >
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://aijc123.github.io/bilibili-live-wheel-auto-follow/">
@@ -24,94 +24,434 @@
       :root {
         color-scheme: light dark;
         font-family:
-          Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui,
-          sans-serif;
-        background: #f6f8fb;
-        color: #172033;
+          -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+          "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+          system-ui, sans-serif;
+        background: #f5f5f7;
+        color: #1d1d1f;
+        --page: #f5f5f7;
+        --surface: rgba(255, 255, 255, 0.78);
+        --surface-strong: rgba(255, 255, 255, 0.94);
+        --line: rgba(29, 29, 31, 0.11);
+        --text: #1d1d1f;
+        --muted: #6e6e73;
+        --blue: #0071e3;
+        --cyan: #00a9ce;
+        --pink: #ff6aa2;
+        --violet: #8e7cff;
+        --green: #36c37b;
+        --shadow: 0 26px 70px rgba(23, 35, 57, 0.12);
       }
 
       * {
         box-sizing: border-box;
       }
 
+      html {
+        scroll-behavior: smooth;
+      }
+
       body {
         margin: 0;
+        background:
+          linear-gradient(135deg, rgba(0, 113, 227, 0.08), transparent 28%),
+          linear-gradient(225deg, rgba(255, 106, 162, 0.09), transparent 30%),
+          linear-gradient(180deg, #fbfbfd 0%, var(--page) 44%, #ffffff 100%);
+        color: var(--text);
       }
 
-      main {
-        width: min(1040px, calc(100% - 32px));
-        margin: 0 auto;
-        padding: 56px 0;
-      }
-
-      .hero {
-        min-height: 58vh;
-        display: grid;
-        align-content: center;
-        gap: 24px;
-        padding-bottom: 36px;
-      }
-
-      .eyebrow {
-        margin: 0;
-        color: #0077a3;
-        font-size: 15px;
-        font-weight: 800;
-      }
-
-      h1 {
-        max-width: 860px;
-        margin: 0;
-        font-size: clamp(40px, 7vw, 76px);
-        line-height: 1.05;
-        letter-spacing: 0;
-      }
-
-      h2 {
-        margin: 0 0 18px;
-        font-size: clamp(26px, 4vw, 40px);
-        letter-spacing: 0;
-      }
-
-      p {
-        max-width: 760px;
-        margin: 0;
-        font-size: 18px;
-        line-height: 1.8;
+      body::before {
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        pointer-events: none;
+        content: "";
+        background-image:
+          linear-gradient(rgba(29, 29, 31, 0.035) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(29, 29, 31, 0.035) 1px, transparent 1px);
+        background-size: 48px 48px;
+        mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.7), transparent 68%);
       }
 
       a {
         color: inherit;
       }
 
-      .links {
+      main {
+        overflow: hidden;
+      }
+
+      .container {
+        width: min(1120px, calc(100% - 40px));
+        margin: 0 auto;
+      }
+
+      .hero {
+        min-height: 92vh;
+        display: grid;
+        align-items: center;
+        padding: 64px 0 44px;
+      }
+
+      .hero-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 0.95fr) minmax(340px, 1.05fr);
+        gap: clamp(34px, 6vw, 82px);
+        align-items: center;
+      }
+
+      .eyebrow {
+        margin: 0 0 16px;
+        color: var(--blue);
+        font-size: 15px;
+        font-weight: 700;
+        letter-spacing: 0;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        max-width: 820px;
+        font-size: clamp(46px, 8vw, 92px);
+        font-weight: 760;
+        line-height: 1.03;
+        letter-spacing: 0;
+      }
+
+      .hero-copy {
+        max-width: 650px;
+        margin-top: 24px;
+        color: var(--muted);
+        font-size: clamp(19px, 2.2vw, 25px);
+        font-weight: 500;
+        line-height: 1.48;
+        letter-spacing: 0;
+      }
+
+      .hero-copy strong {
+        color: var(--text);
+        font-weight: 650;
+      }
+
+      .actions {
         display: flex;
         flex-wrap: wrap;
         gap: 12px;
+        margin-top: 32px;
       }
 
       .button {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-height: 44px;
-        padding: 0 18px;
-        border: 1px solid #cbd5e1;
+        min-height: 46px;
+        padding: 0 20px;
+        border: 1px solid rgba(0, 113, 227, 0.22);
         border-radius: 8px;
-        background: #ffffff;
-        font-weight: 800;
+        background: rgba(255, 255, 255, 0.72);
+        box-shadow: 0 12px 30px rgba(16, 24, 40, 0.08);
+        color: var(--blue);
+        font-size: 16px;
+        font-weight: 700;
         text-decoration: none;
+        transition:
+          transform 180ms ease,
+          box-shadow 180ms ease,
+          background 180ms ease;
+        backdrop-filter: blur(18px);
       }
 
-      .primary {
-        border-color: #00a1d6;
-        background: #00a1d6;
+      .button::after {
+        margin-left: 8px;
+        content: ">";
+        font-size: 14px;
+        line-height: 1;
+      }
+
+      .button.primary {
+        background: var(--blue);
         color: #ffffff;
+        border-color: var(--blue);
+      }
+
+      .button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 18px 38px rgba(16, 24, 40, 0.13);
+      }
+
+      .button:focus-visible {
+        outline: 3px solid rgba(0, 113, 227, 0.28);
+        outline-offset: 3px;
+      }
+
+      .compat {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 26px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        min-height: 30px;
+        padding: 0 11px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.56);
+        backdrop-filter: blur(16px);
+      }
+
+      .hero-stage {
+        position: relative;
+        min-height: 560px;
+      }
+
+      .light-trail {
+        position: absolute;
+        inset: 3% -8% auto;
+        height: 70%;
+        background:
+          linear-gradient(105deg, transparent 14%, rgba(0, 169, 206, 0.42), transparent 42%),
+          linear-gradient(150deg, transparent 36%, rgba(255, 106, 162, 0.34), transparent 64%),
+          linear-gradient(205deg, transparent 30%, rgba(142, 124, 255, 0.28), transparent 58%);
+        filter: blur(18px);
+        opacity: 0.72;
+        transform: rotate(-8deg);
+      }
+
+      .device {
+        position: relative;
+        width: min(100%, 560px);
+        margin-left: auto;
+        padding: 14px;
+        border: 1px solid rgba(255, 255, 255, 0.74);
+        border-radius: 8px;
+        background:
+          linear-gradient(145deg, rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.46)),
+          linear-gradient(145deg, rgba(0, 113, 227, 0.16), rgba(255, 106, 162, 0.14));
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(28px);
+      }
+
+      .device-screen {
+        position: relative;
+        min-height: 428px;
+        overflow: hidden;
+        border: 1px solid rgba(29, 29, 31, 0.08);
+        border-radius: 8px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(246, 247, 251, 0.74)),
+          linear-gradient(135deg, rgba(0, 161, 214, 0.08), rgba(255, 106, 162, 0.08));
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        height: 38px;
+        padding: 0 14px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: #ff5f57;
+      }
+
+      .dot:nth-child(2) {
+        background: #ffbd2e;
+      }
+
+      .dot:nth-child(3) {
+        background: #28c840;
+      }
+
+      .live-ui {
+        display: grid;
+        grid-template-columns: 1fr 168px;
+        gap: 14px;
+        padding: 18px;
+      }
+
+      .stream {
+        position: relative;
+        min-height: 316px;
+        overflow: hidden;
+        border: 1px solid rgba(29, 29, 31, 0.08);
+        border-radius: 8px;
+        background:
+          linear-gradient(135deg, rgba(14, 19, 32, 0.92), rgba(35, 39, 60, 0.88)),
+          linear-gradient(180deg, rgba(0, 169, 206, 0.28), transparent);
+      }
+
+      .stream::before,
+      .stream::after {
+        position: absolute;
+        right: -16%;
+        left: -20%;
+        height: 1px;
+        content: "";
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.62), transparent);
+        animation: scan 7s linear infinite;
+      }
+
+      .stream::before {
+        top: 30%;
+      }
+
+      .stream::after {
+        top: 62%;
+        animation-delay: -3.2s;
+      }
+
+      .danmaku {
+        position: absolute;
+        left: var(--x);
+        top: var(--y);
+        min-width: var(--w);
+        padding: 8px 12px;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.16);
+        color: rgba(255, 255, 255, 0.92);
+        font-size: 13px;
+        font-weight: 700;
+        white-space: nowrap;
+        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.18);
+        backdrop-filter: blur(16px);
+      }
+
+      .danmaku.accent {
+        color: #ffffff;
+        background: linear-gradient(90deg, rgba(0, 169, 206, 0.72), rgba(255, 106, 162, 0.68));
+      }
+
+      .control-card {
+        position: absolute;
+        left: 18px;
+        right: 18px;
+        bottom: 18px;
+        padding: 14px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.14);
+        color: #ffffff;
+        backdrop-filter: blur(18px);
+      }
+
+      .control-title {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 11px;
+        font-size: 13px;
+        font-weight: 800;
+      }
+
+      .meter {
+        height: 7px;
+        overflow: hidden;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.2);
+      }
+
+      .meter span {
+        display: block;
+        width: 68%;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, var(--cyan), var(--pink));
+      }
+
+      .side-panel {
+        display: grid;
+        gap: 10px;
+      }
+
+      .mini-card {
+        min-height: 92px;
+        padding: 13px;
+        border: 1px solid rgba(29, 29, 31, 0.08);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.72);
+      }
+
+      .mini-label {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .mini-value {
+        margin-top: 8px;
+        color: var(--text);
+        font-size: 22px;
+        font-weight: 760;
+      }
+
+      .mini-line {
+        width: 100%;
+        height: 7px;
+        margin-top: 10px;
+        border-radius: 8px;
+        background: linear-gradient(90deg, var(--blue), var(--cyan), var(--pink));
+      }
+
+      .floating-note {
+        position: absolute;
+        right: -4px;
+        bottom: 44px;
+        max-width: 222px;
+        padding: 14px 16px;
+        border: 1px solid rgba(255, 255, 255, 0.64);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.76);
+        box-shadow: 0 22px 50px rgba(23, 35, 57, 0.15);
+        color: var(--text);
+        font-size: 14px;
+        font-weight: 700;
+        line-height: 1.45;
+        backdrop-filter: blur(20px);
+      }
+
+      .floating-note span {
+        color: var(--blue);
       }
 
       .section {
-        padding: 34px 0;
-        border-top: 1px solid #d8e0eb;
+        padding: clamp(74px, 10vw, 124px) 0;
+        border-top: 1px solid var(--line);
+      }
+
+      .section-heading {
+        display: grid;
+        gap: 14px;
+        max-width: 760px;
+        margin-bottom: 34px;
+      }
+
+      h2 {
+        font-size: clamp(34px, 5vw, 58px);
+        font-weight: 760;
+        line-height: 1.06;
+        letter-spacing: 0;
+      }
+
+      .section-heading p,
+      .install-copy {
+        color: var(--muted);
+        font-size: clamp(17px, 2vw, 21px);
+        line-height: 1.58;
       }
 
       .feature-grid {
@@ -121,81 +461,362 @@
       }
 
       .feature {
-        min-height: 160px;
-        padding: 18px;
-        border: 1px solid #d8e0eb;
+        min-height: 238px;
+        padding: 22px;
+        border: 1px solid rgba(255, 255, 255, 0.72);
         border-radius: 8px;
-        background: #ffffff;
+        background: var(--surface);
+        box-shadow: 0 18px 42px rgba(16, 24, 40, 0.07);
+        backdrop-filter: blur(22px);
+      }
+
+      .icon {
+        position: relative;
+        width: 38px;
+        height: 38px;
+        margin-bottom: 20px;
+        border: 1px solid rgba(0, 113, 227, 0.16);
+        border-radius: 8px;
+        background:
+          linear-gradient(145deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.36)),
+          linear-gradient(135deg, rgba(0, 169, 206, 0.24), rgba(255, 106, 162, 0.16));
+      }
+
+      .icon::before,
+      .icon::after {
+        position: absolute;
+        content: "";
+      }
+
+      .icon-loop::before {
+        inset: 10px 8px;
+        border: 2px solid var(--blue);
+        border-left-color: transparent;
+        border-radius: 50%;
+      }
+
+      .icon-follow::before {
+        top: 13px;
+        left: 8px;
+        width: 20px;
+        height: 3px;
+        border-radius: 8px;
+        background: var(--cyan);
+        box-shadow: 6px 7px 0 var(--pink);
+      }
+
+      .icon-chat::before {
+        inset: 10px 8px 12px;
+        border: 2px solid var(--blue);
+        border-radius: 8px;
+      }
+
+      .icon-chat::after {
+        right: 10px;
+        bottom: 8px;
+        border-top: 7px solid var(--blue);
+        border-left: 7px solid transparent;
+      }
+
+      .icon-shield::before {
+        top: 8px;
+        left: 11px;
+        width: 16px;
+        height: 20px;
+        background: linear-gradient(180deg, var(--cyan), var(--green));
+        clip-path: polygon(50% 0, 100% 18%, 86% 76%, 50% 100%, 14% 76%, 0 18%);
+      }
+
+      .icon-rule::before {
+        top: 10px;
+        left: 9px;
+        width: 20px;
+        height: 4px;
+        border-radius: 8px;
+        background: var(--pink);
+        box-shadow: 0 8px 0 var(--blue), 0 16px 0 var(--cyan);
+      }
+
+      .icon-voice::before {
+        top: 8px;
+        left: 16px;
+        width: 6px;
+        height: 18px;
+        border-radius: 8px;
+        background: var(--violet);
+        box-shadow: -8px 6px 0 -1px var(--cyan), 8px 6px 0 -1px var(--pink);
       }
 
       .feature h3 {
-        margin: 0 0 10px;
-        font-size: 18px;
+        margin-bottom: 10px;
+        font-size: 20px;
+        font-weight: 760;
         letter-spacing: 0;
       }
 
       .feature p {
+        color: var(--muted);
         font-size: 15px;
-        line-height: 1.7;
+        line-height: 1.72;
       }
 
-      ol,
-      ul {
+      .install {
+        display: grid;
+        grid-template-columns: 0.9fr 1.1fr;
+        gap: clamp(28px, 5vw, 66px);
+        align-items: start;
+      }
+
+      .steps {
+        display: grid;
+        gap: 12px;
         margin: 0;
-        padding-left: 22px;
+        padding: 0;
+        list-style: none;
+        counter-reset: step;
+      }
+
+      .step {
+        display: grid;
+        grid-template-columns: 46px 1fr;
+        gap: 16px;
+        padding: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.72);
+        border-radius: 8px;
+        background: var(--surface-strong);
+        box-shadow: 0 14px 34px rgba(16, 24, 40, 0.06);
+      }
+
+      .step::before {
+        display: grid;
+        place-items: center;
+        width: 34px;
+        height: 34px;
+        border-radius: 8px;
+        background: #1d1d1f;
+        color: #ffffff;
+        content: counter(step, decimal-leading-zero);
+        counter-increment: step;
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .step h3 {
+        margin-bottom: 6px;
+        font-size: 18px;
+      }
+
+      .step p {
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.65;
+      }
+
+      .search-terms {
+        padding-top: 34px;
+        color: var(--muted);
+        font-size: 13px;
         line-height: 1.8;
       }
 
-      .note {
-        color: #5d6b7f;
-        font-size: 15px;
+      .search-terms strong {
+        color: var(--text);
       }
 
-      @media (max-width: 780px) {
-        main {
-          padding: 36px 0;
+      @keyframes scan {
+        0% {
+          transform: translateX(-12%);
+          opacity: 0;
         }
 
+        18%,
+        70% {
+          opacity: 1;
+        }
+
+        100% {
+          transform: translateX(18%);
+          opacity: 0;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+
+        *,
+        *::before,
+        *::after {
+          animation-duration: 1ms;
+          animation-iteration-count: 1;
+          scroll-behavior: auto;
+          transition-duration: 1ms;
+        }
+      }
+
+      @media (max-width: 900px) {
         .hero {
           min-height: auto;
+          padding-top: 42px;
+        }
+
+        .hero-grid,
+        .install {
+          grid-template-columns: 1fr;
+        }
+
+        .hero-stage {
+          min-height: 500px;
+        }
+
+        .device {
+          margin: 0 auto;
+        }
+
+        .feature-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 640px) {
+        .container {
+          width: min(100% - 28px, 1120px);
+        }
+
+        h1 {
+          font-size: clamp(42px, 13vw, 58px);
+        }
+
+        .actions {
+          display: grid;
+        }
+
+        .button {
+          width: 100%;
+        }
+
+        .hero-stage {
+          min-height: auto;
+        }
+
+        .device {
+          padding: 10px;
+        }
+
+        .device-screen {
+          min-height: 436px;
+        }
+
+        .live-ui {
+          grid-template-columns: 1fr;
+          padding: 12px;
+        }
+
+        .stream {
+          min-height: 260px;
+        }
+
+        .side-panel {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .mini-card {
+          min-height: 86px;
+          padding: 10px;
+        }
+
+        .mini-value {
+          font-size: 18px;
+        }
+
+        .floating-note {
+          position: relative;
+          right: auto;
+          bottom: auto;
+          max-width: none;
+          margin-top: 12px;
         }
 
         .feature-grid {
           grid-template-columns: 1fr;
         }
 
-        .button {
-          width: 100%;
+        .feature {
+          min-height: auto;
+        }
+
+        .step {
+          grid-template-columns: 40px 1fr;
+          padding: 16px;
         }
       }
 
       @media (prefers-color-scheme: dark) {
         :root {
-          background: #10141b;
-          color: #eef2f7;
+          background: #080a0f;
+          color: #f5f5f7;
+          --page: #080a0f;
+          --surface: rgba(20, 24, 34, 0.76);
+          --surface-strong: rgba(20, 24, 34, 0.92);
+          --line: rgba(245, 245, 247, 0.12);
+          --text: #f5f5f7;
+          --muted: #a1a1a6;
+          --shadow: 0 26px 70px rgba(0, 0, 0, 0.36);
         }
 
-        .eyebrow {
-          color: #5fc7ef;
+        body {
+          background:
+            linear-gradient(135deg, rgba(0, 113, 227, 0.16), transparent 30%),
+            linear-gradient(225deg, rgba(255, 106, 162, 0.13), transparent 34%),
+            linear-gradient(180deg, #0d1018 0%, #080a0f 54%, #11131a 100%);
         }
 
-        .section,
-        .feature {
-          border-color: #2c3645;
+        body::before {
+          background-image:
+            linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+        }
+
+        .button {
+          background: rgba(20, 24, 34, 0.72);
+        }
+
+        .pill,
+        .mini-card,
+        .floating-note,
+        .device,
+        .device-screen {
+          border-color: rgba(255, 255, 255, 0.12);
+          background-color: rgba(20, 24, 34, 0.72);
+        }
+
+        .device {
+          background:
+            linear-gradient(145deg, rgba(32, 37, 51, 0.84), rgba(16, 19, 28, 0.6)),
+            linear-gradient(145deg, rgba(0, 113, 227, 0.2), rgba(255, 106, 162, 0.1));
+        }
+
+        .device-screen {
+          background:
+            linear-gradient(180deg, rgba(20, 24, 34, 0.96), rgba(11, 13, 19, 0.84)),
+            linear-gradient(135deg, rgba(0, 161, 214, 0.12), rgba(255, 106, 162, 0.08));
         }
 
         .feature,
-        .button {
-          background: #171d27;
+        .step {
+          border-color: rgba(255, 255, 255, 0.1);
         }
 
-        .primary {
-          border-color: #00a1d6;
-          background: #00a1d6;
+        .icon {
+          background:
+            linear-gradient(145deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.04)),
+            linear-gradient(135deg, rgba(0, 169, 206, 0.24), rgba(255, 106, 162, 0.14));
         }
 
-        .note {
-          color: #a7b2c3;
+        .step::before {
+          background: #f5f5f7;
+          color: #11131a;
         }
       }
     </style>
@@ -207,7 +828,7 @@
         "alternateName": "Bilibili Live Chatterbox",
         "applicationCategory": "BrowserApplication",
         "operatingSystem": "Chrome, Edge, Firefox",
-        "description": "B站/哔哩哔哩直播间弹幕助手 userscript，支持独轮车循环发送、自动跟车、Chatterbox Chat 评论区、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。",
+        "description": "给 B 站/哔哩哔哩直播间用的弹幕助手 userscript，支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。",
         "url": "https://aijc123.github.io/bilibili-live-wheel-auto-follow/",
         "downloadUrl": "https://greasyfork.org/zh-CN/scripts/574939-b%E7%AB%99%E7%8B%AC%E8%BD%AE%E8%BD%A6-%E8%87%AA%E5%8A%A8%E8%B7%9F%E8%BD%A6",
         "codeRepository": "https://github.com/aijc123/bilibili-live-wheel-auto-follow",
@@ -222,65 +843,153 @@
   <body>
     <main>
       <section class="hero">
-        <p class="eyebrow">Bilibili Live userscript</p>
-        <h1>B站独轮车 + 自动跟车</h1>
-        <p>
-          给 B 站/哔哩哔哩直播间用的民间弹幕助手。它可以循环发送提前写好的弹幕，自动跟上正在刷屏的句子，也能把右侧评论区换成更清爽的 Chatterbox Chat。
-        </p>
-        <div class="links" aria-label="项目链接">
-          <a class="button primary" href="https://greasyfork.org/zh-CN/scripts/574939-b%E7%AB%99%E7%8B%AC%E8%BD%AE%E8%BD%A6-%E8%87%AA%E5%8A%A8%E8%B7%9F%E8%BD%A6">Greasy Fork 安装</a>
-          <a class="button" href="https://github.com/aijc123/bilibili-live-wheel-auto-follow">GitHub 源码</a>
+        <div class="container hero-grid">
+          <div>
+            <p class="eyebrow">Bilibili Live userscript</p>
+            <h1>B站独轮车 + 自动跟车</h1>
+            <p class="hero-copy">
+              把直播间弹幕助手做得更像一件精密工具。<strong>自动跟车</strong>、循环发送与
+              <strong>Chatterbox Chat</strong> 被收进一个清爽、克制、带一点二次元光感的体验里。
+            </p>
+            <div class="actions" aria-label="项目链接">
+              <a class="button primary" href="https://greasyfork.org/zh-CN/scripts/574939-b%E7%AB%99%E7%8B%AC%E8%BD%AE%E8%BD%A6-%E8%87%AA%E5%8A%A8%E8%B7%9F%E8%BD%A6">Greasy Fork 安装</a>
+              <a class="button" href="https://github.com/aijc123/bilibili-live-wheel-auto-follow">GitHub 源码</a>
+            </div>
+            <div class="compat" aria-label="兼容性">
+              <span class="pill">Tampermonkey</span>
+              <span class="pill">Violentmonkey</span>
+              <span class="pill">Bilibili Live</span>
+            </div>
+          </div>
+
+          <div class="hero-stage" aria-label="抽象视觉预览">
+            <div class="light-trail" aria-hidden="true"></div>
+            <div class="device">
+              <div class="device-screen">
+                <div class="topbar" aria-hidden="true">
+                  <span class="dot"></span>
+                  <span class="dot"></span>
+                  <span class="dot"></span>
+                </div>
+                <div class="live-ui">
+                  <div class="stream">
+                    <span class="danmaku accent" style="--x: 13%; --y: 18%; --w: 132px;">弹幕助手预览</span>
+                    <span class="danmaku" style="--x: 44%; --y: 32%; --w: 118px;">这句可以跟</span>
+                    <span class="danmaku" style="--x: 8%; --y: 46%; --w: 142px;">循环弹幕 12 条</span>
+                    <span class="danmaku accent" style="--x: 38%; --y: 58%; --w: 152px;">Chatterbox Chat</span>
+                    <div class="control-card">
+                      <div class="control-title">
+                        <span>Visual Preview</span>
+                        <span>68%</span>
+                      </div>
+                      <div class="meter"><span></span></div>
+                    </div>
+                  </div>
+                  <div class="side-panel">
+                    <div class="mini-card">
+                      <div class="mini-label">跟车阈值</div>
+                      <div class="mini-value">稳</div>
+                      <div class="mini-line"></div>
+                    </div>
+                    <div class="mini-card">
+                      <div class="mini-label">发送队列</div>
+                      <div class="mini-value">24</div>
+                      <div class="mini-line"></div>
+                    </div>
+                    <div class="mini-card">
+                      <div class="mini-label">巡检状态</div>
+                      <div class="mini-value">OK</div>
+                      <div class="mini-line"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="floating-note">
+              <span>这是官网视觉预览</span>，用弹幕光感和玻璃质感表达气质，不代表脚本新增了这些界面组件。
+            </div>
+          </div>
         </div>
-        <p class="note">
-          支持 Tampermonkey、Violentmonkey 等用户脚本管理器。项目基于 LAPLACE Chatterbox fork 修改。
-        </p>
       </section>
 
       <section class="section">
-        <h2>主要功能</h2>
-        <div class="feature-grid">
-          <article class="feature">
-            <h3>独轮车循环发送</h3>
-            <p>多套模板、每行一句、按间隔发送，支持随机颜色、随机间隔、随机字符和长弹幕自动拆分。</p>
-          </article>
-          <article class="feature">
-            <h3>自动跟车</h3>
-            <p>观察短时间内重复出现的弹幕，达到阈值后自动跟一句。内置稳一点、正常、热闹三档预设。</p>
-          </article>
-          <article class="feature">
-            <h3>Chatterbox Chat</h3>
-            <p>接管右侧评论区，显示 iMessage 风格气泡，支持礼物、醒目留言、舰队等事件和自定义 CSS。</p>
-          </article>
-          <article class="feature">
-            <h3>粉丝牌禁言巡检</h3>
-            <p>读取粉丝牌关联房间并分类展示限制、无法确认、主播注销和正常结果，可复制报告或同步摘要。</p>
-          </article>
-          <article class="feature">
-            <h3>替换与 AI 规避</h3>
-            <p>支持云端和本地替换规则，发送失败时可检测敏感词并尝试替换后重试。</p>
-          </article>
-          <article class="feature">
-            <h3>同传和烂梗库</h3>
-            <p>接入 Soniox 语音识别，可自动发送识别或翻译结果，也能搜索、复制和发送常用梗。</p>
-          </article>
+        <div class="container">
+          <div class="section-heading">
+            <h2>把高频操作收得更优雅。</h2>
+            <p>从刷屏节奏到评论区观感，常用功能都保持清楚、稳定、可控。二次元不靠堆贴纸，而是藏在弹幕、光线和状态反馈里。</p>
+          </div>
+
+          <div class="feature-grid">
+            <article class="feature">
+              <div class="icon icon-loop" aria-hidden="true"></div>
+              <h3>独轮车循环发送</h3>
+              <p>多套模板、每行一句、按间隔发送，支持随机颜色、随机间隔、随机字符和长弹幕自动拆分。</p>
+            </article>
+            <article class="feature">
+              <div class="icon icon-follow" aria-hidden="true"></div>
+              <h3>自动跟车</h3>
+              <p>观察短时间内重复出现的弹幕，达到阈值后自动跟一句，内置稳一点、正常、热闹三档预设。</p>
+            </article>
+            <article class="feature">
+              <div class="icon icon-chat" aria-hidden="true"></div>
+              <h3>Chatterbox Chat</h3>
+              <p>接管右侧评论区，显示 iMessage 风格气泡，支持礼物、醒目留言、舰队事件和自定义 CSS。</p>
+            </article>
+            <article class="feature">
+              <div class="icon icon-shield" aria-hidden="true"></div>
+              <h3>粉丝牌禁言巡检</h3>
+              <p>读取粉丝牌关联房间并分类展示限制、无法确认、主播注销和正常结果，可复制报告或同步摘要。</p>
+            </article>
+            <article class="feature">
+              <div class="icon icon-rule" aria-hidden="true"></div>
+              <h3>替换与 AI 规避</h3>
+              <p>支持云端和本地替换规则，发送失败时可检测敏感词并尝试替换后重试，让队列更少卡住。</p>
+            </article>
+            <article class="feature">
+              <div class="icon icon-voice" aria-hidden="true"></div>
+              <h3>同传和烂梗库</h3>
+              <p>接入 Soniox 语音识别，可自动发送识别或翻译结果，也能搜索、复制和发送常用梗。</p>
+            </article>
+          </div>
         </div>
       </section>
 
       <section class="section">
-        <h2>安装使用</h2>
-        <ol>
-          <li>先安装 Tampermonkey 或 Violentmonkey。</li>
-          <li>打开 Greasy Fork 脚本页，点击安装。</li>
-          <li>进入 B 站直播间，点击右下角的「弹幕助手」。</li>
-          <li>需要接管评论区时，在「设置」里开启 Chatterbox Chat。</li>
-        </ol>
-      </section>
+        <div class="container install">
+          <div>
+            <p class="eyebrow">Install</p>
+            <h2>三步进入直播间。</h2>
+            <p class="install-copy">
+              仍然是熟悉的用户脚本安装方式，只是落地页更像一个认真打磨过的产品入口。
+            </p>
+          </div>
 
-      <section class="section">
-        <h2>搜索词</h2>
-        <p>
+          <ol class="steps">
+            <li class="step">
+              <div>
+                <h3>安装脚本管理器</h3>
+                <p>先安装 Tampermonkey 或 Violentmonkey，用来管理浏览器 userscript。</p>
+              </div>
+            </li>
+            <li class="step">
+              <div>
+                <h3>打开 Greasy Fork</h3>
+                <p>进入脚本页面并点击安装，浏览器会自动交给脚本管理器确认。</p>
+              </div>
+            </li>
+            <li class="step">
+              <div>
+                <h3>进入 B 站直播间</h3>
+                <p>打开直播间，点击右下角「弹幕助手」。需要接管评论区时，在「设置」里开启 Chatterbox Chat。</p>
+              </div>
+            </li>
+          </ol>
+        </div>
+
+        <div class="container search-terms">
+          <strong>搜索词：</strong>
           B站独轮车、B站自动跟车、哔哩哔哩直播弹幕助手、Bilibili Live Auto Follow、Chatterbox Chat、Tampermonkey bilibili userscript。
-        </p>
+        </div>
       </section>
     </main>
   </body>
