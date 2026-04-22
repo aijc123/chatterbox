@@ -1,6 +1,6 @@
-import { KeepLiveWS } from '@laplace.live/ws/client'
+import { LiveWS } from '@laplace.live/ws/client'
 
-import { ensureRoomId, getSpmPrefix } from './api'
+import { ensureRoomId, getDedeUid, getSpmPrefix } from './api'
 import { BASE_URL } from './const'
 import {
   type CustomChatEvent,
@@ -29,11 +29,15 @@ interface DanmuInfoResponse {
 
 type UnknownRecord = Record<string, unknown>
 
-let keep: KeepLiveWS | null = null
+let liveConnection: LiveWS | null = null
 let started = false
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let lastStartupFailure = ''
 let lastStartupFailureAt = 0
+let addressIndex = 0
+let reconnectAttempt = 0
+let connectionSerial = 0
+let lastWsCloseDetail = ''
 const recentDanmaku = new Map<string, number>()
 const STARTUP_FAILURE_LOG_INTERVAL = 60_000
 
@@ -83,7 +87,30 @@ function eventId(_cmd: string, data: UnknownRecord, fallback: string): string {
   return asString(data.msg_id) || String(data.id ?? data.uid ?? fallback)
 }
 
-async function fetchDanmuInfo(roomId: number): Promise<{ key: string; address: string }> {
+function getCookie(name: string): string | undefined {
+  const prefix = `${name}=`
+  return document.cookie
+    .split(';')
+    .map(c => c.trim())
+    .find(c => c.startsWith(prefix))
+    ?.slice(prefix.length)
+}
+
+function getBuvid(): string | undefined {
+  return getCookie('buvid3') ?? getCookie('buvid4') ?? getCookie('buvid_fp')
+}
+
+function closeDetail(event: CloseEvent): string {
+  const reason = event.reason ? `, reason=${event.reason}` : ''
+  return `code=${event.code}, clean=${event.wasClean}${reason}`
+}
+
+interface DanmuInfo {
+  key: string
+  addresses: string[]
+}
+
+async function fetchDanmuInfo(roomId: number): Promise<DanmuInfo> {
   const wbiKeys = await ensureWbiKeys()
   if (!wbiKeys) throw new Error('WBI keys unavailable')
 
@@ -102,10 +129,15 @@ async function fetchDanmuInfo(roomId: number): Promise<{ key: string; address: s
     const message = json.message ?? json.msg ?? 'danmaku server info unavailable'
     throw new Error(json.code === -352 ? `Bilibili rejected getDanmuInfo (-352): ${message}` : message)
   }
-  const host = json.data.host_list?.find(item => item.host && (item.wss_port || item.port || item.ws_port))
-  if (!host?.host) throw new Error('弹幕服务器地址为空')
-  const port = host.wss_port || host.port || host.ws_port || 443
-  return { key: json.data.token, address: `wss://${host.host}:${port}/sub` }
+  const addresses = [
+    ...new Set(
+      json.data.host_list
+        ?.filter(item => item.host)
+        .map(item => `wss://${item.host}:${item.wss_port || 443}/sub`) ?? []
+    ),
+  ]
+  if (addresses.length === 0) throw new Error('弹幕服务器地址为空')
+  return { key: json.data.token, addresses }
 }
 
 function appendStartupFailure(message: string): void {
@@ -120,7 +152,7 @@ function emit(event: CustomChatEvent): void {
   emitCustomChatEvent(event)
 }
 
-function bindEvents(roomId: number, live: KeepLiveWS): void {
+function bindEvents(roomId: number, live: LiveWS): void {
   live.addEventListener('live', () => {
     emitCustomChatWsStatus('live')
     lastStartupFailure = ''
@@ -129,7 +161,6 @@ function bindEvents(roomId: number, live: KeepLiveWS): void {
   })
   live.addEventListener('close', () => {
     emitCustomChatWsStatus('closed')
-    appendLog('⚪ Chatterbox Chat WS 已断开')
   })
   live.addEventListener('error', () => {
     emitCustomChatWsStatus('error')
@@ -328,12 +359,59 @@ function bindEvents(roomId: number, live: KeepLiveWS): void {
 
 async function connect(): Promise<void> {
   if (!started) return
+  reconnectTimer = null
+  const serial = ++connectionSerial
   try {
     emitCustomChatWsStatus('connecting')
     const roomId = await ensureRoomId()
     const info = await fetchDanmuInfo(roomId)
-    keep = new KeepLiveWS(roomId, info)
-    bindEvents(roomId, keep)
+    if (!started || serial !== connectionSerial) return
+
+    const address = info.addresses[addressIndex % info.addresses.length]
+    addressIndex += 1
+    const uid = Number(getDedeUid() ?? 0) || 0
+    const buvid = getBuvid()
+    const authBody: Record<string, unknown> = {
+      uid,
+      roomid: roomId,
+      protover: 3,
+      platform: 'web',
+      type: 2,
+      key: info.key,
+      clientver: '1.14.3',
+    }
+    if (buvid) authBody.buvid = buvid
+
+    const live = new LiveWS(roomId, {
+      address,
+      authBody,
+      createWebSocket: url => {
+        const ws = new WebSocket(url)
+        ws.addEventListener('close', event => {
+          lastWsCloseDetail = `${url} ${closeDetail(event)}`
+        })
+        ws.addEventListener('error', () => {
+          lastWsCloseDetail = `${url} WebSocket error`
+        })
+        return ws
+      },
+    })
+    const previous = liveConnection
+    liveConnection = live
+    previous?.close()
+    bindEvents(roomId, live)
+
+    live.addEventListener('live', () => {
+      reconnectAttempt = 0
+    })
+    live.addEventListener('close', () => {
+      if (!started || liveConnection !== live) return
+      const suffix = lastWsCloseDetail ? ` (${lastWsCloseDetail})` : ''
+      appendStartupFailure(live.live ? `connection closed${suffix}` : `closed before room entered${suffix}`)
+      const delay = Math.min(30_000, 3000 + reconnectAttempt * 2000)
+      reconnectAttempt += 1
+      reconnectTimer = setTimeout(() => void connect(), delay)
+    })
   } catch (err) {
     emitCustomChatWsStatus('error')
     const message = err instanceof Error ? err.message : String(err)
@@ -351,11 +429,12 @@ export function startLiveWsSource(): void {
 
 export function stopLiveWsSource(): void {
   started = false
+  connectionSerial += 1
   emitCustomChatWsStatus('off')
   if (reconnectTimer) {
     clearTimeout(reconnectTimer)
     reconnectTimer = null
   }
-  keep?.close()
-  keep = null
+  liveConnection?.close()
+  liveConnection = null
 }

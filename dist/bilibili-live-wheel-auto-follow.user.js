@@ -1742,7 +1742,7 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
     "0xffed4f",
     "0xff9800"
   ];
-  function getCookie(name) {
+  function getCookie$1(name) {
     const prefix = `${name}=`;
     return document.cookie.split(";").map((c2) => c2.trim()).find((c2) => c2.startsWith(prefix))?.slice(prefix.length);
   }
@@ -1751,10 +1751,10 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
     return metaTag?.getAttribute("content") ?? "444.8";
   }
   function getCsrfToken() {
-    return getCookie("bili_jct");
+    return getCookie$1("bili_jct");
   }
   function getDedeUid() {
-    return getCookie("DedeUserID");
+    return getCookie$1("DedeUserID");
   }
   async function getRoomId(url = window.location.href) {
     const shortUid = safeExtractRoomNumber(url);
@@ -3384,74 +3384,6 @@ u$2(
       const result = super.dispatchEvent(event);
       super.dispatchEvent(new LaplaceRawEvent("event", event));
       return result;
-    }
-  };
-  var KeepLive = class extends LaplaceEventTarget {
-createConnection;
-closed;
-interval;
-timeout;
-connection;
-    constructor(createConnection) {
-      super();
-      this.createConnection = createConnection;
-      this.closed = false;
-      this.interval = 3e3;
-      this.timeout = 45 * 1e3;
-      this.connection = this.createConnection();
-      this.connect(false);
-    }
-connect(reconnect = true) {
-      if (reconnect) {
-        const old = this.connection;
-        this.connection = this.createConnection();
-        old.close();
-      }
-      const connection = this.connection;
-      let timeout = setTimeout(() => {
-        connection.close();
-        connection.dispatchEvent(new Event("timeout"));
-      }, this.timeout);
-      connection.addEventListener("event", (e2) => {
-        if (this.connection !== connection) return;
-        const evt = e2.data;
-        if (evt.type !== "error") if (evt instanceof LaplaceRawEvent) this.dispatchEvent(new LaplaceRawEvent(evt.type, evt.data));
-        else this.dispatchEvent(new Event(evt.type));
-      });
-      connection.addEventListener("error", () => this.dispatchEvent(new Event("e")));
-      connection.addEventListener("close", () => {
-        if (!this.closed && this.connection === connection) setTimeout(() => this.connect(), this.interval);
-      });
-      connection.addEventListener("heartbeat", () => {
-        if (this.connection !== connection) return;
-        clearTimeout(timeout);
-        timeout = setTimeout(() => {
-          connection.close();
-          connection.dispatchEvent(new Event("timeout"));
-        }, this.timeout);
-      });
-      connection.addEventListener("close", () => {
-        clearTimeout(timeout);
-      });
-    }
-get online() {
-      return this.connection.online;
-    }
-get roomid() {
-      return this.connection.roomid;
-    }
-close() {
-      this.closed = true;
-      this.connection.close();
-    }
-heartbeat() {
-      return this.connection.heartbeat();
-    }
-getOnline() {
-      return this.connection.getOnline();
-    }
-send(data) {
-      return this.connection.send(data);
     }
   };
   const textEncoder = new TextEncoder();
@@ -5251,16 +5183,20 @@ ws;
     inflateAsync,
     brotliDecompressAsync
   };
-  var KeepLiveWS = class extends KeepLive {
+  var LiveWS = class extends LiveWSBase {
     constructor(roomid, opts) {
-      super(() => new LiveWSBase(inflates, roomid, opts));
+      super(inflates, roomid, opts);
     }
   };
-  let keep = null;
+  let liveConnection = null;
   let started = false;
   let reconnectTimer = null;
   let lastStartupFailure = "";
   let lastStartupFailureAt = 0;
+  let addressIndex = 0;
+  let reconnectAttempt = 0;
+  let connectionSerial = 0;
+  let lastWsCloseDetail = "";
   const recentDanmaku = new Map();
   const STARTUP_FAILURE_LOG_INTERVAL = 6e4;
   function asRecord(value) {
@@ -5299,6 +5235,17 @@ ws;
   function eventId(_cmd, data, fallback) {
     return asString(data.msg_id) || String(data.id ?? data.uid ?? fallback);
   }
+  function getCookie(name) {
+    const prefix = `${name}=`;
+    return document.cookie.split(";").map((c2) => c2.trim()).find((c2) => c2.startsWith(prefix))?.slice(prefix.length);
+  }
+  function getBuvid() {
+    return getCookie("buvid3") ?? getCookie("buvid4") ?? getCookie("buvid_fp");
+  }
+  function closeDetail(event) {
+    const reason = event.reason ? `, reason=${event.reason}` : "";
+    return `code=${event.code}, clean=${event.wasClean}${reason}`;
+  }
   async function fetchDanmuInfo(roomId) {
     const wbiKeys = await ensureWbiKeys();
     if (!wbiKeys) throw new Error("WBI keys unavailable");
@@ -5317,10 +5264,13 @@ ws;
       const message = json.message ?? json.msg ?? "danmaku server info unavailable";
       throw new Error(json.code === -352 ? `Bilibili rejected getDanmuInfo (-352): ${message}` : message);
     }
-    const host = json.data.host_list?.find((item) => item.host && (item.wss_port || item.port || item.ws_port));
-    if (!host?.host) throw new Error("弹幕服务器地址为空");
-    const port = host.wss_port || host.port || host.ws_port || 443;
-    return { key: json.data.token, address: `wss://${host.host}:${port}/sub` };
+    const addresses = [
+      ...new Set(
+        json.data.host_list?.filter((item) => item.host).map((item) => `wss://${item.host}:${item.wss_port || 443}/sub`) ?? []
+      )
+    ];
+    if (addresses.length === 0) throw new Error("弹幕服务器地址为空");
+    return { key: json.data.token, addresses };
   }
   function appendStartupFailure(message) {
     const now = Date.now();
@@ -5341,7 +5291,6 @@ ws;
     });
     live.addEventListener("close", () => {
       emitCustomChatWsStatus("closed");
-      appendLog("⚪ Chatterbox Chat WS 已断开");
     });
     live.addEventListener("error", () => {
       emitCustomChatWsStatus("error");
@@ -5530,12 +5479,56 @@ ws;
   }
   async function connect() {
     if (!started) return;
+    reconnectTimer = null;
+    const serial = ++connectionSerial;
     try {
       emitCustomChatWsStatus("connecting");
       const roomId = await ensureRoomId();
       const info = await fetchDanmuInfo(roomId);
-      keep = new KeepLiveWS(roomId, info);
-      bindEvents(roomId, keep);
+      if (!started || serial !== connectionSerial) return;
+      const address = info.addresses[addressIndex % info.addresses.length];
+      addressIndex += 1;
+      const uid = Number(getDedeUid() ?? 0) || 0;
+      const buvid = getBuvid();
+      const authBody = {
+        uid,
+        roomid: roomId,
+        protover: 3,
+        platform: "web",
+        type: 2,
+        key: info.key,
+        clientver: "1.14.3"
+      };
+      if (buvid) authBody.buvid = buvid;
+      const live = new LiveWS(roomId, {
+        address,
+        authBody,
+        createWebSocket: (url) => {
+          const ws = new WebSocket(url);
+          ws.addEventListener("close", (event) => {
+            lastWsCloseDetail = `${url} ${closeDetail(event)}`;
+          });
+          ws.addEventListener("error", () => {
+            lastWsCloseDetail = `${url} WebSocket error`;
+          });
+          return ws;
+        }
+      });
+      const previous = liveConnection;
+      liveConnection = live;
+      previous?.close();
+      bindEvents(roomId, live);
+      live.addEventListener("live", () => {
+        reconnectAttempt = 0;
+      });
+      live.addEventListener("close", () => {
+        if (!started || liveConnection !== live) return;
+        const suffix = lastWsCloseDetail ? ` (${lastWsCloseDetail})` : "";
+        appendStartupFailure(live.live ? `connection closed${suffix}` : `closed before room entered${suffix}`);
+        const delay = Math.min(3e4, 3e3 + reconnectAttempt * 2e3);
+        reconnectAttempt += 1;
+        reconnectTimer = setTimeout(() => void connect(), delay);
+      });
     } catch (err) {
       emitCustomChatWsStatus("error");
       const message = err instanceof Error ? err.message : String(err);
@@ -5551,13 +5544,14 @@ ws;
   }
   function stopLiveWsSource() {
     started = false;
+    connectionSerial += 1;
     emitCustomChatWsStatus("off");
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
     }
-    keep?.close();
-    keep = null;
+    liveConnection?.close();
+    liveConnection = null;
   }
   const ROOT_ID = "laplace-custom-chat";
   const STYLE_ID$1 = "laplace-custom-chat-style";
