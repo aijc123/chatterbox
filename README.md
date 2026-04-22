@@ -1,6 +1,6 @@
 # B站独轮车 + 自动跟车
 
-一个给 B 站/哔哩哔哩直播间用的弹幕助手 userscript，可以通过 Greasy Fork、Tampermonkey 或 Violentmonkey 安装。它从 [LAPLACE Chatterbox](https://github.com/laplace-live/chatterbox) fork 而来，保留同传、烂梗库、弹幕替换、AI 规避等能力，并继续加上独轮车、自动跟车、粉丝牌禁言巡检和可接管右侧评论区的 Chatterbox Chat。
+一个给 B 站/哔哩哔哩直播间用的弹幕助手 userscript，可以通过 Greasy Fork、Tampermonkey 或 Violentmonkey 安装。它从 [LAPLACE Chatterbox](https://github.com/laplace-live/chatterbox) fork 而来，保留独轮车、同传、烂梗库、弹幕替换、AI 规避等能力，并更改自动跟车功能，继续加上粉丝牌禁言巡检和可接管右侧评论区的 Chatterbox Chat。
 
 项目链接：
 
