@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.8.11
+// @version      2.8.12
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、粉丝牌禁言巡检、常规发送、同传、烂梗库和弹幕替换规则。
 // @license      AGPL-3.0
@@ -5889,6 +5889,7 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
   let unsubscribeEvents = null;
   let unsubscribeWsStatus = null;
   let disposeSettings = null;
+  let disposeComposer = null;
   let nativeEventObserver = null;
   let root = null;
   let listEl = null;
@@ -5914,6 +5915,8 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
   const sourceCounts = { dom: 0, ws: 0, local: 0 };
   let lastBatchSize = 0;
   let renderFrame = null;
+  let rerenderFrame = null;
+  let rerenderToken = 0;
   function eventToSendableMessage$1(ev) {
     if (!ev.isReply) return ev.text;
     return ev.uname ? `@${ev.uname} ${ev.text}` : ev.text;
@@ -6217,14 +6220,14 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
   function wsStatusLabel(status) {
     if (status === "connecting") return "实时事件源连接中";
     if (status === "live") return "实时事件源正常";
-    if (status === "error") return "实时事件源异常，页面兜底中";
-    if (status === "closed") return "实时事件源断开，页面兜底中";
+    if (status === "error") return "页面兜底运行中";
+    if (status === "closed") return "页面兜底运行中";
     return "实时事件源关闭";
   }
   function updateWsStatus(status) {
     if (!wsStatusEl) return;
     wsStatusEl.textContent = wsStatusLabel(status);
-    wsStatusEl.dataset.status = status;
+    wsStatusEl.dataset.status = status === "error" || status === "closed" ? "fallback" : status;
   }
   function updateMatchCount() {
     if (!matchCountEl) return;
@@ -6385,6 +6388,32 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
     updateMatchCount();
     if (!paused) scrollToBottom();
   }
+  function scheduleRerenderMessages() {
+    rerenderToken++;
+    const token = rerenderToken;
+    if (rerenderFrame !== null) window.cancelAnimationFrame(rerenderFrame);
+    rerenderFrame = window.requestAnimationFrame(() => {
+      rerenderFrame = null;
+      if (!listEl || token !== rerenderToken) return;
+      listEl.replaceChildren();
+      const visible = messages.filter(messageMatchesSearch).slice(-MAX_MESSAGES);
+      let index = 0;
+      const renderChunk = () => {
+        if (!listEl || token !== rerenderToken) return;
+        const end = Math.min(index + 36, visible.length);
+        for (; index < end; index++) renderMessage(visible[index], false, false, false);
+        if (index < visible.length) {
+          rerenderFrame = window.requestAnimationFrame(renderChunk);
+          return;
+        }
+        rerenderFrame = null;
+        updateMatchCount();
+        updatePerfDebug();
+        if (!paused) scrollToBottom();
+      };
+      renderChunk();
+    });
+  }
   function flushRenderQueue() {
     renderFrame = null;
     if (!listEl || renderQueue.length === 0) return;
@@ -6487,7 +6516,7 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
     searchInput.addEventListener("input", () => {
       searchQuery = searchInput?.value ?? "";
       unread = 0;
-      rerenderMessages();
+      scheduleRerenderMessages();
       updateUnread();
     });
     const clearBtn = makeButton("lc-chat-pill", "清屏", "清空自定义评论区", clearMessages);
@@ -6504,7 +6533,7 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
       const btn = makeButton("lc-chat-filter", label, `显示/隐藏${label}`, () => {
         signal.value = !signal.value;
         btn.setAttribute("aria-pressed", signal.value ? "true" : "false");
-        rerenderMessages();
+        scheduleRerenderMessages();
       });
       btn.setAttribute("aria-pressed", signal.value ? "true" : "false");
       filterbar.append(btn);
@@ -6651,10 +6680,10 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
       document.documentElement.classList.toggle("lc-custom-chat-hide-native", customChatHideNative.value);
       if (root) root.dataset.theme = customChatTheme.value;
       if (root) root.dataset.debug = customChatPerfDebug.value ? "true" : "false";
-      syncComposerFromStore();
       updatePerfDebug();
       ensureStyles();
     });
+    disposeComposer = j(syncComposerFromStore);
     unsubscribeEvents = subscribeCustomChatEvents(addEvent);
     unsubscribeWsStatus = subscribeCustomChatWsStatus(updateWsStatus);
     unsubscribeDom = subscribeDanmaku({
@@ -6680,6 +6709,10 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
       disposeSettings();
       disposeSettings = null;
     }
+    if (disposeComposer) {
+      disposeComposer();
+      disposeComposer = null;
+    }
     nativeEventObserver?.disconnect();
     nativeEventObserver = null;
     document.documentElement.classList.remove("lc-custom-chat-hide-native");
@@ -6701,6 +6734,7 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
     messages.length = 0;
     renderQueue.length = 0;
     eventTicks.length = 0;
+    rerenderToken++;
     sourceCounts.dom = 0;
     sourceCounts.ws = 0;
     sourceCounts.local = 0;
@@ -6708,6 +6742,10 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
     if (renderFrame !== null) {
       window.cancelAnimationFrame(renderFrame);
       renderFrame = null;
+    }
+    if (rerenderFrame !== null) {
+      window.cancelAnimationFrame(rerenderFrame);
+      rerenderFrame = null;
     }
     unread = 0;
     paused = false;

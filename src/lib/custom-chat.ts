@@ -676,6 +676,7 @@ let unsubscribeDom: (() => void) | null = null
 let unsubscribeEvents: (() => void) | null = null
 let unsubscribeWsStatus: (() => void) | null = null
 let disposeSettings: (() => void) | null = null
+let disposeComposer: (() => void) | null = null
 let nativeEventObserver: MutationObserver | null = null
 let root: HTMLElement | null = null
 let listEl: HTMLElement | null = null
@@ -701,6 +702,8 @@ const eventTicks: number[] = []
 const sourceCounts: Record<CustomChatEvent['source'], number> = { dom: 0, ws: 0, local: 0 }
 let lastBatchSize = 0
 let renderFrame: number | null = null
+let rerenderFrame: number | null = null
+let rerenderToken = 0
 
 function eventToSendableMessage(ev: DanmakuEvent): string {
   if (!ev.isReply) return ev.text
@@ -1045,15 +1048,15 @@ function messageMatchesSearch(message: CustomChatEvent): boolean {
 function wsStatusLabel(status: CustomChatWsStatus): string {
   if (status === 'connecting') return '实时事件源连接中'
   if (status === 'live') return '实时事件源正常'
-  if (status === 'error') return '实时事件源异常，页面兜底中'
-  if (status === 'closed') return '实时事件源断开，页面兜底中'
+  if (status === 'error') return '页面兜底运行中'
+  if (status === 'closed') return '页面兜底运行中'
   return '实时事件源关闭'
 }
 
 function updateWsStatus(status: CustomChatWsStatus): void {
   if (!wsStatusEl) return
   wsStatusEl.textContent = wsStatusLabel(status)
-  wsStatusEl.dataset.status = status
+  wsStatusEl.dataset.status = status === 'error' || status === 'closed' ? 'fallback' : status
 }
 
 function updateMatchCount(): void {
@@ -1240,6 +1243,33 @@ function rerenderMessages(): void {
   if (!paused) scrollToBottom()
 }
 
+function scheduleRerenderMessages(): void {
+  rerenderToken++
+  const token = rerenderToken
+  if (rerenderFrame !== null) window.cancelAnimationFrame(rerenderFrame)
+  rerenderFrame = window.requestAnimationFrame(() => {
+    rerenderFrame = null
+    if (!listEl || token !== rerenderToken) return
+    listEl.replaceChildren()
+    const visible = messages.filter(messageMatchesSearch).slice(-MAX_MESSAGES)
+    let index = 0
+    const renderChunk = (): void => {
+      if (!listEl || token !== rerenderToken) return
+      const end = Math.min(index + 36, visible.length)
+      for (; index < end; index++) renderMessage(visible[index], false, false, false)
+      if (index < visible.length) {
+        rerenderFrame = window.requestAnimationFrame(renderChunk)
+        return
+      }
+      rerenderFrame = null
+      updateMatchCount()
+      updatePerfDebug()
+      if (!paused) scrollToBottom()
+    }
+    renderChunk()
+  })
+}
+
 function flushRenderQueue(): void {
   renderFrame = null
   if (!listEl || renderQueue.length === 0) return
@@ -1354,7 +1384,7 @@ function createRoot(): HTMLElement {
   searchInput.addEventListener('input', () => {
     searchQuery = searchInput?.value ?? ''
     unread = 0
-    rerenderMessages()
+    scheduleRerenderMessages()
     updateUnread()
   })
 
@@ -1373,7 +1403,7 @@ function createRoot(): HTMLElement {
     const btn = makeButton('lc-chat-filter', label, `显示/隐藏${label}`, () => {
       signal.value = !signal.value
       btn.setAttribute('aria-pressed', signal.value ? 'true' : 'false')
-      rerenderMessages()
+      scheduleRerenderMessages()
     })
     btn.setAttribute('aria-pressed', signal.value ? 'true' : 'false')
     filterbar.append(btn)
@@ -1540,10 +1570,10 @@ export function startCustomChat(): void {
     document.documentElement.classList.toggle('lc-custom-chat-hide-native', customChatHideNative.value)
     if (root) root.dataset.theme = customChatTheme.value
     if (root) root.dataset.debug = customChatPerfDebug.value ? 'true' : 'false'
-    syncComposerFromStore()
     updatePerfDebug()
     ensureStyles()
   })
+  disposeComposer = signalEffect(syncComposerFromStore)
 
   unsubscribeEvents = subscribeCustomChatEvents(addEvent)
   unsubscribeWsStatus = subscribeCustomChatWsStatus(updateWsStatus)
@@ -1571,6 +1601,10 @@ export function stopCustomChat(): void {
     disposeSettings()
     disposeSettings = null
   }
+  if (disposeComposer) {
+    disposeComposer()
+    disposeComposer = null
+  }
   nativeEventObserver?.disconnect()
   nativeEventObserver = null
   document.documentElement.classList.remove('lc-custom-chat-hide-native')
@@ -1592,6 +1626,7 @@ export function stopCustomChat(): void {
   messages.length = 0
   renderQueue.length = 0
   eventTicks.length = 0
+  rerenderToken++
   sourceCounts.dom = 0
   sourceCounts.ws = 0
   sourceCounts.local = 0
@@ -1599,6 +1634,10 @@ export function stopCustomChat(): void {
   if (renderFrame !== null) {
     window.cancelAnimationFrame(renderFrame)
     renderFrame = null
+  }
+  if (rerenderFrame !== null) {
+    window.cancelAnimationFrame(rerenderFrame)
+    rerenderFrame = null
   }
   unread = 0
   paused = false
