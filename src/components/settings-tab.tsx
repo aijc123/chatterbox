@@ -29,9 +29,12 @@ import {
 import { EmoteIds } from './emote-ids'
 
 const SYNC_INTERVAL = 10 * 60 * 1000
-const medalCheckOnlyIssues = gmSignal('medalCheckOnlyIssues', false)
 const medalCheckStatus = gmSignal('medalCheckStatus', '未检查')
 const medalCheckResults = gmSignal<MedalRestrictionCheck[]>('medalCheckResults', [])
+const medalCheckFilter = gmSignal<'issues' | 'restricted' | 'unknown' | 'deactivated' | 'ok' | 'all'>(
+  'medalCheckFilter',
+  'issues'
+)
 
 interface RemoteKeywords {
   global?: { keywords?: Record<string, string> }
@@ -85,9 +88,14 @@ function medalStatusColor(status: MedalRestrictionCheck['status']): string {
   return '#0a7f55'
 }
 
-function getFilteredMedalResults(results: MedalRestrictionCheck[], onlyIssues: boolean): MedalRestrictionCheck[] {
+function getFilteredMedalResults(
+  results: MedalRestrictionCheck[],
+  filter: 'issues' | 'restricted' | 'unknown' | 'deactivated' | 'ok' | 'all'
+): MedalRestrictionCheck[] {
   const sorted = sortMedalResults(results)
-  return onlyIssues ? sorted.filter(result => result.status !== 'ok') : sorted
+  if (filter === 'all') return sorted
+  if (filter === 'issues') return sorted.filter(result => result.status !== 'ok')
+  return sorted.filter(result => result.status === filter)
 }
 
 function formatMedalResultLine(result: MedalRestrictionCheck): string {
@@ -100,14 +108,27 @@ function formatMedalResultLine(result: MedalRestrictionCheck): string {
   return `${header}\n${details}`
 }
 
-function formatMedalCheckReport(results: MedalRestrictionCheck[], status: string, onlyIssues: boolean): string {
+function medalFilterLabel(filter: 'issues' | 'restricted' | 'unknown' | 'deactivated' | 'ok' | 'all'): string {
+  if (filter === 'issues') return '异常'
+  if (filter === 'restricted') return '限制'
+  if (filter === 'unknown') return '未知'
+  if (filter === 'deactivated') return '主播注销'
+  if (filter === 'ok') return '正常'
+  return '全部'
+}
+
+function formatMedalCheckReport(
+  results: MedalRestrictionCheck[],
+  status: string,
+  filter: 'issues' | 'restricted' | 'unknown' | 'deactivated' | 'ok' | 'all'
+): string {
   const counts = getMedalCheckCounts(results)
-  const shown = getFilteredMedalResults(results, onlyIssues)
+  const shown = getFilteredMedalResults(results, filter)
   return [
     '粉丝牌禁言巡检',
     status,
     `统计：限制 ${counts.restricted}，未知 ${counts.unknown}，主播注销 ${counts.deactivated}，正常 ${counts.ok}`,
-    onlyIssues ? `当前复制范围：只显示异常（${shown.length} 条）` : `当前复制范围：全部结果（${shown.length} 条）`,
+    `当前复制范围：${medalFilterLabel(filter)}（${shown.length} 条）`,
     '',
     ...shown.map(formatMedalResultLine),
   ].join('\n\n')
@@ -421,8 +442,8 @@ export function SettingsTab() {
       return
     }
     try {
-      await navigator.clipboard.writeText(formatMedalCheckReport(results, medalCheckStatus.value, medalCheckOnlyIssues.value))
-      medalCheckCopyStatus.value = medalCheckOnlyIssues.value ? '已复制异常结果' : '已复制全部结果'
+      await navigator.clipboard.writeText(formatMedalCheckReport(results, medalCheckStatus.value, medalCheckFilter.value))
+      medalCheckCopyStatus.value = `已复制${medalFilterLabel(medalCheckFilter.value)}结果`
       setTimeout(() => {
         medalCheckCopyStatus.value = ''
       }, 1800)
@@ -836,18 +857,6 @@ export function SettingsTab() {
           <button type='button' disabled={medalCheckResults.value.length === 0} onClick={() => void copyMedalCheckResults()}>
             复制巡检结果
           </button>
-          <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
-            <input
-              id='medalCheckOnlyIssues'
-              type='checkbox'
-              checked={medalCheckOnlyIssues.value}
-              disabled={medalCheckResults.value.length === 0}
-              onInput={e => {
-                medalCheckOnlyIssues.value = e.currentTarget.checked
-              }}
-            />
-            <label htmlFor='medalCheckOnlyIssues'>只显示异常</label>
-          </span>
           <span style={{ color: medalCheckStatus.value.includes('发现限制') ? '#a15c00' : '#666' }}>
             {medalCheckStatus.value}
           </span>
@@ -857,24 +866,91 @@ export function SettingsTab() {
           <div className='cb-stack'>
             {(() => {
               const counts = getMedalCheckCounts(medalCheckResults.value)
-              const shownCount = getFilteredMedalResults(medalCheckResults.value, medalCheckOnlyIssues.value).length
+              const filter = medalCheckFilter.value
+              const shownCount = getFilteredMedalResults(medalCheckResults.value, filter).length
+              const filterButtonStyle = (
+                active: boolean,
+                color?: string
+              ): Record<string, string | number | undefined> => ({
+                minHeight: '24px',
+                padding: '2px 6px',
+                borderColor: active ? color : undefined,
+                background: active ? 'rgba(0, 122, 255, .08)' : undefined,
+                color,
+                boxShadow: active ? 'inset 0 0 0 1px currentColor' : undefined,
+              })
               return (
                 <div className='cb-panel' style={{ display: 'grid', gap: '6px' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '4px' }}>
-                    <span style={{ color: '#a15c00' }}>限制 {counts.restricted}</span>
-                    <span style={{ color: '#666' }}>未知 {counts.unknown}</span>
-                    <span style={{ color: '#8e8e93' }}>注销 {counts.deactivated}</span>
-                    <span style={{ color: '#0a7f55' }}>正常 {counts.ok}</span>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
+                    <button
+                      type='button'
+                      aria-pressed={filter === 'issues'}
+                      onClick={() => {
+                        medalCheckFilter.value = 'issues'
+                      }}
+                      style={filterButtonStyle(filter === 'issues', '#a15c00')}
+                    >
+                      异常 {counts.restricted + counts.unknown + counts.deactivated}
+                    </button>
+                    <button
+                      type='button'
+                      aria-pressed={filter === 'all'}
+                      onClick={() => {
+                        medalCheckFilter.value = 'all'
+                      }}
+                      style={filterButtonStyle(filter === 'all')}
+                    >
+                      全部 {medalCheckResults.value.length}
+                    </button>
+                    <button
+                      type='button'
+                      aria-pressed={filter === 'restricted'}
+                      onClick={() => {
+                        medalCheckFilter.value = 'restricted'
+                      }}
+                      style={filterButtonStyle(filter === 'restricted', '#a15c00')}
+                    >
+                      限制 {counts.restricted}
+                    </button>
+                    <button
+                      type='button'
+                      aria-pressed={filter === 'unknown'}
+                      onClick={() => {
+                        medalCheckFilter.value = 'unknown'
+                      }}
+                      style={filterButtonStyle(filter === 'unknown', '#666')}
+                    >
+                      未知 {counts.unknown}
+                    </button>
+                    <button
+                      type='button'
+                      aria-pressed={filter === 'deactivated'}
+                      onClick={() => {
+                        medalCheckFilter.value = 'deactivated'
+                      }}
+                      style={filterButtonStyle(filter === 'deactivated', '#8e8e93')}
+                    >
+                      注销 {counts.deactivated}
+                    </button>
+                    <button
+                      type='button'
+                      aria-pressed={filter === 'ok'}
+                      onClick={() => {
+                        medalCheckFilter.value = 'ok'
+                      }}
+                      style={filterButtonStyle(filter === 'ok', '#0a7f55')}
+                    >
+                      正常 {counts.ok}
+                    </button>
                   </div>
                   <div className='cb-note'>
-                    当前显示 {shownCount} / {medalCheckResults.value.length} 条
-                    {medalCheckOnlyIssues.value ? '，已隐藏正常房间' : ''}
+                    当前显示：{medalFilterLabel(filter)} {shownCount} / {medalCheckResults.value.length} 条
                   </div>
                 </div>
               )
             })()}
             <div style={{ maxHeight: '220px', overflowY: 'auto', display: 'grid', gap: '.35em' }}>
-            {getFilteredMedalResults(medalCheckResults.value, medalCheckOnlyIssues.value).map(result => {
+            {getFilteredMedalResults(medalCheckResults.value, medalCheckFilter.value).map(result => {
               const color = medalStatusColor(result.status)
               const title = medalStatusTitle(result.status)
               return (
