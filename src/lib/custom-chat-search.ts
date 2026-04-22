@@ -126,7 +126,7 @@ function tokenMatches(message: CustomChatEvent, token: string): boolean {
     if (key === 'kind' || key === 'type')
       return includesFolded(message.kind, value) || includesFolded(kindLabel(message.kind), value)
     if (key === 'source') return includesFolded(message.source, value)
-    if (key === 'is') return value.toLowerCase() === 'reply' ? message.isReply : true
+    if (key === 'is') return value.toLowerCase() === 'reply' ? message.isReply : false
   }
   return includesFolded(message.text, normalized) || includesFolded(message.uname, normalized)
 }
