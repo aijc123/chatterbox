@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.7.0
+// @version      2.8.0
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、粉丝牌禁言巡检、常规发送、同传、烂梗库和弹幕替换规则。
 // @license      AGPL-3.0
@@ -1120,6 +1120,12 @@
   const customChatEnabled = gmSignal("customChatEnabled", true);
   const customChatHideNative = gmSignal("customChatHideNative", true);
   const customChatUseWs = gmSignal("customChatUseWs", true);
+  const customChatTheme = gmSignal("customChatTheme", "laplace");
+  const customChatShowDanmaku = gmSignal("customChatShowDanmaku", true);
+  const customChatShowGift = gmSignal("customChatShowGift", true);
+  const customChatShowSuperchat = gmSignal("customChatShowSuperchat", true);
+  const customChatShowEnter = gmSignal("customChatShowEnter", true);
+  const customChatShowNotice = gmSignal("customChatShowNotice", true);
   const customChatCss = gmSignal("customChatCss", "");
   const unlockForbidLive = gmSignal("unlockForbidLive", true);
   const guardRoomEndpoint = gmSignal("guardRoomEndpoint", "https://bilibili-guard-room.vercel.app");
@@ -2972,6 +2978,8 @@ u$2(
     }
   }
   const handlers = new Set();
+  const wsStatusHandlers = new Set();
+  let currentWsStatus = "off";
   function subscribeCustomChatEvents(handler) {
     handlers.add(handler);
     return () => handlers.delete(handler);
@@ -2979,6 +2987,17 @@ u$2(
   function emitCustomChatEvent(event) {
     for (const handler of handlers) {
       handler(event);
+    }
+  }
+  function subscribeCustomChatWsStatus(handler) {
+    wsStatusHandlers.add(handler);
+    handler(currentWsStatus);
+    return () => wsStatusHandlers.delete(handler);
+  }
+  function emitCustomChatWsStatus(status) {
+    currentWsStatus = status;
+    for (const handler of wsStatusHandlers) {
+      handler(status);
     }
   }
   function chatEventTime(ts = Date.now()) {
@@ -4915,9 +4934,18 @@ ws;
     emitCustomChatEvent(event);
   }
   function bindEvents(roomId, live) {
-    live.addEventListener("live", () => appendLog(`🟢 Chatterbox Chat WS 已连接：${roomId}`));
-    live.addEventListener("close", () => appendLog("⚪ Chatterbox Chat WS 已断开"));
-    live.addEventListener("error", () => appendLog("🔴 Chatterbox Chat WS 连接异常，DOM 消息源继续兜底"));
+    live.addEventListener("live", () => {
+      emitCustomChatWsStatus("live");
+      appendLog(`🟢 Chatterbox Chat WS 已连接：${roomId}`);
+    });
+    live.addEventListener("close", () => {
+      emitCustomChatWsStatus("closed");
+      appendLog("⚪ Chatterbox Chat WS 已断开");
+    });
+    live.addEventListener("error", () => {
+      emitCustomChatWsStatus("error");
+      appendLog("🔴 Chatterbox Chat WS 连接异常，DOM 消息源继续兜底");
+    });
     live.addEventListener("DANMU_MSG", ({ data }) => {
       const info = data.info;
       const text = info[1];
@@ -5033,11 +5061,13 @@ ws;
   async function connect() {
     if (!started) return;
     try {
+      emitCustomChatWsStatus("connecting");
       const roomId = await ensureRoomId();
       const info = await fetchDanmuInfo(roomId);
       keep = new KeepLiveWS(roomId, info);
       bindEvents(roomId, keep);
     } catch (err) {
+      emitCustomChatWsStatus("error");
       const message = err instanceof Error ? err.message : String(err);
       appendLog(`🔴 Chatterbox Chat WS 启动失败：${message}`);
       reconnectTimer = setTimeout(() => void connect(), 8e3);
@@ -5046,10 +5076,12 @@ ws;
   function startLiveWsSource() {
     if (started) return;
     started = true;
+    emitCustomChatWsStatus("connecting");
     void connect();
   }
   function stopLiveWsSource() {
     started = false;
+    emitCustomChatWsStatus("off");
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
@@ -5076,6 +5108,48 @@ ws;
   background: #101214;
   border-left: 1px solid rgba(255, 255, 255, .08);
   overflow: hidden;
+}
+#${ROOT_ID}[data-theme="light"] {
+  color: #1d1d1f;
+  background: #f7f8fa;
+  border-left-color: rgba(0, 0, 0, .08);
+}
+#${ROOT_ID}[data-theme="light"] .lc-chat-toolbar,
+#${ROOT_ID}[data-theme="light"] .lc-chat-composer {
+  background: rgba(0, 0, 0, .035);
+  border-color: rgba(0, 0, 0, .08);
+}
+#${ROOT_ID}[data-theme="light"] .lc-chat-title,
+#${ROOT_ID}[data-theme="light"] .lc-chat-text,
+#${ROOT_ID}[data-theme="light"] textarea {
+  color: #1d1d1f;
+}
+#${ROOT_ID}[data-theme="light"] textarea,
+#${ROOT_ID}[data-theme="light"] .lc-chat-search {
+  color: #1d1d1f;
+  background: #fff;
+  border-color: rgba(0, 0, 0, .12);
+}
+#${ROOT_ID}[data-theme="light"] .lc-chat-pill,
+#${ROOT_ID}[data-theme="light"] .lc-chat-action,
+#${ROOT_ID}[data-theme="light"] .lc-chat-badge {
+  color: #1d1d1f;
+  background: rgba(0, 0, 0, .06);
+}
+#${ROOT_ID}[data-theme="compact"] .lc-chat-avatar {
+  display: none;
+}
+#${ROOT_ID}[data-theme="compact"] .lc-chat-message {
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 4px 6px;
+  gap: 3px 5px;
+}
+#${ROOT_ID}[data-theme="compact"] .lc-chat-meta {
+  grid-column: 1 / 2;
+}
+#${ROOT_ID}[data-theme="compact"] .lc-chat-text {
+  grid-column: 1 / -1;
+  font-size: 12px;
 }
 #${ROOT_ID} .lc-chat-toolbar {
   min-height: 34px;
@@ -5106,6 +5180,30 @@ ws;
 #${ROOT_ID} .lc-chat-pill[aria-pressed="true"] {
   color: #111;
   background: #8ee6c9;
+  border-color: #8ee6c9;
+}
+#${ROOT_ID} .lc-chat-filterbar {
+  display: flex;
+  gap: 4px;
+  padding: 4px 8px;
+  overflow-x: auto;
+  background: rgba(255, 255, 255, .025);
+  border-bottom: 1px solid rgba(255, 255, 255, .06);
+}
+#${ROOT_ID} .lc-chat-filter {
+  flex: 0 0 auto;
+  height: 22px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, .08);
+  color: #dce3ee;
+  padding: 0 7px;
+  font-size: 11px;
+  cursor: pointer;
+}
+#${ROOT_ID} .lc-chat-filter[aria-pressed="true"] {
+  background: #8ee6c9;
+  color: #111;
   border-color: #8ee6c9;
 }
 #${ROOT_ID} .lc-chat-search {
@@ -5305,6 +5403,18 @@ ws;
   color: #8f9aaa;
   font-size: 11px;
 }
+#${ROOT_ID} .lc-chat-ws-status {
+  font-size: 11px;
+  color: #8f9aaa;
+}
+#${ROOT_ID} .lc-chat-ws-status[data-status="live"] {
+  color: #8ee6c9;
+}
+#${ROOT_ID} .lc-chat-ws-status[data-status="error"] {
+  color: #ff7a59;
+}
+html.lc-custom-chat-hide-native .chat-history-panel,
+html.lc-custom-chat-hide-native .chat-history-list,
 html.lc-custom-chat-hide-native .chat-items,
 html.lc-custom-chat-hide-native .chat-control-panel,
 html.lc-custom-chat-hide-native .chat-input-panel,
@@ -5315,6 +5425,7 @@ html.lc-custom-chat-hide-native .chat-input-ctnr {
 `;
   let unsubscribeDom = null;
   let unsubscribeEvents = null;
+  let unsubscribeWsStatus = null;
   let disposeSettings = null;
   let root = null;
   let listEl = null;
@@ -5322,6 +5433,7 @@ html.lc-custom-chat-hide-native .chat-input-ctnr {
   let unreadEl = null;
   let searchInput = null;
   let matchCountEl = null;
+  let wsStatusEl = null;
   let textarea = null;
   let countEl = null;
   let styleEl$1 = null;
@@ -5381,7 +5493,16 @@ html.lc-custom-chat-hide-native .chat-input-ctnr {
     }
     return includesFolded(message.text, normalized) || includesFolded(message.uname, normalized);
   }
+  function kindVisible(kind) {
+    if (kind === "danmaku") return customChatShowDanmaku.value;
+    if (kind === "gift") return customChatShowGift.value;
+    if (kind === "superchat") return customChatShowSuperchat.value;
+    if (kind === "enter") return customChatShowEnter.value;
+    if (kind === "notice" || kind === "system") return customChatShowNotice.value;
+    return true;
+  }
   function messageMatchesSearch(message) {
+    if (!kindVisible(message.kind)) return false;
     const tokens = splitQuery(searchQuery);
     for (const rawToken of tokens) {
       const negative = rawToken.startsWith("-");
@@ -5390,6 +5511,18 @@ html.lc-custom-chat-hide-native .chat-input-ctnr {
       if (negative ? matched : !matched) return false;
     }
     return true;
+  }
+  function wsStatusLabel(status) {
+    if (status === "connecting") return "WS 连接中";
+    if (status === "live") return "WS 已连接";
+    if (status === "error") return "WS 异常";
+    if (status === "closed") return "WS 已断开";
+    return "WS 关闭";
+  }
+  function updateWsStatus(status) {
+    if (!wsStatusEl) return;
+    wsStatusEl.textContent = wsStatusLabel(status);
+    wsStatusEl.dataset.status = status;
   }
   function updateMatchCount() {
     if (!matchCountEl) return;
@@ -5533,6 +5666,7 @@ html.lc-custom-chat-hide-native .chat-input-ctnr {
   function createRoot() {
     const panel = document.createElement("section");
     panel.id = ROOT_ID;
+    panel.dataset.theme = customChatTheme.value;
     const toolbar = document.createElement("div");
     toolbar.className = "lc-chat-toolbar";
     const title = document.createElement("div");
@@ -5552,6 +5686,9 @@ html.lc-custom-chat-hide-native .chat-input-ctnr {
     matchCountEl = document.createElement("span");
     matchCountEl.className = "lc-chat-hint";
     matchCountEl.style.display = "none";
+    wsStatusEl = document.createElement("span");
+    wsStatusEl.className = "lc-chat-ws-status";
+    updateWsStatus("off");
     searchInput = document.createElement("input");
     searchInput.type = "search";
     searchInput.className = "lc-chat-search";
@@ -5564,7 +5701,25 @@ html.lc-custom-chat-hide-native .chat-input-ctnr {
       updateUnread();
     });
     const clearBtn = makeButton("lc-chat-pill", "清屏", "清空自定义评论区", clearMessages);
-    toolbar.append(title, searchInput, matchCountEl, pauseBtn, unreadEl, clearBtn);
+    toolbar.append(title, searchInput, matchCountEl, pauseBtn, unreadEl, wsStatusEl, clearBtn);
+    const filterbar = document.createElement("div");
+    filterbar.className = "lc-chat-filterbar";
+    const filters = [
+      ["danmaku", "弹幕", customChatShowDanmaku],
+      ["gift", "礼物", customChatShowGift],
+      ["superchat", "SC", customChatShowSuperchat],
+      ["enter", "进场", customChatShowEnter],
+      ["notice", "通知", customChatShowNotice]
+    ];
+    for (const [, label, signal] of filters) {
+      const btn = makeButton("lc-chat-filter", label, `显示/隐藏${label}`, () => {
+        signal.value = !signal.value;
+        btn.setAttribute("aria-pressed", signal.value ? "true" : "false");
+        rerenderMessages();
+      });
+      btn.setAttribute("aria-pressed", signal.value ? "true" : "false");
+      filterbar.append(btn);
+    }
     listEl = document.createElement("div");
     listEl.className = "lc-chat-list";
     const composer = document.createElement("div");
@@ -5592,7 +5747,7 @@ html.lc-custom-chat-hide-native .chat-input-ctnr {
     hint.textContent = "可偷、+1、复制；设置里可贴自定义 CSS";
     sendRow.append(sendBtn, hint);
     composer.append(inputWrap, sendRow);
-    panel.append(toolbar, listEl, composer);
+    panel.append(toolbar, filterbar, listEl, composer);
     updateUnread();
     return panel;
   }
@@ -5616,6 +5771,7 @@ html.lc-custom-chat-hide-native .chat-input-ctnr {
     const parent = container.parentElement;
     if (!parent) return;
     root = createRoot();
+    root.dataset.theme = customChatTheme.value;
     parent.insertBefore(root, container);
     rerenderMessages();
   }
@@ -5648,9 +5804,11 @@ html.lc-custom-chat-hide-native .chat-input-ctnr {
     ensureStyles();
     disposeSettings = j(() => {
       document.documentElement.classList.toggle("lc-custom-chat-hide-native", customChatHideNative.value);
+      if (root) root.dataset.theme = customChatTheme.value;
       ensureStyles();
     });
     unsubscribeEvents = subscribeCustomChatEvents(addEvent);
+    unsubscribeWsStatus = subscribeCustomChatWsStatus(updateWsStatus);
     unsubscribeDom = subscribeDanmaku({
       onAttach: mount$1,
       onMessage: addDomMessage,
@@ -5665,6 +5823,10 @@ html.lc-custom-chat-hide-native .chat-input-ctnr {
     if (unsubscribeEvents) {
       unsubscribeEvents();
       unsubscribeEvents = null;
+    }
+    if (unsubscribeWsStatus) {
+      unsubscribeWsStatus();
+      unsubscribeWsStatus = null;
     }
     if (disposeSettings) {
       disposeSettings();
@@ -5684,6 +5846,7 @@ html.lc-custom-chat-hide-native .chat-input-ctnr {
     countEl = null;
     searchInput = null;
     matchCountEl = null;
+    wsStatusEl = null;
     messages.length = 0;
     unread = 0;
     paused = false;
@@ -8429,6 +8592,25 @@ u$2("label", { htmlFor: "customChatUseWs", style: { color: customChatEnabled.val
                   ]
                 }
               ),
+u$2("div", { className: "cb-row", style: { paddingLeft: "1.5em" }, children: [
+u$2("label", { htmlFor: "customChatTheme", children: "评论区主题" }),
+u$2(
+                  "select",
+                  {
+                    id: "customChatTheme",
+                    value: customChatTheme.value,
+                    disabled: !customChatEnabled.value,
+                    onChange: (e2) => {
+                      customChatTheme.value = e2.currentTarget.value;
+                    },
+                    children: [
+u$2("option", { value: "laplace", children: "Laplace Dark" }),
+u$2("option", { value: "light", children: "Light" }),
+u$2("option", { value: "compact", children: "Compact" })
+                    ]
+                  }
+                )
+              ] }),
 u$2("details", { style: { marginLeft: "1.5em" }, children: [
 u$2("summary", { children: "自定义评论区 CSS" }),
 u$2("div", { className: "cb-body cb-stack", children: [

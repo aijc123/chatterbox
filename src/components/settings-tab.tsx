@@ -18,6 +18,7 @@ import {
   customChatCss,
   customChatEnabled,
   customChatHideNative,
+  customChatTheme,
   customChatUseWs,
   danmakuDirectAlwaysShow,
   danmakuDirectConfirm,
@@ -1146,6 +1147,21 @@ export function SettingsTab() {
               直连 WebSocket 获取礼物、醒目留言、进场等事件（DOM 兜底）
             </label>
           </span>
+          <div className='cb-row' style={{ paddingLeft: '1.5em' }}>
+            <label htmlFor='customChatTheme'>评论区主题</label>
+            <select
+              id='customChatTheme'
+              value={customChatTheme.value}
+              disabled={!customChatEnabled.value}
+              onChange={e => {
+                customChatTheme.value = e.currentTarget.value as typeof customChatTheme.value
+              }}
+            >
+              <option value='laplace'>Laplace Dark</option>
+              <option value='light'>Light</option>
+              <option value='compact'>Compact</option>
+            </select>
+          </div>
           <details style={{ marginLeft: '1.5em' }}>
             <summary>自定义评论区 CSS</summary>
             <div className='cb-body cb-stack'>

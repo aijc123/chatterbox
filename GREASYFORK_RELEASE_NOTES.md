@@ -1,5 +1,12 @@
 # Greasy Fork Release Notes
 
+## 2.8.0
+
+- Chatterbox Chat 强化右侧评论区接管布局，补充更多原生评论容器隐藏选择器。
+- 新增评论区事件过滤条，可快速显示/隐藏弹幕、礼物、SC、进场、通知。
+- 新增 WS 状态显示，能看到直连弹幕源是否连接、关闭或异常。
+- 新增主题预设：Laplace Dark、Light、Compact。
+
 ## 2.7.0
 
 - Chatterbox Chat 支持直连 B 站直播 WebSocket，使用 `@laplace.live/ws/client` 自动重连。

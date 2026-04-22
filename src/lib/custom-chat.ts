@@ -6,12 +6,24 @@ import {
   chatEventTime,
   emitCustomChatEvent,
   subscribeCustomChatEvents,
+  subscribeCustomChatWsStatus,
   type CustomChatEvent,
   type CustomChatKind,
+  type CustomChatWsStatus,
 } from './custom-chat-events'
 import { BASE_URL } from './const'
 import { hasRecentWsDanmaku } from './live-ws-source'
-import { customChatCss, customChatHideNative, danmakuDirectConfirm } from './store'
+import {
+  customChatCss,
+  customChatHideNative,
+  customChatShowDanmaku,
+  customChatShowEnter,
+  customChatShowGift,
+  customChatShowNotice,
+  customChatShowSuperchat,
+  customChatTheme,
+  danmakuDirectConfirm,
+} from './store'
 
 const ROOT_ID = 'laplace-custom-chat'
 const STYLE_ID = 'laplace-custom-chat-style'
@@ -33,6 +45,48 @@ const STYLE = `
   background: #101214;
   border-left: 1px solid rgba(255, 255, 255, .08);
   overflow: hidden;
+}
+#${ROOT_ID}[data-theme="light"] {
+  color: #1d1d1f;
+  background: #f7f8fa;
+  border-left-color: rgba(0, 0, 0, .08);
+}
+#${ROOT_ID}[data-theme="light"] .lc-chat-toolbar,
+#${ROOT_ID}[data-theme="light"] .lc-chat-composer {
+  background: rgba(0, 0, 0, .035);
+  border-color: rgba(0, 0, 0, .08);
+}
+#${ROOT_ID}[data-theme="light"] .lc-chat-title,
+#${ROOT_ID}[data-theme="light"] .lc-chat-text,
+#${ROOT_ID}[data-theme="light"] textarea {
+  color: #1d1d1f;
+}
+#${ROOT_ID}[data-theme="light"] textarea,
+#${ROOT_ID}[data-theme="light"] .lc-chat-search {
+  color: #1d1d1f;
+  background: #fff;
+  border-color: rgba(0, 0, 0, .12);
+}
+#${ROOT_ID}[data-theme="light"] .lc-chat-pill,
+#${ROOT_ID}[data-theme="light"] .lc-chat-action,
+#${ROOT_ID}[data-theme="light"] .lc-chat-badge {
+  color: #1d1d1f;
+  background: rgba(0, 0, 0, .06);
+}
+#${ROOT_ID}[data-theme="compact"] .lc-chat-avatar {
+  display: none;
+}
+#${ROOT_ID}[data-theme="compact"] .lc-chat-message {
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 4px 6px;
+  gap: 3px 5px;
+}
+#${ROOT_ID}[data-theme="compact"] .lc-chat-meta {
+  grid-column: 1 / 2;
+}
+#${ROOT_ID}[data-theme="compact"] .lc-chat-text {
+  grid-column: 1 / -1;
+  font-size: 12px;
 }
 #${ROOT_ID} .lc-chat-toolbar {
   min-height: 34px;
@@ -63,6 +117,30 @@ const STYLE = `
 #${ROOT_ID} .lc-chat-pill[aria-pressed="true"] {
   color: #111;
   background: #8ee6c9;
+  border-color: #8ee6c9;
+}
+#${ROOT_ID} .lc-chat-filterbar {
+  display: flex;
+  gap: 4px;
+  padding: 4px 8px;
+  overflow-x: auto;
+  background: rgba(255, 255, 255, .025);
+  border-bottom: 1px solid rgba(255, 255, 255, .06);
+}
+#${ROOT_ID} .lc-chat-filter {
+  flex: 0 0 auto;
+  height: 22px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, .08);
+  color: #dce3ee;
+  padding: 0 7px;
+  font-size: 11px;
+  cursor: pointer;
+}
+#${ROOT_ID} .lc-chat-filter[aria-pressed="true"] {
+  background: #8ee6c9;
+  color: #111;
   border-color: #8ee6c9;
 }
 #${ROOT_ID} .lc-chat-search {
@@ -262,6 +340,18 @@ const STYLE = `
   color: #8f9aaa;
   font-size: 11px;
 }
+#${ROOT_ID} .lc-chat-ws-status {
+  font-size: 11px;
+  color: #8f9aaa;
+}
+#${ROOT_ID} .lc-chat-ws-status[data-status="live"] {
+  color: #8ee6c9;
+}
+#${ROOT_ID} .lc-chat-ws-status[data-status="error"] {
+  color: #ff7a59;
+}
+html.lc-custom-chat-hide-native .chat-history-panel,
+html.lc-custom-chat-hide-native .chat-history-list,
 html.lc-custom-chat-hide-native .chat-items,
 html.lc-custom-chat-hide-native .chat-control-panel,
 html.lc-custom-chat-hide-native .chat-input-panel,
@@ -273,6 +363,7 @@ html.lc-custom-chat-hide-native .chat-input-ctnr {
 
 let unsubscribeDom: (() => void) | null = null
 let unsubscribeEvents: (() => void) | null = null
+let unsubscribeWsStatus: (() => void) | null = null
 let disposeSettings: (() => void) | null = null
 let root: HTMLElement | null = null
 let listEl: HTMLElement | null = null
@@ -280,6 +371,7 @@ let pauseBtn: HTMLButtonElement | null = null
 let unreadEl: HTMLElement | null = null
 let searchInput: HTMLInputElement | null = null
 let matchCountEl: HTMLElement | null = null
+let wsStatusEl: HTMLElement | null = null
 let textarea: HTMLTextAreaElement | null = null
 let countEl: HTMLElement | null = null
 let styleEl: HTMLStyleElement | null = null
@@ -348,7 +440,17 @@ function tokenMatches(message: CustomChatEvent, token: string): boolean {
   return includesFolded(message.text, normalized) || includesFolded(message.uname, normalized)
 }
 
+function kindVisible(kind: CustomChatKind): boolean {
+  if (kind === 'danmaku') return customChatShowDanmaku.value
+  if (kind === 'gift') return customChatShowGift.value
+  if (kind === 'superchat') return customChatShowSuperchat.value
+  if (kind === 'enter') return customChatShowEnter.value
+  if (kind === 'notice' || kind === 'system') return customChatShowNotice.value
+  return true
+}
+
 function messageMatchesSearch(message: CustomChatEvent): boolean {
+  if (!kindVisible(message.kind)) return false
   const tokens = splitQuery(searchQuery)
   for (const rawToken of tokens) {
     const negative = rawToken.startsWith('-')
@@ -357,6 +459,20 @@ function messageMatchesSearch(message: CustomChatEvent): boolean {
     if (negative ? matched : !matched) return false
   }
   return true
+}
+
+function wsStatusLabel(status: CustomChatWsStatus): string {
+  if (status === 'connecting') return 'WS 连接中'
+  if (status === 'live') return 'WS 已连接'
+  if (status === 'error') return 'WS 异常'
+  if (status === 'closed') return 'WS 已断开'
+  return 'WS 关闭'
+}
+
+function updateWsStatus(status: CustomChatWsStatus): void {
+  if (!wsStatusEl) return
+  wsStatusEl.textContent = wsStatusLabel(status)
+  wsStatusEl.dataset.status = status
 }
 
 function updateMatchCount(): void {
@@ -521,6 +637,7 @@ function updateCount(): void {
 function createRoot(): HTMLElement {
   const panel = document.createElement('section')
   panel.id = ROOT_ID
+  panel.dataset.theme = customChatTheme.value
 
   const toolbar = document.createElement('div')
   toolbar.className = 'lc-chat-toolbar'
@@ -543,6 +660,9 @@ function createRoot(): HTMLElement {
   matchCountEl = document.createElement('span')
   matchCountEl.className = 'lc-chat-hint'
   matchCountEl.style.display = 'none'
+  wsStatusEl = document.createElement('span')
+  wsStatusEl.className = 'lc-chat-ws-status'
+  updateWsStatus('off')
 
   searchInput = document.createElement('input')
   searchInput.type = 'search'
@@ -558,7 +678,26 @@ function createRoot(): HTMLElement {
 
   const clearBtn = makeButton('lc-chat-pill', '清屏', '清空自定义评论区', clearMessages)
 
-  toolbar.append(title, searchInput, matchCountEl, pauseBtn, unreadEl, clearBtn)
+  toolbar.append(title, searchInput, matchCountEl, pauseBtn, unreadEl, wsStatusEl, clearBtn)
+
+  const filterbar = document.createElement('div')
+  filterbar.className = 'lc-chat-filterbar'
+  const filters: Array<[CustomChatKind, string, typeof customChatShowDanmaku]> = [
+    ['danmaku', '弹幕', customChatShowDanmaku],
+    ['gift', '礼物', customChatShowGift],
+    ['superchat', 'SC', customChatShowSuperchat],
+    ['enter', '进场', customChatShowEnter],
+    ['notice', '通知', customChatShowNotice],
+  ]
+  for (const [, label, signal] of filters) {
+    const btn = makeButton('lc-chat-filter', label, `显示/隐藏${label}`, () => {
+      signal.value = !signal.value
+      btn.setAttribute('aria-pressed', signal.value ? 'true' : 'false')
+      rerenderMessages()
+    })
+    btn.setAttribute('aria-pressed', signal.value ? 'true' : 'false')
+    filterbar.append(btn)
+  }
 
   listEl = document.createElement('div')
   listEl.className = 'lc-chat-list'
@@ -594,7 +733,7 @@ function createRoot(): HTMLElement {
   sendRow.append(sendBtn, hint)
 
   composer.append(inputWrap, sendRow)
-  panel.append(toolbar, listEl, composer)
+  panel.append(toolbar, filterbar, listEl, composer)
   updateUnread()
   return panel
 }
@@ -620,6 +759,7 @@ function mount(container: HTMLElement): void {
   const parent = container.parentElement
   if (!parent) return
   root = createRoot()
+  root.dataset.theme = customChatTheme.value
   parent.insertBefore(root, container)
   rerenderMessages()
 }
@@ -656,10 +796,12 @@ export function startCustomChat(): void {
   ensureStyles()
   disposeSettings = signalEffect(() => {
     document.documentElement.classList.toggle('lc-custom-chat-hide-native', customChatHideNative.value)
+    if (root) root.dataset.theme = customChatTheme.value
     ensureStyles()
   })
 
   unsubscribeEvents = subscribeCustomChatEvents(addEvent)
+  unsubscribeWsStatus = subscribeCustomChatWsStatus(updateWsStatus)
   unsubscribeDom = subscribeDanmaku({
     onAttach: mount,
     onMessage: addDomMessage,
@@ -675,6 +817,10 @@ export function stopCustomChat(): void {
   if (unsubscribeEvents) {
     unsubscribeEvents()
     unsubscribeEvents = null
+  }
+  if (unsubscribeWsStatus) {
+    unsubscribeWsStatus()
+    unsubscribeWsStatus = null
   }
   if (disposeSettings) {
     disposeSettings()
@@ -694,6 +840,7 @@ export function stopCustomChat(): void {
   countEl = null
   searchInput = null
   matchCountEl = null
+  wsStatusEl = null
   messages.length = 0
   unread = 0
   paused = false

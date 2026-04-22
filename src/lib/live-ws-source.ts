@@ -2,7 +2,7 @@ import { KeepLiveWS } from '@laplace.live/ws/client'
 
 import { ensureRoomId } from './api'
 import { BASE_URL } from './const'
-import { chatEventTime, emitCustomChatEvent, type CustomChatEvent } from './custom-chat-events'
+import { chatEventTime, emitCustomChatEvent, emitCustomChatWsStatus, type CustomChatEvent } from './custom-chat-events'
 import { appendLog } from './log'
 
 interface DanmuInfoResponse {
@@ -79,9 +79,18 @@ function emit(event: CustomChatEvent): void {
 }
 
 function bindEvents(roomId: number, live: KeepLiveWS): void {
-  live.addEventListener('live', () => appendLog(`🟢 Chatterbox Chat WS 已连接：${roomId}`))
-  live.addEventListener('close', () => appendLog('⚪ Chatterbox Chat WS 已断开'))
-  live.addEventListener('error', () => appendLog('🔴 Chatterbox Chat WS 连接异常，DOM 消息源继续兜底'))
+  live.addEventListener('live', () => {
+    emitCustomChatWsStatus('live')
+    appendLog(`🟢 Chatterbox Chat WS 已连接：${roomId}`)
+  })
+  live.addEventListener('close', () => {
+    emitCustomChatWsStatus('closed')
+    appendLog('⚪ Chatterbox Chat WS 已断开')
+  })
+  live.addEventListener('error', () => {
+    emitCustomChatWsStatus('error')
+    appendLog('🔴 Chatterbox Chat WS 连接异常，DOM 消息源继续兜底')
+  })
 
   live.addEventListener('DANMU_MSG', ({ data }) => {
     const info = data.info
@@ -204,11 +213,13 @@ function bindEvents(roomId: number, live: KeepLiveWS): void {
 async function connect(): Promise<void> {
   if (!started) return
   try {
+    emitCustomChatWsStatus('connecting')
     const roomId = await ensureRoomId()
     const info = await fetchDanmuInfo(roomId)
     keep = new KeepLiveWS(roomId, info)
     bindEvents(roomId, keep)
   } catch (err) {
+    emitCustomChatWsStatus('error')
     const message = err instanceof Error ? err.message : String(err)
     appendLog(`🔴 Chatterbox Chat WS 启动失败：${message}`)
     reconnectTimer = setTimeout(() => void connect(), 8000)
@@ -218,11 +229,13 @@ async function connect(): Promise<void> {
 export function startLiveWsSource(): void {
   if (started) return
   started = true
+  emitCustomChatWsStatus('connecting')
   void connect()
 }
 
 export function stopLiveWsSource(): void {
   started = false
+  emitCustomChatWsStatus('off')
   if (reconnectTimer) {
     clearTimeout(reconnectTimer)
     reconnectTimer = null
