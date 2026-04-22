@@ -1,5 +1,11 @@
 # Greasy Fork Release Notes
 
+## 2.8.14
+
+- 礼物、SC、舰队卡片新增结构化字段 DOM：礼物名、数量、金额、SC 价格/时长、舰队等级/月数等会渲染为 `.lc-chat-card-field`，并带 `data-field` / `data-kind` 方便 CSS 精准换皮。
+- 新增 Chatterbox 事件调试面板：点击任意消息可查看 id、data-kind、data-card、data-guard、source、uid、raw cmd 和字段列表，方便继续适配 B 站奇怪 DOM/WS 事件。
+- Chatterbox 开启时，弹幕助手“常规发送”不再显示第二个 textarea，只保留聚焦 Chatterbox 输入框和 AI 规避开关，发送入口视觉上合并为一个。
+
 ## 2.8.13
 
 - 修复 Chatterbox 发送框可能消失的问题：只有自定义聊天已成功挂载并确认 composer 存在时，才隐藏 B 站原发送框。

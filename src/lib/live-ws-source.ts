@@ -2,7 +2,13 @@ import { KeepLiveWS } from '@laplace.live/ws/client'
 
 import { ensureRoomId } from './api'
 import { BASE_URL } from './const'
-import { chatEventTime, emitCustomChatEvent, emitCustomChatWsStatus, type CustomChatEvent } from './custom-chat-events'
+import {
+  chatEventTime,
+  emitCustomChatEvent,
+  emitCustomChatWsStatus,
+  type CustomChatEvent,
+  type CustomChatField,
+} from './custom-chat-events'
 import { appendLog } from './log'
 
 interface DanmuInfoResponse {
@@ -36,6 +42,15 @@ function asString(value: unknown, fallback = ''): string {
 
 function asNumber(value: unknown, fallback = 0): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
+function nonEmptyFields(fields: Array<CustomChatField | null | undefined>): CustomChatField[] {
+  return fields.filter((field): field is CustomChatField => !!field?.value)
+}
+
+function yuanFromGiftPrice(price: unknown): string {
+  const value = asNumber(price)
+  return value > 0 ? `¥${Math.round(value / 1000)}` : ''
 }
 
 function avatarUrl(uid: string | null): string | undefined {
@@ -123,10 +138,11 @@ function bindEvents(roomId: number, live: KeepLiveWS): void {
   live.addEventListener('SEND_GIFT', ({ data }) => {
     const gift = data.data
     const uid = String(gift.uid ?? '')
+    const num = Number(gift.num ?? 1)
     emit({
       id: eventId(data.cmd, gift as unknown as UnknownRecord, `gift-${Date.now()}`),
       kind: 'gift',
-      text: `${gift.action || '投喂'} ${gift.giftName} x${gift.num}`,
+      text: `${gift.action || '投喂'} ${gift.giftName} x${num}`,
       uname: gift.uname || '匿名',
       uid,
       time: chatEventTime(),
@@ -135,6 +151,12 @@ function bindEvents(roomId: number, live: KeepLiveWS): void {
       badges: gift.price > 0 ? [`${Math.round(gift.price / 1000)}元`] : [],
       avatarUrl: avatarUrl(uid),
       amount: gift.price,
+      fields: nonEmptyFields([
+        { key: 'gift-name', label: '礼物', value: String(gift.giftName ?? ''), kind: 'text' },
+        { key: 'gift-count', label: '数量', value: `x${num}`, kind: 'count' },
+        { key: 'gift-price', label: '金额', value: yuanFromGiftPrice(gift.price), kind: 'money' },
+        { key: 'gift-action', label: '动作', value: String(gift.action ?? ''), kind: 'text' },
+      ]),
       rawCmd: data.cmd,
     })
   })
@@ -154,6 +176,11 @@ function bindEvents(roomId: number, live: KeepLiveWS): void {
       badges: [`SC ${sc.price}元`],
       avatarUrl: avatarUrl(String(sc.uid ?? '')),
       amount: sc.price,
+      fields: nonEmptyFields([
+        { key: 'sc-price', label: '金额', value: sc.price ? `¥${sc.price}` : '', kind: 'money' },
+        { key: 'sc-duration', label: '时长', value: sc.time ? `${sc.time}s` : '', kind: 'duration' },
+        { key: 'sc-user', label: '用户', value: sc.user_info?.uname || '', kind: 'text' },
+      ]),
       rawCmd: data.cmd,
     })
   })
@@ -181,10 +208,11 @@ function bindEvents(roomId: number, live: KeepLiveWS): void {
     const uid = String(d.uid ?? '')
     const guard = String(d.guard_level ?? d.privilege_type ?? '')
     const guardName = guard === '1' ? '总督' : guard === '2' ? '提督' : '舰长'
+    const months = asNumber(d.num)
     emit({
       id: eventId(data.cmd, d as unknown as UnknownRecord, `guard-${Date.now()}`),
       kind: 'guard',
-      text: `${d.username || d.uname || '用户'} 开通 ${guardName}${d.num ? ` x${d.num}` : ''}`,
+      text: `${d.username || d.uname || '用户'} 开通 ${guardName}${months ? ` x${months}` : ''}`,
       uname: d.username || d.uname || '匿名',
       uid,
       time: chatEventTime(),
@@ -193,6 +221,11 @@ function bindEvents(roomId: number, live: KeepLiveWS): void {
       badges: guard ? [`GUARD ${guard}`] : [],
       avatarUrl: avatarUrl(uid),
       amount: asNumber(d.price),
+      fields: nonEmptyFields([
+        { key: 'guard-level', label: '等级', value: guardName, kind: 'level' },
+        { key: 'guard-months', label: '月份', value: months ? `${months}个月` : '', kind: 'duration' },
+        { key: 'guard-price', label: '金额', value: yuanFromGiftPrice(d.price), kind: 'money' },
+      ]),
       rawCmd: data.cmd,
     })
   })

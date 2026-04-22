@@ -106,6 +106,25 @@ export const MILK_GREEN_IMESSAGE_CSS = `/* Chatterbox 奶绿 iMessage × Laplace
     font-weight: 800;
   }
 
+  #laplace-custom-chat .lc-chat-card-field {
+    background: rgba(255, 255, 255, .42);
+  }
+
+  #laplace-custom-chat .lc-chat-card-field[data-field$="price"],
+  #laplace-custom-chat .lc-chat-card-field[data-kind="money"] {
+    color: #855118;
+  }
+
+  #laplace-custom-chat .lc-chat-card-field[data-field$="count"],
+  #laplace-custom-chat .lc-chat-card-field[data-kind="count"] {
+    color: #24523a;
+  }
+
+  #laplace-custom-chat .lc-chat-event-debug {
+    color: #24523a;
+    background: rgba(214, 239, 224, .92);
+  }
+
   #laplace-custom-chat .lc-chat-card-event[data-card="gift"] .lc-chat-bubble {
     color: var(--lc-gift-text);
     background: var(--lc-gift-bg);

@@ -12,6 +12,13 @@ export type CustomChatKind =
   | 'notice'
   | 'system'
 
+export interface CustomChatField {
+  key: string
+  label: string
+  value: string
+  kind?: 'text' | 'money' | 'count' | 'duration' | 'level'
+}
+
 export interface CustomChatEvent {
   id: string
   kind: CustomChatKind
@@ -25,6 +32,7 @@ export interface CustomChatEvent {
   badges: string[]
   avatarUrl?: string
   amount?: number
+  fields?: CustomChatField[]
   rawCmd?: string
 }
 
@@ -61,6 +69,12 @@ export function normalizeCustomChatEvent(event: CustomChatEvent): CustomChatEven
     text: event.text.trim(),
     uname: event.uname.trim() || '匿名',
     badges: [...new Set(event.badges.map(item => item.trim()).filter(Boolean))],
+    fields: event.fields?.map(field => ({
+      ...field,
+      key: field.key.trim(),
+      label: field.label.trim(),
+      value: field.value.trim(),
+    })).filter(field => field.key && field.label && field.value),
   }
 }
 

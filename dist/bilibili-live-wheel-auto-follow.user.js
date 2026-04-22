@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.8.13
+// @version      2.8.14
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、粉丝牌禁言巡检、常规发送、同传、烂梗库和弹幕替换规则。
 // @license      AGPL-3.0
@@ -3082,7 +3082,13 @@ u$2(
       kind,
       text: event.text.trim(),
       uname: event.uname.trim() || "匿名",
-      badges: [...new Set(event.badges.map((item) => item.trim()).filter(Boolean))]
+      badges: [...new Set(event.badges.map((item) => item.trim()).filter(Boolean))],
+      fields: event.fields?.map((field) => ({
+        ...field,
+        key: field.key.trim(),
+        label: field.label.trim(),
+        value: field.value.trim()
+      })).filter((field) => field.key && field.label && field.value)
     };
   }
   function emitCustomChatEvent(event) {
@@ -5002,6 +5008,13 @@ ws;
   function asNumber(value, fallback = 0) {
     return typeof value === "number" && Number.isFinite(value) ? value : fallback;
   }
+  function nonEmptyFields(fields) {
+    return fields.filter((field) => !!field?.value);
+  }
+  function yuanFromGiftPrice(price) {
+    const value = asNumber(price);
+    return value > 0 ? `¥${Math.round(value / 1e3)}` : "";
+  }
   function avatarUrl$1(uid) {
     return uid ? `${BASE_URL.BILIBILI_AVATAR}/${uid}?size=96` : void 0;
   }
@@ -5078,10 +5091,11 @@ ws;
     live.addEventListener("SEND_GIFT", ({ data }) => {
       const gift = data.data;
       const uid = String(gift.uid ?? "");
+      const num = Number(gift.num ?? 1);
       emit({
         id: eventId(data.cmd, gift, `gift-${Date.now()}`),
         kind: "gift",
-        text: `${gift.action || "投喂"} ${gift.giftName} x${gift.num}`,
+        text: `${gift.action || "投喂"} ${gift.giftName} x${num}`,
         uname: gift.uname || "匿名",
         uid,
         time: chatEventTime(),
@@ -5090,6 +5104,12 @@ ws;
         badges: gift.price > 0 ? [`${Math.round(gift.price / 1e3)}元`] : [],
         avatarUrl: avatarUrl$1(uid),
         amount: gift.price,
+        fields: nonEmptyFields([
+          { key: "gift-name", label: "礼物", value: String(gift.giftName ?? ""), kind: "text" },
+          { key: "gift-count", label: "数量", value: `x${num}`, kind: "count" },
+          { key: "gift-price", label: "金额", value: yuanFromGiftPrice(gift.price), kind: "money" },
+          { key: "gift-action", label: "动作", value: String(gift.action ?? ""), kind: "text" }
+        ]),
         rawCmd: data.cmd
       });
     });
@@ -5108,6 +5128,11 @@ ws;
         badges: [`SC ${sc.price}元`],
         avatarUrl: avatarUrl$1(String(sc.uid ?? "")),
         amount: sc.price,
+        fields: nonEmptyFields([
+          { key: "sc-price", label: "金额", value: sc.price ? `¥${sc.price}` : "", kind: "money" },
+          { key: "sc-duration", label: "时长", value: sc.time ? `${sc.time}s` : "", kind: "duration" },
+          { key: "sc-user", label: "用户", value: sc.user_info?.uname || "", kind: "text" }
+        ]),
         rawCmd: data.cmd
       });
     });
@@ -5133,10 +5158,11 @@ ws;
       const uid = String(d2.uid ?? "");
       const guard = String(d2.guard_level ?? d2.privilege_type ?? "");
       const guardName = guard === "1" ? "总督" : guard === "2" ? "提督" : "舰长";
+      const months = asNumber(d2.num);
       emit({
         id: eventId(data.cmd, d2, `guard-${Date.now()}`),
         kind: "guard",
-        text: `${d2.username || d2.uname || "用户"} 开通 ${guardName}${d2.num ? ` x${d2.num}` : ""}`,
+        text: `${d2.username || d2.uname || "用户"} 开通 ${guardName}${months ? ` x${months}` : ""}`,
         uname: d2.username || d2.uname || "匿名",
         uid,
         time: chatEventTime(),
@@ -5145,6 +5171,11 @@ ws;
         badges: guard ? [`GUARD ${guard}`] : [],
         avatarUrl: avatarUrl$1(uid),
         amount: asNumber(d2.price),
+        fields: nonEmptyFields([
+          { key: "guard-level", label: "等级", value: guardName, kind: "level" },
+          { key: "guard-months", label: "月份", value: months ? `${months}个月` : "", kind: "duration" },
+          { key: "guard-price", label: "金额", value: yuanFromGiftPrice(d2.price), kind: "money" }
+        ]),
         rawCmd: data.cmd
       });
     });
@@ -5273,7 +5304,7 @@ ws;
   min-height: 340px;
   flex: 1 1 auto;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
   color: var(--lc-chat-text);
   background: var(--lc-chat-bg);
   border-left: 1px solid var(--lc-chat-border);
@@ -5560,6 +5591,34 @@ html.lc-custom-chat-mounted #${ROOT_ID} {
 }
 #${ROOT_ID} .lc-chat-card-text {
   display: block;
+}
+#${ROOT_ID} .lc-chat-card-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 7px;
+}
+#${ROOT_ID} .lc-chat-card-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .24);
+  color: currentColor;
+  font-size: 11px;
+  line-height: 1.35;
+}
+#${ROOT_ID} .lc-chat-card-field-label {
+  opacity: .72;
+}
+#${ROOT_ID} .lc-chat-card-field-value {
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 #${ROOT_ID} .lc-chat-card-event[data-card="gift"] .lc-chat-bubble {
   background: linear-gradient(135deg, #ffd8bf, #fff2c7);
@@ -5878,6 +5937,51 @@ html.lc-custom-chat-mounted #${ROOT_ID} {
 #${ROOT_ID}[data-debug="true"] .lc-chat-perf {
   display: block;
 }
+#${ROOT_ID} .lc-chat-event-debug {
+  display: none;
+  min-width: 0;
+  margin: 0 8px 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--lc-chat-border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--lc-chat-panel) 88%, var(--lc-chat-bg));
+  color: var(--lc-chat-muted);
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+#${ROOT_ID}[data-inspecting="true"] .lc-chat-event-debug {
+  display: grid;
+  gap: 5px;
+}
+#${ROOT_ID} .lc-chat-debug-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+#${ROOT_ID} .lc-chat-debug-title {
+  color: var(--lc-chat-text);
+  font-weight: 800;
+}
+#${ROOT_ID} .lc-chat-debug-close {
+  border: 0;
+  border-radius: 999px;
+  background: var(--lc-chat-chip);
+  color: var(--lc-chat-chip-text);
+  cursor: pointer;
+  font-size: 11px;
+}
+#${ROOT_ID} .lc-chat-debug-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 6px;
+}
+#${ROOT_ID} .lc-chat-debug-key {
+  color: var(--lc-chat-muted);
+}
+#${ROOT_ID} .lc-chat-debug-value {
+  color: var(--lc-chat-text);
+}
 html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-items,
 html.lc-custom-chat-hide-native.lc-custom-chat-mounted .super-chat-card,
 html.lc-custom-chat-hide-native.lc-custom-chat-mounted .gift-item,
@@ -5905,6 +6009,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   let matchCountEl = null;
   let wsStatusEl = null;
   let perfEl = null;
+  let debugEl = null;
   let textarea = null;
   let countEl = null;
   let styleEl$1 = null;
@@ -6086,6 +6191,32 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     if (guard === "2") return "提督";
     return "舰长";
   }
+  function formatAmount(message, card) {
+    if (!message.amount) return "";
+    if (card === "gift" || card === "guard") return `¥${Math.round(message.amount / 1e3)}`;
+    return `¥${message.amount}`;
+  }
+  function cardFields(message, card, guard) {
+    const fields = message.fields?.filter((field) => field.value) ?? [];
+    if (fields.length > 0) return fields;
+    const fallback = [];
+    const amount = formatAmount(message, card);
+    if (card === "superchat" && amount) fallback.push({ key: "sc-price", label: "金额", value: amount, kind: "money" });
+    if (card === "gift") {
+      const giftMatch = message.text.match(/(.+?)\s*x\s*(\d+)/i);
+      if (giftMatch?.[1]) fallback.push({ key: "gift-name", label: "礼物", value: giftMatch[1].replace(/^.*?(投喂|赠送|送出)\s*/, ""), kind: "text" });
+      if (giftMatch?.[2]) fallback.push({ key: "gift-count", label: "数量", value: `x${giftMatch[2]}`, kind: "count" });
+      if (amount) fallback.push({ key: "gift-price", label: "金额", value: amount, kind: "money" });
+    }
+    if (card === "guard") {
+      const level = guard === "1" ? "总督" : guard === "2" ? "提督" : "舰长";
+      fallback.push({ key: "guard-level", label: "等级", value: level, kind: "level" });
+      const month = message.text.match(/x\s*(\d+)/i)?.[1];
+      if (month) fallback.push({ key: "guard-months", label: "月份", value: `${month}个月`, kind: "duration" });
+      if (amount) fallback.push({ key: "guard-price", label: "金额", value: amount, kind: "money" });
+    }
+    return fallback;
+  }
   function createAvatar(message) {
     const fallback = document.createElement("div");
     fallback.className = "lc-chat-avatar lc-chat-avatar-fallback";
@@ -6174,6 +6305,18 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     const badges = nativeBadges(node, text, uname);
     const avatar = nativeAvatar(node) || avatarUrl(uid);
     if (uname === "匿名" && !uid && !avatar && text.length <= 4) return null;
+    const giftMatch = kind === "gift" ? text.match(/([\p{Script=Han}\w·・ぁ-んァ-ンー\s]+?)\s*x\s*(\d+)/iu) : null;
+    const fields = [];
+    if (kind === "gift" && giftMatch) {
+      fields.push({ key: "gift-name", label: "礼物", value: compactText(giftMatch[1]), kind: "text" });
+      fields.push({ key: "gift-count", label: "数量", value: `x${giftMatch[2]}`, kind: "count" });
+    }
+    if (kind === "guard") {
+      const guard = /总督/.test(text) ? "总督" : /提督/.test(text) ? "提督" : "舰长";
+      fields.push({ key: "guard-level", label: "等级", value: guard, kind: "level" });
+      const month = text.match(/(\d+)\s*(个月|月)/)?.[1];
+      if (month) fields.push({ key: "guard-months", label: "月份", value: `${month}个月`, kind: "duration" });
+    }
     return {
       id: `native-${++messageSeq}`,
       kind,
@@ -6185,7 +6328,8 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
       isReply: false,
       source: "dom",
       badges,
-      avatarUrl: avatar
+      avatarUrl: avatar,
+      fields
     };
   }
   function tokenMatches(message, token) {
@@ -6296,7 +6440,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     row.addEventListener("click", (e2) => {
       const target = e2.target;
       if (target instanceof HTMLElement && target.closest("button")) return;
-      row.classList.toggle("lc-chat-selected");
+      showEventDebug(message, row, card, guard);
     });
     const avatarEl = createAvatar(message);
     const meta = document.createElement("div");
@@ -6357,8 +6501,27 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
       const content = document.createElement("span");
       content.className = "lc-chat-card-text";
       setText(content, message.text);
+      const fields = cardFields(message, card, guard);
+      const fieldsEl = document.createElement("div");
+      fieldsEl.className = "lc-chat-card-fields";
+      for (const field of fields) {
+        const fieldEl = document.createElement("span");
+        fieldEl.className = "lc-chat-card-field";
+        fieldEl.dataset.field = field.key;
+        if (field.kind) fieldEl.dataset.kind = field.kind;
+        const label = document.createElement("span");
+        label.className = "lc-chat-card-field-label";
+        setText(label, field.label);
+        const value = document.createElement("span");
+        value.className = "lc-chat-card-field-value";
+        setText(value, field.value);
+        fieldEl.append(label, value);
+        fieldsEl.append(fieldEl);
+      }
       head.append(title, mark);
-      text.append(head, content);
+      text.append(head);
+      if (fields.length > 0) text.append(fieldsEl);
+      text.append(content);
     } else {
       setText(text, message.text);
     }
@@ -6479,6 +6642,47 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     document.documentElement.classList.toggle("lc-custom-chat-mounted", mounted);
     document.documentElement.classList.toggle("lc-custom-chat-hide-native", mounted && customChatHideNative.value);
   }
+  function appendDebugRow(parent, key, value) {
+    const row = document.createElement("div");
+    row.className = "lc-chat-debug-row";
+    const keyEl = document.createElement("span");
+    keyEl.className = "lc-chat-debug-key";
+    setText(keyEl, key);
+    const valueEl = document.createElement("span");
+    valueEl.className = "lc-chat-debug-value";
+    setText(valueEl, value || "-");
+    row.append(keyEl, valueEl);
+    parent.append(row);
+  }
+  function showEventDebug(message, row, card, guard) {
+    if (!root || !debugEl) return;
+    root.querySelectorAll(".lc-chat-message.lc-chat-selected").forEach((el) => {
+      if (el !== row) el.classList.remove("lc-chat-selected");
+    });
+    row.classList.add("lc-chat-selected");
+    root.dataset.inspecting = "true";
+    debugEl.replaceChildren();
+    const head = document.createElement("div");
+    head.className = "lc-chat-debug-head";
+    const title = document.createElement("span");
+    title.className = "lc-chat-debug-title";
+    setText(title, "事件调试");
+    const close = makeButton("lc-chat-debug-close", "关闭", "关闭事件调试", () => {
+      root?.removeAttribute("data-inspecting");
+      row.classList.remove("lc-chat-selected");
+      debugEl?.replaceChildren();
+    });
+    head.append(title, close);
+    debugEl.append(head);
+    appendDebugRow(debugEl, "id", message.id);
+    appendDebugRow(debugEl, "data-kind", message.kind);
+    appendDebugRow(debugEl, "data-card", card ?? "");
+    appendDebugRow(debugEl, "data-guard", guard ?? "");
+    appendDebugRow(debugEl, "source", message.source);
+    appendDebugRow(debugEl, "uid", message.uid ?? "");
+    appendDebugRow(debugEl, "raw cmd", message.rawCmd ?? "");
+    appendDebugRow(debugEl, "fields", (message.fields ?? []).map((field) => `${field.key}=${field.value}`).join(" | "));
+  }
   function createRoot() {
     const panel = document.createElement("section");
     panel.id = ROOT_ID;
@@ -6569,6 +6773,8 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     filterRow.append(filterLabel, filterbar);
     menu.append(searchRow, controlRow, filterRow, statusRow, perfEl);
     toolbar.append(spacer, title, menuBtn);
+    debugEl = document.createElement("div");
+    debugEl.className = "lc-chat-event-debug";
     listEl = document.createElement("div");
     listEl.className = "lc-chat-list";
     listEl.addEventListener("scroll", () => {
@@ -6606,7 +6812,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     hint.textContent = "偷 / +1 / 复制，设置可贴 CSS";
     sendRow.append(sendBtn, hint);
     composer.append(inputWrap, sendRow);
-    panel.append(toolbar, menu, listEl, composer);
+    panel.append(toolbar, menu, debugEl, listEl, composer);
     updateUnread();
     return panel;
   }
@@ -6744,6 +6950,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     matchCountEl = null;
     wsStatusEl = null;
     perfEl = null;
+    debugEl = null;
     messages.length = 0;
     renderQueue.length = 0;
     eventTicks.length = 0;
@@ -8260,6 +8467,10 @@ u$2(
     ] });
   }
   function NormalSendTab() {
+    const focusChatterboxComposer = () => {
+      const input = document.querySelector("#laplace-custom-chat textarea");
+      input?.focus();
+    };
     const sendMessage = async () => {
       const sent = await sendManualDanmaku(fasongText.value);
       if (sent) {
@@ -8276,61 +8487,71 @@ u$2(
         children: [
 u$2("summary", { style: { cursor: "pointer", userSelect: "none", fontWeight: "bold" }, children: "常规发送" }),
 u$2("div", { className: "cb-body cb-stack", children: [
+            customChatEnabled.value ? u$2("div", { className: "cb-body cb-stack", style: { background: "rgba(0,0,0,.03)" }, children: [
+u$2("div", { className: "cb-note", children: "发送入口已合并到 Chatterbox 评论区底部。偷弹幕和这里的草稿会同步到同一个输入框。" }),
+u$2("div", { className: "cb-row", children: [
+u$2("button", { type: "button", className: "cb-primary", onClick: focusChatterboxComposer, children: "聚焦 Chatterbox 输入框" }),
+u$2("span", { style: { color: "#999" }, children: [
+                  "当前草稿 ",
+                  fasongText.value.length,
+                  " 字"
+                ] })
+              ] })
+            ] }) : u$2(S$1, { children: [
 u$2("div", { style: { position: "relative" }, children: [
 u$2(
-                "textarea",
-                {
-                  value: fasongText.value,
-                  onInput: (e2) => {
-                    fasongText.value = e2.currentTarget.value;
-                  },
-                  onKeyDown: (e2) => {
-                    if (e2.key === "Enter" && !e2.shiftKey && !e2.isComposing) {
-                      e2.preventDefault();
-                      void sendMessage();
-                    }
-                  },
-                  placeholder: "输入弹幕内容... (Enter 发送)",
-                  style: {
-                    boxSizing: "border-box",
-                    height: "50px",
-                    minHeight: "40px",
-                    width: "100%",
-                    resize: "vertical"
-                  }
-                }
-              ),
-u$2(
-                "div",
-                {
-                  style: {
-                    position: "absolute",
-                    right: "8px",
-                    bottom: "6px",
-                    color: "#999",
-                    pointerEvents: "none"
-                  },
-                  children: fasongText.value.length
-                }
-              )
-            ] }),
-u$2("div", { className: "cb-row", children: [
-u$2("button", { type: "button", className: "cb-primary", onClick: () => void sendMessage(), children: "发送" }),
-u$2("span", { className: "cb-row", children: [
-u$2(
-                  "input",
+                  "textarea",
                   {
-                    id: "aiEvasion",
-                    type: "checkbox",
-                    checked: aiEvasion.value,
+                    value: fasongText.value,
                     onInput: (e2) => {
-                      aiEvasion.value = e2.currentTarget.checked;
+                      fasongText.value = e2.currentTarget.value;
+                    },
+                    onKeyDown: (e2) => {
+                      if (e2.key === "Enter" && !e2.shiftKey && !e2.isComposing) {
+                        e2.preventDefault();
+                        void sendMessage();
+                      }
+                    },
+                    placeholder: "输入弹幕内容... (Enter 发送)",
+                    style: {
+                      boxSizing: "border-box",
+                      height: "50px",
+                      minHeight: "40px",
+                      width: "100%",
+                      resize: "vertical"
                     }
                   }
                 ),
+u$2(
+                  "div",
+                  {
+                    style: {
+                      position: "absolute",
+                      right: "8px",
+                      bottom: "6px",
+                      color: "#999",
+                      pointerEvents: "none"
+                    },
+                    children: fasongText.value.length
+                  }
+                )
+              ] }),
+u$2("div", { className: "cb-row", children: u$2("button", { type: "button", className: "cb-primary", onClick: () => void sendMessage(), children: "发送" }) })
+            ] }),
+u$2("div", { className: "cb-row", children: u$2("span", { className: "cb-row", children: [
+u$2(
+                "input",
+                {
+                  id: "aiEvasion",
+                  type: "checkbox",
+                  checked: aiEvasion.value,
+                  onInput: (e2) => {
+                    aiEvasion.value = e2.currentTarget.checked;
+                  }
+                }
+              ),
 u$2("label", { for: "aiEvasion", children: "AI规避（发送失败时自动检测敏感词并重试）" })
-              ] })
-            ] })
+            ] }) })
           ] })
         ]
       }
@@ -8442,6 +8663,25 @@ u$2("label", { for: "aiEvasion", children: "AI规避（发送失败时自动检�
 
   #laplace-custom-chat .lc-chat-card-title {
     font-weight: 800;
+  }
+
+  #laplace-custom-chat .lc-chat-card-field {
+    background: rgba(255, 255, 255, .42);
+  }
+
+  #laplace-custom-chat .lc-chat-card-field[data-field$="price"],
+  #laplace-custom-chat .lc-chat-card-field[data-kind="money"] {
+    color: #855118;
+  }
+
+  #laplace-custom-chat .lc-chat-card-field[data-field$="count"],
+  #laplace-custom-chat .lc-chat-card-field[data-kind="count"] {
+    color: #24523a;
+  }
+
+  #laplace-custom-chat .lc-chat-event-debug {
+    color: #24523a;
+    background: rgba(214, 239, 224, .92);
   }
 
   #laplace-custom-chat .lc-chat-card-event[data-card="gift"] .lc-chat-bubble {

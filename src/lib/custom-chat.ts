@@ -8,6 +8,7 @@ import {
   subscribeCustomChatEvents,
   subscribeCustomChatWsStatus,
   type CustomChatEvent,
+  type CustomChatField,
   type CustomChatKind,
   type CustomChatWsStatus,
 } from './custom-chat-events'
@@ -59,7 +60,7 @@ const STYLE = `
   min-height: 340px;
   flex: 1 1 auto;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
   color: var(--lc-chat-text);
   background: var(--lc-chat-bg);
   border-left: 1px solid var(--lc-chat-border);
@@ -346,6 +347,34 @@ html.lc-custom-chat-mounted #${ROOT_ID} {
 }
 #${ROOT_ID} .lc-chat-card-text {
   display: block;
+}
+#${ROOT_ID} .lc-chat-card-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 7px;
+}
+#${ROOT_ID} .lc-chat-card-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .24);
+  color: currentColor;
+  font-size: 11px;
+  line-height: 1.35;
+}
+#${ROOT_ID} .lc-chat-card-field-label {
+  opacity: .72;
+}
+#${ROOT_ID} .lc-chat-card-field-value {
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 #${ROOT_ID} .lc-chat-card-event[data-card="gift"] .lc-chat-bubble {
   background: linear-gradient(135deg, #ffd8bf, #fff2c7);
@@ -664,6 +693,51 @@ html.lc-custom-chat-mounted #${ROOT_ID} {
 #${ROOT_ID}[data-debug="true"] .lc-chat-perf {
   display: block;
 }
+#${ROOT_ID} .lc-chat-event-debug {
+  display: none;
+  min-width: 0;
+  margin: 0 8px 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--lc-chat-border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--lc-chat-panel) 88%, var(--lc-chat-bg));
+  color: var(--lc-chat-muted);
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+#${ROOT_ID}[data-inspecting="true"] .lc-chat-event-debug {
+  display: grid;
+  gap: 5px;
+}
+#${ROOT_ID} .lc-chat-debug-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+#${ROOT_ID} .lc-chat-debug-title {
+  color: var(--lc-chat-text);
+  font-weight: 800;
+}
+#${ROOT_ID} .lc-chat-debug-close {
+  border: 0;
+  border-radius: 999px;
+  background: var(--lc-chat-chip);
+  color: var(--lc-chat-chip-text);
+  cursor: pointer;
+  font-size: 11px;
+}
+#${ROOT_ID} .lc-chat-debug-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 6px;
+}
+#${ROOT_ID} .lc-chat-debug-key {
+  color: var(--lc-chat-muted);
+}
+#${ROOT_ID} .lc-chat-debug-value {
+  color: var(--lc-chat-text);
+}
 html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-items,
 html.lc-custom-chat-hide-native.lc-custom-chat-mounted .super-chat-card,
 html.lc-custom-chat-hide-native.lc-custom-chat-mounted .gift-item,
@@ -692,6 +766,7 @@ let searchInput: HTMLInputElement | null = null
 let matchCountEl: HTMLElement | null = null
 let wsStatusEl: HTMLElement | null = null
 let perfEl: HTMLElement | null = null
+let debugEl: HTMLElement | null = null
 let textarea: HTMLTextAreaElement | null = null
 let countEl: HTMLElement | null = null
 let styleEl: HTMLStyleElement | null = null
@@ -900,6 +975,35 @@ function cardMark(type: 'gift' | 'superchat' | 'guard' | 'redpacket' | 'lottery'
   return '舰长'
 }
 
+function formatAmount(message: CustomChatEvent, card: NonNullable<ReturnType<typeof cardType>>): string {
+  if (!message.amount) return ''
+  if (card === 'gift' || card === 'guard') return `¥${Math.round(message.amount / 1000)}`
+  return `¥${message.amount}`
+}
+
+function cardFields(message: CustomChatEvent, card: NonNullable<ReturnType<typeof cardType>>, guard: string | null): CustomChatField[] {
+  const fields = message.fields?.filter(field => field.value) ?? []
+  if (fields.length > 0) return fields
+
+  const fallback: CustomChatField[] = []
+  const amount = formatAmount(message, card)
+  if (card === 'superchat' && amount) fallback.push({ key: 'sc-price', label: '金额', value: amount, kind: 'money' })
+  if (card === 'gift') {
+    const giftMatch = message.text.match(/(.+?)\s*x\s*(\d+)/i)
+    if (giftMatch?.[1]) fallback.push({ key: 'gift-name', label: '礼物', value: giftMatch[1].replace(/^.*?(投喂|赠送|送出)\s*/, ''), kind: 'text' })
+    if (giftMatch?.[2]) fallback.push({ key: 'gift-count', label: '数量', value: `x${giftMatch[2]}`, kind: 'count' })
+    if (amount) fallback.push({ key: 'gift-price', label: '金额', value: amount, kind: 'money' })
+  }
+  if (card === 'guard') {
+    const level = guard === '1' ? '总督' : guard === '2' ? '提督' : '舰长'
+    fallback.push({ key: 'guard-level', label: '等级', value: level, kind: 'level' })
+    const month = message.text.match(/x\s*(\d+)/i)?.[1]
+    if (month) fallback.push({ key: 'guard-months', label: '月份', value: `${month}个月`, kind: 'duration' })
+    if (amount) fallback.push({ key: 'guard-price', label: '金额', value: amount, kind: 'money' })
+  }
+  return fallback
+}
+
 function createAvatar(message: CustomChatEvent): HTMLElement {
   const fallback = document.createElement('div')
   fallback.className = 'lc-chat-avatar lc-chat-avatar-fallback'
@@ -998,6 +1102,18 @@ function parseNativeEvent(node: HTMLElement): CustomChatEvent | null {
   const badges = nativeBadges(node, text, uname)
   const avatar = nativeAvatar(node) || avatarUrl(uid)
   if (uname === '匿名' && !uid && !avatar && text.length <= 4) return null
+  const giftMatch = kind === 'gift' ? text.match(/([\p{Script=Han}\w·・ぁ-んァ-ンー\s]+?)\s*x\s*(\d+)/iu) : null
+  const fields: CustomChatField[] = []
+  if (kind === 'gift' && giftMatch) {
+    fields.push({ key: 'gift-name', label: '礼物', value: compactText(giftMatch[1]), kind: 'text' })
+    fields.push({ key: 'gift-count', label: '数量', value: `x${giftMatch[2]}`, kind: 'count' })
+  }
+  if (kind === 'guard') {
+    const guard = /总督/.test(text) ? '总督' : /提督/.test(text) ? '提督' : '舰长'
+    fields.push({ key: 'guard-level', label: '等级', value: guard, kind: 'level' })
+    const month = text.match(/(\d+)\s*(个月|月)/)?.[1]
+    if (month) fields.push({ key: 'guard-months', label: '月份', value: `${month}个月`, kind: 'duration' })
+  }
   return {
     id: `native-${++messageSeq}`,
     kind,
@@ -1010,6 +1126,7 @@ function parseNativeEvent(node: HTMLElement): CustomChatEvent | null {
     source: 'dom',
     badges,
     avatarUrl: avatar,
+    fields,
   }
 }
 
@@ -1133,7 +1250,7 @@ function renderMessage(message: CustomChatEvent, countUnread = true, updateCount
   row.addEventListener('click', e => {
     const target = e.target
     if (target instanceof HTMLElement && target.closest('button')) return
-    row.classList.toggle('lc-chat-selected')
+    showEventDebug(message, row, card, guard)
   })
 
   const avatarEl = createAvatar(message)
@@ -1207,8 +1324,28 @@ function renderMessage(message: CustomChatEvent, countUnread = true, updateCount
     content.className = 'lc-chat-card-text'
     setText(content, message.text)
 
+    const fields = cardFields(message, card, guard)
+    const fieldsEl = document.createElement('div')
+    fieldsEl.className = 'lc-chat-card-fields'
+    for (const field of fields) {
+      const fieldEl = document.createElement('span')
+      fieldEl.className = 'lc-chat-card-field'
+      fieldEl.dataset.field = field.key
+      if (field.kind) fieldEl.dataset.kind = field.kind
+      const label = document.createElement('span')
+      label.className = 'lc-chat-card-field-label'
+      setText(label, field.label)
+      const value = document.createElement('span')
+      value.className = 'lc-chat-card-field-value'
+      setText(value, field.value)
+      fieldEl.append(label, value)
+      fieldsEl.append(fieldEl)
+    }
+
     head.append(title, mark)
-    text.append(head, content)
+    text.append(head)
+    if (fields.length > 0) text.append(fieldsEl)
+    text.append(content)
   } else {
     setText(text, message.text)
   }
@@ -1341,6 +1478,50 @@ function updateNativeVisibility(): void {
   document.documentElement.classList.toggle('lc-custom-chat-hide-native', mounted && customChatHideNative.value)
 }
 
+function appendDebugRow(parent: HTMLElement, key: string, value: string): void {
+  const row = document.createElement('div')
+  row.className = 'lc-chat-debug-row'
+  const keyEl = document.createElement('span')
+  keyEl.className = 'lc-chat-debug-key'
+  setText(keyEl, key)
+  const valueEl = document.createElement('span')
+  valueEl.className = 'lc-chat-debug-value'
+  setText(valueEl, value || '-')
+  row.append(keyEl, valueEl)
+  parent.append(row)
+}
+
+function showEventDebug(message: CustomChatEvent, row: HTMLElement, card: ReturnType<typeof cardType>, guard: string | null): void {
+  if (!root || !debugEl) return
+  root.querySelectorAll('.lc-chat-message.lc-chat-selected').forEach(el => {
+    if (el !== row) el.classList.remove('lc-chat-selected')
+  })
+  row.classList.add('lc-chat-selected')
+  root.dataset.inspecting = 'true'
+  debugEl.replaceChildren()
+
+  const head = document.createElement('div')
+  head.className = 'lc-chat-debug-head'
+  const title = document.createElement('span')
+  title.className = 'lc-chat-debug-title'
+  setText(title, '事件调试')
+  const close = makeButton('lc-chat-debug-close', '关闭', '关闭事件调试', () => {
+    root?.removeAttribute('data-inspecting')
+    row.classList.remove('lc-chat-selected')
+    debugEl?.replaceChildren()
+  })
+  head.append(title, close)
+  debugEl.append(head)
+  appendDebugRow(debugEl, 'id', message.id)
+  appendDebugRow(debugEl, 'data-kind', message.kind)
+  appendDebugRow(debugEl, 'data-card', card ?? '')
+  appendDebugRow(debugEl, 'data-guard', guard ?? '')
+  appendDebugRow(debugEl, 'source', message.source)
+  appendDebugRow(debugEl, 'uid', message.uid ?? '')
+  appendDebugRow(debugEl, 'raw cmd', message.rawCmd ?? '')
+  appendDebugRow(debugEl, 'fields', (message.fields ?? []).map(field => `${field.key}=${field.value}`).join(' | '))
+}
+
 function createRoot(): HTMLElement {
   const panel = document.createElement('section')
   panel.id = ROOT_ID
@@ -1446,6 +1627,9 @@ function createRoot(): HTMLElement {
   menu.append(searchRow, controlRow, filterRow, statusRow, perfEl)
   toolbar.append(spacer, title, menuBtn)
 
+  debugEl = document.createElement('div')
+  debugEl.className = 'lc-chat-event-debug'
+
   listEl = document.createElement('div')
   listEl.className = 'lc-chat-list'
   listEl.addEventListener('scroll', () => {
@@ -1490,7 +1674,7 @@ function createRoot(): HTMLElement {
   sendRow.append(sendBtn, hint)
 
   composer.append(inputWrap, sendRow)
-  panel.append(toolbar, menu, listEl, composer)
+  panel.append(toolbar, menu, debugEl, listEl, composer)
   updateUnread()
   return panel
 }
@@ -1637,6 +1821,7 @@ export function stopCustomChat(): void {
   matchCountEl = null
   wsStatusEl = null
   perfEl = null
+  debugEl = null
   messages.length = 0
   renderQueue.length = 0
   eventTicks.length = 0
