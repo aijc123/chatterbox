@@ -1,4 +1,4 @@
-import { activeTab, dialogOpen, optimizeLayout } from '../lib/store'
+import { activeTab, dialogOpen } from '../lib/store'
 import { AboutTab } from './about-tab'
 import { AutoBlendControls } from './auto-blend-controls'
 import { AutoSendControls } from './auto-send-controls'
@@ -12,7 +12,6 @@ import { Tabs } from './tabs'
 export function Configurator() {
   const tab = activeTab.value
   const visible = dialogOpen.value
-  const optimized = optimizeLayout.value
 
   return (
     <div
@@ -22,11 +21,9 @@ export function Configurator() {
         right: '8px',
         bottom: '46px',
         zIndex: 2147483647,
-        display: visible ? (optimized ? 'flex' : 'block') : 'none',
-        flexDirection: optimized ? 'column' : undefined,
-        height: optimized ? 'calc(100vh - 110px)' : undefined,
-        maxHeight: optimized ? undefined : 'calc(100vh - 110px)',
-        overflowY: optimized ? 'hidden' : 'auto',
+        display: visible ? 'block' : 'none',
+        maxHeight: '50vh',
+        overflowY: 'auto',
         width: '320px',
       }}
     >
@@ -34,10 +31,7 @@ export function Configurator() {
 
       <div
         style={{
-          display: tab === 'fasong' ? (optimized ? 'flex' : 'block') : 'none',
-          flexDirection: optimized ? 'column' : undefined,
-          flex: optimized ? 1 : undefined,
-          minHeight: optimized ? 0 : undefined,
+          display: tab === 'fasong' ? 'block' : 'none',
         }}
         className='cb-scroll'
       >
@@ -50,7 +44,6 @@ export function Configurator() {
         <div
           style={{
             margin: '.25rem 0',
-            ...(optimized && { flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }),
           }}
         >
           <MemesList />
@@ -60,11 +53,7 @@ export function Configurator() {
 
       <div
         style={{
-          display: tab === 'tongchuan' ? (optimized ? 'flex' : 'block') : 'none',
-          flexDirection: optimized ? 'column' : undefined,
-          flex: optimized ? 1 : undefined,
-          minHeight: optimized ? 0 : undefined,
-          overflowY: optimized ? 'auto' : undefined,
+          display: tab === 'tongchuan' ? 'block' : 'none',
         }}
         className='cb-scroll'
       >
@@ -73,11 +62,7 @@ export function Configurator() {
 
       <div
         style={{
-          display: tab === 'settings' ? (optimized ? 'flex' : 'block') : 'none',
-          flexDirection: optimized ? 'column' : undefined,
-          flex: optimized ? 1 : undefined,
-          minHeight: optimized ? 0 : undefined,
-          overflowY: optimized ? 'auto' : undefined,
+          display: tab === 'settings' ? 'block' : 'none',
         }}
         className='cb-scroll'
       >
@@ -86,11 +71,7 @@ export function Configurator() {
 
       <div
         style={{
-          display: tab === 'about' ? (optimized ? 'flex' : 'block') : 'none',
-          flexDirection: optimized ? 'column' : undefined,
-          flex: optimized ? 1 : undefined,
-          minHeight: optimized ? 0 : undefined,
-          overflowY: optimized ? 'auto' : undefined,
+          display: tab === 'about' ? 'block' : 'none',
         }}
         className='cb-scroll'
       >

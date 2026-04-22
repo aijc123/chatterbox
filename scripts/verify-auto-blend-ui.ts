@@ -231,6 +231,7 @@ async function main(): Promise<void> {
 
     const ui = result.result.value
     if (ui.dialogWidth > 322) throw new Error(`dialog too wide: ${ui.dialogWidth}`)
+    if (ui.dialogHeight > 430) throw new Error(`dialog too tall: ${ui.dialogHeight}`)
     if (!ui.text.includes('自动跟车')) throw new Error('auto-follow title not visible')
     if (!ui.text.includes('开始跟车')) throw new Error('start button not visible after stop')
     if (!ui.text.includes('稳一点') || !ui.text.includes('正常') || !ui.text.includes('热闹')) {

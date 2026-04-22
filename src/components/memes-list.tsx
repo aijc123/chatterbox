@@ -454,7 +454,7 @@ export function MemesList() {
               marginLeft: '-10px',
               marginRight: '-10px',
               paddingInline: '10px',
-              ...(optimizeLayout.value ? { flex: 1, minHeight: 0 } : { maxHeight: '240px' }),
+              maxHeight: optimizeLayout.value ? '180px' : '240px',
             }}
           >
             {memes.value

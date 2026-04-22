@@ -46,11 +46,11 @@ export function App() {
       }
 
       #laplace-chatterbox-dialog .cb-scroll {
-        padding: 10px !important;
+        padding: 8px !important;
       }
 
       #laplace-chatterbox-dialog details {
-        margin: 0 0 8px !important;
+        margin: 0 0 6px !important;
         padding: 0 !important;
         border: 1px solid rgba(0, 0, 0, .07) !important;
         border-radius: 8px !important;
@@ -73,11 +73,11 @@ export function App() {
       }
 
       #laplace-chatterbox-dialog summary {
-        min-height: 36px;
+        min-height: 32px;
         display: flex !important;
         align-items: center;
         gap: 6px;
-        padding: 0 10px !important;
+        padding: 0 9px !important;
         color: #1d1d1f !important;
         list-style: none;
         font-weight: 650 !important;
@@ -112,12 +112,12 @@ export function App() {
 
       #laplace-chatterbox-dialog button {
         appearance: none !important;
-        min-height: 28px !important;
+        min-height: 26px !important;
         border: 1px solid rgba(0, 0, 0, .08) !important;
         border-radius: 8px !important;
         background: rgba(255, 255, 255, .9) !important;
         color: #1d1d1f !important;
-        padding: 4px 10px !important;
+        padding: 3px 9px !important;
         cursor: pointer !important;
         font-weight: 560 !important;
         line-height: 1.3 !important;
@@ -149,7 +149,7 @@ export function App() {
         border-radius: 8px !important;
         background: rgba(255, 255, 255, .86) !important;
         color: #1d1d1f !important;
-        padding: 6px 8px !important;
+        padding: 5px 8px !important;
         box-shadow: inset 0 1px 2px rgba(0, 0, 0, .035) !important;
       }
 
@@ -218,7 +218,7 @@ export function App() {
         display: grid;
         grid-template-columns: repeat(4, 1fr);
         gap: 4px;
-        padding: 8px;
+        padding: 7px;
         background: rgba(248, 248, 250, .9);
         backdrop-filter: blur(18px) saturate(1.4);
         -webkit-backdrop-filter: blur(18px) saturate(1.4);
@@ -226,7 +226,7 @@ export function App() {
       }
 
       #laplace-chatterbox-dialog .cb-tab {
-        min-height: 30px !important;
+        min-height: 28px !important;
         padding: 4px 0 !important;
         border: none !important;
         box-shadow: none !important;
@@ -265,11 +265,11 @@ export function App() {
 
       #laplace-chatterbox-dialog .cb-stack {
         display: grid;
-        gap: 8px;
+        gap: 6px;
       }
 
       #laplace-chatterbox-dialog .cb-body {
-        padding: 0 10px 10px;
+        padding: 0 9px 8px;
       }
 
       #laplace-chatterbox-dialog .cb-note {
@@ -288,12 +288,12 @@ export function App() {
         border: 1px solid rgba(0,0,0,.06);
         border-radius: 8px;
         background: rgba(248, 248, 250, .8);
-        padding: 8px;
+        padding: 7px;
       }
 
       #laplace-chatterbox-dialog .cb-section {
-        margin: 0 0 8px !important;
-        padding: 8px !important;
+        margin: 0 0 6px !important;
+        padding: 7px !important;
         border: 1px solid rgba(0, 0, 0, .06) !important;
         border-radius: 8px !important;
         background: rgba(255, 255, 255, .72) !important;
@@ -310,14 +310,14 @@ export function App() {
         color: #8e8e93 !important;
         background: rgba(118, 118, 128, .08);
         border-radius: 8px;
-        padding: 8px;
+        padding: 7px;
       }
 
       #laplace-chatterbox-dialog .cb-result {
         border: 1px solid rgba(0, 0, 0, .06) !important;
         border-radius: 8px !important;
         background: rgba(255, 255, 255, .82) !important;
-        padding: 8px !important;
+        padding: 7px !important;
       }
 
       #laplace-chatterbox-dialog .cb-switch-row {
