@@ -94,10 +94,7 @@
       }
 
       .hero-grid {
-        display: grid;
-        grid-template-columns: minmax(0, 0.95fr) minmax(340px, 1.05fr);
-        gap: clamp(34px, 6vw, 82px);
-        align-items: center;
+        max-width: 900px;
       }
 
       .eyebrow {
@@ -207,170 +204,6 @@
         border-radius: 8px;
         background: rgba(255, 255, 255, 0.56);
         backdrop-filter: blur(16px);
-      }
-
-      .hero-stage {
-        position: relative;
-        display: grid;
-        place-items: center;
-        min-height: 560px;
-      }
-
-      .anime-art {
-        position: relative;
-        width: min(100%, 560px);
-        aspect-ratio: 1;
-        isolation: isolate;
-      }
-
-      .anime-art::before {
-        position: absolute;
-        inset: 11%;
-        z-index: -1;
-        border-radius: 50%;
-        content: "";
-        background:
-          radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.96) 0 22%, transparent 23%),
-          conic-gradient(from 18deg, rgba(0, 113, 227, 0.72), rgba(255, 106, 162, 0.78), rgba(142, 124, 255, 0.62), rgba(0, 169, 206, 0.74), rgba(0, 113, 227, 0.72));
-        box-shadow:
-          0 28px 80px rgba(0, 113, 227, 0.18),
-          0 20px 68px rgba(255, 106, 162, 0.16);
-        filter: saturate(1.12);
-        mask-image: radial-gradient(circle, transparent 0 42%, #000 43% 52%, transparent 53%);
-      }
-
-      .anime-art::after {
-        position: absolute;
-        inset: 20%;
-        z-index: -2;
-        border-radius: 50%;
-        content: "";
-        background:
-          radial-gradient(circle, rgba(255, 255, 255, 0.9) 0 2px, transparent 2.5px),
-          radial-gradient(circle at 35% 30%, rgba(0, 169, 206, 0.24), transparent 36%),
-          radial-gradient(circle at 65% 62%, rgba(255, 106, 162, 0.22), transparent 38%);
-        background-size: 18px 18px, 100% 100%, 100% 100%;
-        opacity: 0.78;
-        transform: rotate(-12deg);
-      }
-
-      .aura {
-        position: absolute;
-        inset: 14%;
-        border-radius: 50%;
-        background:
-          linear-gradient(115deg, transparent 10%, rgba(0, 169, 206, 0.32), transparent 36%),
-          linear-gradient(210deg, transparent 36%, rgba(255, 106, 162, 0.34), transparent 66%),
-          radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.68), transparent 58%);
-        filter: blur(14px);
-        animation: breathe 7s ease-in-out infinite;
-      }
-
-      .halo {
-        position: absolute;
-        inset: 22%;
-        border: 1px solid rgba(255, 255, 255, 0.82);
-        border-radius: 50%;
-        box-shadow:
-          inset 0 0 28px rgba(255, 255, 255, 0.42),
-          0 0 46px rgba(0, 169, 206, 0.18);
-        transform: rotate(-10deg);
-      }
-
-      .halo::before,
-      .halo::after {
-        position: absolute;
-        content: "";
-        border-radius: 999px;
-        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.92), transparent);
-      }
-
-      .halo::before {
-        width: 82%;
-        height: 2px;
-        left: 9%;
-        top: 28%;
-        transform: rotate(-14deg);
-      }
-
-      .halo::after {
-        width: 64%;
-        height: 2px;
-        right: 4%;
-        bottom: 27%;
-        transform: rotate(18deg);
-      }
-
-      .ribbon {
-        position: absolute;
-        left: var(--x);
-        top: var(--y);
-        width: var(--w);
-        height: 12px;
-        border-radius: 999px;
-        background: linear-gradient(90deg, transparent, var(--c), transparent);
-        filter: blur(0.2px);
-        opacity: 0.78;
-        transform: rotate(var(--r));
-        animation: drift 8s ease-in-out infinite;
-        animation-delay: var(--d);
-      }
-
-      .star {
-        position: absolute;
-        left: var(--x);
-        top: var(--y);
-        width: var(--s);
-        height: var(--s);
-        color: var(--c);
-        transform: rotate(45deg);
-        animation: twinkle 3.8s ease-in-out infinite;
-        animation-delay: var(--d);
-      }
-
-      .star::before,
-      .star::after {
-        position: absolute;
-        inset: 0;
-        margin: auto;
-        content: "";
-        border-radius: 999px;
-        background: currentColor;
-      }
-
-      .star::before {
-        width: 100%;
-        height: 22%;
-      }
-
-      .star::after {
-        width: 22%;
-        height: 100%;
-      }
-
-      .petal {
-        position: absolute;
-        left: var(--x);
-        top: var(--y);
-        width: var(--s);
-        height: calc(var(--s) * 1.38);
-        border-radius: 100% 0 100% 0;
-        background: linear-gradient(145deg, rgba(255, 255, 255, 0.92), var(--c));
-        box-shadow: 0 10px 26px rgba(255, 106, 162, 0.15);
-        transform: rotate(var(--r));
-        animation: float 7.4s ease-in-out infinite;
-        animation-delay: var(--d);
-      }
-
-      .slash {
-        position: absolute;
-        left: var(--x);
-        top: var(--y);
-        width: var(--w);
-        height: 1px;
-        background: linear-gradient(90deg, transparent, var(--c), transparent);
-        transform: rotate(var(--r));
-        opacity: 0.74;
       }
 
       .section {
@@ -568,54 +401,6 @@
         color: var(--text);
       }
 
-      @keyframes breathe {
-        0%,
-        100% {
-          transform: scale(0.96);
-          opacity: 0.74;
-        }
-
-        50% {
-          transform: scale(1.04);
-          opacity: 0.92;
-        }
-      }
-
-      @keyframes drift {
-        0%,
-        100% {
-          translate: 0 0;
-        }
-
-        50% {
-          translate: 12px -10px;
-        }
-      }
-
-      @keyframes twinkle {
-        0%,
-        100% {
-          opacity: 0.46;
-          scale: 0.78;
-        }
-
-        50% {
-          opacity: 1;
-          scale: 1.08;
-        }
-      }
-
-      @keyframes float {
-        0%,
-        100% {
-          translate: 0 0;
-        }
-
-        50% {
-          translate: -8px 12px;
-        }
-      }
-
       @media (prefers-reduced-motion: reduce) {
         html {
           scroll-behavior: auto;
@@ -637,13 +422,8 @@
           padding-top: 42px;
         }
 
-        .hero-grid,
         .install {
           grid-template-columns: 1fr;
-        }
-
-        .hero-stage {
-          min-height: 500px;
         }
 
         .feature-grid {
@@ -666,14 +446,6 @@
 
         .button {
           width: 100%;
-        }
-
-        .hero-stage {
-          min-height: auto;
-        }
-
-        .anime-art {
-          width: min(100%, 420px);
         }
 
         .feature-grid {
@@ -723,15 +495,6 @@
         .pill {
           border-color: rgba(255, 255, 255, 0.12);
           background-color: rgba(20, 24, 34, 0.72);
-        }
-
-        .anime-art::before {
-          background:
-            radial-gradient(circle at 50% 50%, rgba(10, 12, 18, 0.96) 0 22%, transparent 23%),
-            conic-gradient(from 18deg, rgba(0, 113, 227, 0.82), rgba(255, 106, 162, 0.8), rgba(142, 124, 255, 0.7), rgba(0, 169, 206, 0.8), rgba(0, 113, 227, 0.82));
-          box-shadow:
-            0 28px 82px rgba(0, 113, 227, 0.24),
-            0 20px 70px rgba(255, 106, 162, 0.2);
         }
 
         .feature,
@@ -790,26 +553,6 @@
               <span class="pill">Tampermonkey</span>
               <span class="pill">Violentmonkey</span>
               <span class="pill">Bilibili Live</span>
-            </div>
-          </div>
-
-          <div class="hero-stage" aria-label="二次元抽象装饰">
-            <div class="anime-art" aria-hidden="true">
-              <div class="aura"></div>
-              <div class="halo"></div>
-              <span class="ribbon" style="--x: 4%; --y: 27%; --w: 58%; --r: -18deg; --c: rgba(0, 169, 206, 0.84); --d: -1s;"></span>
-              <span class="ribbon" style="--x: 38%; --y: 66%; --w: 54%; --r: 16deg; --c: rgba(255, 106, 162, 0.78); --d: -4s;"></span>
-              <span class="ribbon" style="--x: 14%; --y: 76%; --w: 42%; --r: -8deg; --c: rgba(142, 124, 255, 0.74); --d: -2.4s;"></span>
-              <span class="slash" style="--x: 7%; --y: 43%; --w: 28%; --r: -24deg; --c: rgba(0, 113, 227, 0.68);"></span>
-              <span class="slash" style="--x: 66%; --y: 34%; --w: 24%; --r: 20deg; --c: rgba(255, 106, 162, 0.7);"></span>
-              <span class="slash" style="--x: 58%; --y: 82%; --w: 30%; --r: -18deg; --c: rgba(0, 169, 206, 0.62);"></span>
-              <span class="star" style="--x: 18%; --y: 18%; --s: 26px; --c: #00a9ce; --d: -0.6s;"></span>
-              <span class="star" style="--x: 76%; --y: 20%; --s: 18px; --c: #ff6aa2; --d: -2.1s;"></span>
-              <span class="star" style="--x: 70%; --y: 74%; --s: 24px; --c: #8e7cff; --d: -3.2s;"></span>
-              <span class="star" style="--x: 28%; --y: 82%; --s: 14px; --c: #0071e3; --d: -1.7s;"></span>
-              <span class="petal" style="--x: 20%; --y: 57%; --s: 19px; --r: 22deg; --c: rgba(255, 106, 162, 0.72); --d: -2.5s;"></span>
-              <span class="petal" style="--x: 82%; --y: 50%; --s: 15px; --r: -34deg; --c: rgba(255, 151, 190, 0.64); --d: -4.4s;"></span>
-              <span class="petal" style="--x: 46%; --y: 13%; --s: 13px; --r: 54deg; --c: rgba(255, 106, 162, 0.58); --d: -1.2s;"></span>
             </div>
           </div>
         </div>
