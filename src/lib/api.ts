@@ -140,6 +140,7 @@ export interface MedalRoom {
   medalName: string
   anchorName: string
   anchorUid: number | null
+  source: 'medal-link' | 'medal-room-id' | 'anchor-uid'
 }
 
 export interface MedalRestrictionCheck {
@@ -163,6 +164,13 @@ function firstString(...values: unknown[]): string {
   return '未知'
 }
 
+function roomIdFromLiveLink(value: unknown): number | null {
+  if (typeof value !== 'string') return null
+  const match = value.match(/live\.bilibili\.com\/(?:blanc\/)?(\d+)/)
+  if (!match) return null
+  return toNumber(match[1])
+}
+
 function findMedalEntries(data: unknown): unknown[] {
   if (typeof data !== 'object' || data === null) return []
   const root = data as Record<string, unknown>
@@ -182,14 +190,45 @@ function medalEntryToRoom(entry: unknown): MedalRoom | null {
   const obj = entry as Record<string, unknown>
   const medal = typeof obj.medal_info === 'object' && obj.medal_info !== null ? (obj.medal_info as Record<string, unknown>) : {}
   const anchor = typeof obj.anchor_info === 'object' && obj.anchor_info !== null ? (obj.anchor_info as Record<string, unknown>) : {}
-  const roomId = toNumber(medal.roomid) ?? toNumber(medal.room_id) ?? toNumber(obj.roomid) ?? toNumber(obj.room_id)
+  const linkedRoomId = roomIdFromLiveLink(obj.link) ?? roomIdFromLiveLink(medal.link) ?? roomIdFromLiveLink(anchor.link)
+  const directRoomId = toNumber(medal.roomid) ?? toNumber(medal.room_id) ?? toNumber(obj.roomid) ?? toNumber(obj.room_id)
+  const roomId = directRoomId ?? linkedRoomId
+  const anchorUid = toNumber(medal.target_id) ?? toNumber(anchor.uid) ?? toNumber(obj.target_id)
   if (roomId === null || roomId <= 0) return null
   return {
     roomId,
-    medalName: firstString(medal.medal_name, medal.name, obj.medal_name, obj.name),
-    anchorName: firstString(anchor.uname, anchor.name, medal.anchor_uname, obj.anchor_uname, obj.uname),
-    anchorUid: toNumber(medal.target_id) ?? toNumber(anchor.uid) ?? toNumber(obj.target_id),
+    medalName: firstString(medal.medal_name, medal.name, obj.medal_name, obj.medal_name, obj.name),
+    anchorName: firstString(obj.target_name, anchor.uname, anchor.name, medal.anchor_uname, obj.anchor_uname, obj.uname),
+    anchorUid,
+    source: directRoomId !== null ? 'medal-room-id' : 'medal-link',
   }
+}
+
+function medalEntryToAnchorFallback(entry: unknown): Omit<MedalRoom, 'roomId' | 'source'> | null {
+  if (typeof entry !== 'object' || entry === null) return null
+  const obj = entry as Record<string, unknown>
+  const medal = typeof obj.medal_info === 'object' && obj.medal_info !== null ? (obj.medal_info as Record<string, unknown>) : {}
+  const anchor = typeof obj.anchor_info === 'object' && obj.anchor_info !== null ? (obj.anchor_info as Record<string, unknown>) : {}
+  const anchorUid = toNumber(medal.target_id) ?? toNumber(anchor.uid) ?? toNumber(obj.target_id)
+  if (anchorUid === null || anchorUid <= 0) return null
+  return {
+    medalName: firstString(medal.medal_name, medal.name, obj.medal_name, obj.name),
+    anchorName: firstString(obj.target_name, anchor.uname, anchor.name, medal.anchor_uname, obj.anchor_uname, obj.uname),
+    anchorUid,
+  }
+}
+
+async function fetchRoomByAnchorUid(anchor: Omit<MedalRoom, 'roomId' | 'source'>): Promise<MedalRoom | null> {
+  const resp = await fetch(`${BASE_URL.BILIBILI_ROOM_INFO_BY_UID}?mid=${anchor.anchorUid}`, {
+    method: 'GET',
+    credentials: 'include',
+  })
+  if (!resp.ok) return null
+  const json: { code?: number; data?: { roomid?: number; link?: string } } = await resp.json()
+  if (json.code !== 0) return null
+  const roomId = toNumber(json.data?.roomid) ?? roomIdFromLiveLink(json.data?.link)
+  if (roomId === null || roomId <= 0) return null
+  return { ...anchor, roomId, source: 'anchor-uid' }
 }
 
 export async function fetchMedalRooms(): Promise<MedalRoom[]> {
@@ -202,7 +241,18 @@ export async function fetchMedalRooms(): Promise<MedalRoom[]> {
   if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`)
   const json: { code?: number; message?: string; msg?: string; data?: unknown } = await resp.json()
   if (json.code !== 0) throw new Error(json.message ?? json.msg ?? `code ${json.code}`)
-  const rooms = findMedalEntries(json.data).map(medalEntryToRoom).filter((room): room is MedalRoom => room !== null)
+  const entries = findMedalEntries(json.data)
+  const rooms = entries.map(medalEntryToRoom).filter((room): room is MedalRoom => room !== null)
+  const unresolvedAnchors = entries
+    .filter(entry => medalEntryToRoom(entry) === null)
+    .map(medalEntryToAnchorFallback)
+    .filter((anchor): anchor is Omit<MedalRoom, 'roomId' | 'source'> => anchor !== null)
+
+  for (const anchor of unresolvedAnchors) {
+    const room = await fetchRoomByAnchorUid(anchor)
+    if (room) rooms.push(room)
+  }
+
   const deduped = new Map<number, MedalRoom>()
   for (const room of rooms) deduped.set(room.roomId, room)
   return [...deduped.values()]
