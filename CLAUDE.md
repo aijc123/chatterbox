@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Bilibili Live userscript called "LAPLACE Chatterbox" that adds various danmaku (chat message) utilities to Bilibili Live streams. It's built as a userscript that runs in the browser and provides features like auto-send loops, speech-to-text, meme lists, AI evasion, and more.
+This is a Bilibili Live userscript called "LAPLACE Chatterbox" that adds various danmaku (chat message) utilities to Bilibili Live streams. It's built as a userscript that runs in the browser and provides features like auto-send loops, 自动跟车, speech-to-text, meme lists, AI evasion, and more.
 
 ## Development Commands
 
@@ -35,7 +35,7 @@ The build output is written to `dist/` directory.
 - **Type Definitions**: `src/types.ts` - TypeScript interfaces for API responses and data structures
 
 ### Key Features & Modules
-1. **Auto-Blend (自动融入)**: `src/lib/auto-blend.ts` - Automatically sends danmaku when detecting repeated messages
+1. **自动跟车 (Auto-follow)**: `src/lib/auto-blend.ts` - Automatically follows repeated danmaku waves with conservative presets and cooldowns
 2. **Danmaku Direct**: `src/lib/danmaku-direct.ts` - Direct danmaku sending functionality
 3. **Speech-to-Text**: `src/lib/stt-tab.tsx` - Integrates Soniox speech-to-text API
 4. **AI Evasion**: `src/lib/ai-evasion.ts` - Techniques to avoid AI detection
@@ -48,7 +48,7 @@ The build output is written to `dist/` directory.
 - Uses `@preact/signals` for reactive state
 - GM-persisted settings stored in browser's userscript storage
 - Runtime state signals for temporary state
-- Effects handle persistence of send state and auto-blend state per room
+- Effects handle send-state persistence and 自动跟车 runtime lifecycle
 
 ### Build Process
 - Uses Vite with `vite-plugin-monkey` for userscript packaging
@@ -66,7 +66,7 @@ The build output is written to `dist/` directory.
 ### Configuration
 - Settings are persisted using GM (Greasemonkey) storage API
 - Configuration stored in `src/lib/store.ts`
-- Supports per-room state persistence for send and auto-blend features
+- Supports GM-persisted settings for send and 自动跟车 features
 - Various toggles and settings for different features (auto-send, AI evasion, etc.)
 
 ### UI Structure

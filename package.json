@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:auto-blend": "bun scripts/test-auto-blend.ts",
+    "verify:auto-blend-ui": "bun scripts/verify-auto-blend-ui.ts"
   },
   "dependencies": {
     "@preact/signals": "^2.9.0",

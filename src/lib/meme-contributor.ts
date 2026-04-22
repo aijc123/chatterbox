@@ -1,11 +1,6 @@
 import { GM_getValue, GM_setValue } from '$'
-
 import { appendLog } from './log'
-import {
-  enableMemeContribution,
-  memeContributorCandidates,
-  memeContributorSeenTexts,
-} from './store'
+import { enableMemeContribution, memeContributorCandidates, memeContributorSeenTexts } from './store'
 
 const MAX_PER_HOUR = 5
 const MAX_CANDIDATES = 15
@@ -15,7 +10,7 @@ const SESSION_MAP_KEY = 'memeSessionMap'
 // Discard entries whose most recent timestamp is older than 2 hours on load.
 const SESSION_MAP_MAX_AGE_MS = 2 * 60 * 60 * 1000
 
-// text → list of timestamps when 自动融入 fired for this text
+// text → list of timestamps when 自动跟车 fired for this text
 // Persisted to GM storage so the 10-minute recurrence check survives page reloads.
 function loadSessionMap(): Map<string, number[]> {
   const raw = GM_getValue<Record<string, number[]>>(SESSION_MAP_KEY, {})

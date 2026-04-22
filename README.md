@@ -2,6 +2,13 @@
 
 A userscript for Bilibili Live that adds danmaku (chat message) utilities — auto-send loops, speech-to-text, meme lists, AI evasion, and more.
 
+## Features
+
+- 自动跟车: detects repeated live chat messages and follows the wave with conservative presets.
+- 独轮车: sends prepared danmaku lines in a loop.
+- 同传: speech-to-text and optional translation helpers.
+- 烂梗列表: keeps reusable meme lines handy.
+
 ## Install
 
 Requires a userscript manager such as [Tampermonkey](https://www.tampermonkey.net/) or [Violentmonkey](https://violentmonkey.github.io/).

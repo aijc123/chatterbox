@@ -29,14 +29,19 @@ export const normalSendPanelOpen = gmSignal('normalSendPanelOpen', true)
 export const memesPanelOpen = gmSignal('memesPanelOpen', true)
 export const dialogOpen = gmSignal('dialogOpen', false)
 
-// Auto-blend (自动融入): send when any message hits N repeats within W seconds,
+// 自动跟车 (auto-blend internally): send when any message hits N repeats within W seconds,
 // then freeze the detector for C seconds. A routine timer picks from active candidates
 // by weighted random choice for sustained multi-topic trends.
 // Optional: require N distinct users for a stricter social-consensus trigger.
 export const autoBlendWindowSec = gmSignal('autoBlendWindowSec', 15) // rolling window W
 export const autoBlendThreshold = gmSignal('autoBlendThreshold', 3) // burst threshold N
-export const autoBlendCooldownSec = gmSignal('autoBlendCooldownSec', 12) // post-send freeze C
+export const autoBlendCooldownSec = gmSignal('autoBlendCooldownSec', 15) // post-send freeze C
 export const autoBlendRoutineIntervalSec = gmSignal('autoBlendRoutineIntervalSec', 30) // routine timer period
+export const autoBlendPreset = gmSignal<'safe' | 'normal' | 'hot' | 'custom'>('autoBlendPreset', 'normal')
+export const autoBlendAdvancedOpen = gmSignal('autoBlendAdvancedOpen', false)
+export const autoBlendDryRun = gmSignal('autoBlendDryRun', true)
+export const autoBlendAvoidRisky = gmSignal('autoBlendAvoidRisky', true)
+export const autoBlendBlockedWords = gmSignal('autoBlendBlockedWords', '抽奖\n加群\n私信\n房管\n举报')
 export const autoBlendIncludeReply = gmSignal('autoBlendIncludeReply', false)
 export const autoBlendUseReplacements = gmSignal('autoBlendUseReplacements', true)
 export const autoBlendRequireDistinctUsers = gmSignal('autoBlendRequireDistinctUsers', true)
@@ -89,6 +94,9 @@ export const sendMsg = signal(false)
 export const sttRunning = signal(false)
 export const cachedRoomId = signal<number | null>(null)
 export const autoBlendEnabled = signal(false)
+export const autoBlendStatusText = signal('已关闭')
+export const autoBlendCandidateText = signal('暂无')
+export const autoBlendLastActionText = signal('暂无')
 
 let sendStateRestored = false
 
@@ -118,7 +126,6 @@ effect(() => {
     }
   }
 })
-
 
 export const cachedStreamerUid = signal<number | null>(null)
 export const availableDanmakuColors = signal<string[] | null>(null)
