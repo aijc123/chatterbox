@@ -57,7 +57,7 @@ const STYLE = `
   min-height: 340px;
   flex: 1 1 auto;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   color: var(--lc-chat-text);
   background: var(--lc-chat-bg);
   border-left: 1px solid var(--lc-chat-border);
@@ -109,7 +109,7 @@ const STYLE = `
   border-bottom: 1px solid var(--lc-chat-border);
   backdrop-filter: blur(16px);
   min-width: 0;
-  overflow: visible;
+  overflow: hidden;
 }
 #${ROOT_ID} .lc-chat-title {
   flex: 1 1 auto;
@@ -147,15 +147,12 @@ const STYLE = `
   cursor: pointer;
 }
 #${ROOT_ID} .lc-chat-menu {
-  position: absolute;
-  z-index: 5;
-  top: calc(100% + 8px);
-  left: 10px;
-  right: 10px;
   display: none;
+  min-width: 0;
+  margin: 0 8px 8px;
   grid-template-columns: 1fr;
   gap: 10px;
-  max-height: min(360px, calc(100vh - 180px));
+  max-height: min(280px, 38vh);
   overflow-y: auto;
   padding: 10px;
   border: 1px solid var(--lc-chat-border);
@@ -727,6 +724,21 @@ function rememberEvent(event: Pick<CustomChatEvent, 'kind' | 'uid' | 'text'>): b
   return true
 }
 
+function isNoiseEventText(text: string): boolean {
+  const clean = compactText(text)
+  if (!clean) return true
+  if (/^(头像|匿名|复制|举报|回复|关闭|更多|展开|收起|弹幕|礼物|SC|进场|通知|暂停|清屏|状态|显示)$/.test(clean)) return true
+  if (/^搜索\s*user:/.test(clean)) return true
+  return false
+}
+
+function isReliableEvent(event: CustomChatEvent): boolean {
+  const text = compactText(event.text)
+  if (isNoiseEventText(text)) return false
+  if (event.source === 'dom' && displayName(event) === '匿名' && !event.uid && !event.avatarUrl && text.length <= 2) return false
+  return true
+}
+
 function usefulBadgeText(raw: string, uname: string): string | null {
   const text = compactText(raw)
     .replace(/^粉丝牌[:：]?/, '')
@@ -742,16 +754,22 @@ function isBadDisplayName(value: string): boolean {
   return !value || /通过活动|查看我的装扮|获得|装扮|荣耀|粉丝牌|用户等级|头像|复制|举报|回复|关闭/.test(value)
 }
 
+function cleanDisplayName(value: string): string {
+  return compactText(value).replace(/\s*[：:]\s*$/, '')
+}
+
 function displayName(message: CustomChatEvent): string {
-  let name = compactText(message.uname) || '匿名'
+  let name = cleanDisplayName(message.uname) || '匿名'
   for (const raw of message.badges) {
     const badge = compactText(raw)
     if (badge && name.startsWith(`${badge} `)) {
-      name = compactText(name.slice(badge.length))
+      name = cleanDisplayName(name.slice(badge.length))
     }
   }
   const medalPrefix = name.match(/^[^\s:：]{1,10}\s+\d{1,3}\s+(.{1,32})$/)
-  if (medalPrefix?.[1] && !isBadDisplayName(medalPrefix[1])) name = compactText(medalPrefix[1])
+  const medalName = cleanDisplayName(medalPrefix?.[1] ?? '')
+  if (medalName && !isBadDisplayName(medalName)) name = medalName
+  name = cleanDisplayName(name)
   if (isBadDisplayName(name)) return '匿名'
   return name || '匿名'
 }
@@ -849,7 +867,7 @@ function nativeUname(node: HTMLElement, text: string): string {
   for (const selector of selectors) {
     const el = node.querySelector<HTMLElement>(selector)
     const value = el?.getAttribute('data-uname') ?? el?.getAttribute('title') ?? el?.textContent
-    const clean = compactText(value ?? '')
+    const clean = cleanDisplayName(value ?? '')
     if (clean && clean !== text && clean.length <= 32 && !isBadDisplayName(clean)) return clean
   }
   return '匿名'
@@ -892,12 +910,14 @@ function parseNativeEvent(node: HTMLElement): CustomChatEvent | null {
   if (node.classList.contains('danmaku-item')) return null
   if (node.closest(`#${ROOT_ID}`)) return null
   const text = nodeText(node)
-  if (text.length < 2) return null
+  if (isNoiseEventText(text) || text.length < 2) return null
   const kind = nativeKind(node, text)
   if (!kind) return null
   const uname = nativeUname(node, text)
   const uid = nativeUid(node)
   const badges = nativeBadges(node, text, uname)
+  const avatar = nativeAvatar(node) || avatarUrl(uid)
+  if (uname === '匿名' && !uid && !avatar && text.length <= 4) return null
   return {
     id: `native-${++messageSeq}`,
     kind,
@@ -909,7 +929,7 @@ function parseNativeEvent(node: HTMLElement): CustomChatEvent | null {
     isReply: false,
     source: 'dom',
     badges,
-    avatarUrl: nativeAvatar(node) || avatarUrl(uid),
+    avatarUrl: avatar,
   }
 }
 
@@ -985,6 +1005,11 @@ function updateUnread(): void {
   if (pauseBtn) pauseBtn.setAttribute('aria-pressed', paused ? 'true' : 'false')
 }
 
+function isNearBottom(): boolean {
+  if (!listEl) return true
+  return listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight < 80
+}
+
 function scrollToBottom(): void {
   if (!listEl) return
   listEl.scrollTop = listEl.scrollHeight
@@ -1001,6 +1026,7 @@ function pruneMessages(): void {
 
 function renderMessage(message: CustomChatEvent, countUnread = true): void {
   if (!listEl) return
+  const shouldStickToBottom = !paused && isNearBottom()
   if (!messageMatchesSearch(message)) {
     updateMatchCount()
     return
@@ -1110,7 +1136,7 @@ function renderMessage(message: CustomChatEvent, countUnread = true): void {
 
   window.setTimeout(() => row.classList.remove('lc-chat-peek'), 2600)
   pruneMessages()
-  if (paused && countUnread) {
+  if (!shouldStickToBottom && countUnread) {
     unread++
     updateUnread()
   } else {
@@ -1253,10 +1279,16 @@ function createRoot(): HTMLElement {
   filterRow.append(filterLabel, filterbar)
 
   menu.append(searchRow, controlRow, filterRow, statusRow)
-  toolbar.append(spacer, title, menuBtn, menu)
+  toolbar.append(spacer, title, menuBtn)
 
   listEl = document.createElement('div')
   listEl.className = 'lc-chat-list'
+  listEl.addEventListener('scroll', () => {
+    if (isNearBottom() && unread > 0) {
+      unread = 0
+      updateUnread()
+    }
+  }, { passive: true })
 
   const composer = document.createElement('div')
   composer.className = 'lc-chat-composer'
@@ -1289,7 +1321,7 @@ function createRoot(): HTMLElement {
   sendRow.append(sendBtn, hint)
 
   composer.append(inputWrap, sendRow)
-  panel.append(toolbar, listEl, composer)
+  panel.append(toolbar, menu, listEl, composer)
   updateUnread()
   return panel
 }
@@ -1365,6 +1397,7 @@ function addDomMessage(ev: DanmakuEvent): void {
 }
 
 function addEvent(event: CustomChatEvent): void {
+  if (!isReliableEvent(event)) return
   if (messages.some(message => message.id === event.id && message.source === event.source)) return
   if (!rememberEvent(event)) return
   messages.push(event)

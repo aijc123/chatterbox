@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.8.7
+// @version      2.8.8
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、粉丝牌禁言巡检、常规发送、同传、烂梗库和弹幕替换规则。
 // @license      AGPL-3.0
@@ -5199,7 +5199,7 @@ ws;
   min-height: 340px;
   flex: 1 1 auto;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   color: var(--lc-chat-text);
   background: var(--lc-chat-bg);
   border-left: 1px solid var(--lc-chat-border);
@@ -5251,7 +5251,7 @@ ws;
   border-bottom: 1px solid var(--lc-chat-border);
   backdrop-filter: blur(16px);
   min-width: 0;
-  overflow: visible;
+  overflow: hidden;
 }
 #${ROOT_ID} .lc-chat-title {
   flex: 1 1 auto;
@@ -5289,15 +5289,12 @@ ws;
   cursor: pointer;
 }
 #${ROOT_ID} .lc-chat-menu {
-  position: absolute;
-  z-index: 5;
-  top: calc(100% + 8px);
-  left: 10px;
-  right: 10px;
   display: none;
+  min-width: 0;
+  margin: 0 8px 8px;
   grid-template-columns: 1fr;
   gap: 10px;
-  max-height: min(360px, calc(100vh - 180px));
+  max-height: min(280px, 38vh);
   overflow-y: auto;
   padding: 10px;
   border: 1px solid var(--lc-chat-border);
@@ -5857,6 +5854,19 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
     recentEventKeys.set(key, now);
     return true;
   }
+  function isNoiseEventText(text) {
+    const clean = compactText(text);
+    if (!clean) return true;
+    if (/^(头像|匿名|复制|举报|回复|关闭|更多|展开|收起|弹幕|礼物|SC|进场|通知|暂停|清屏|状态|显示)$/.test(clean)) return true;
+    if (/^搜索\s*user:/.test(clean)) return true;
+    return false;
+  }
+  function isReliableEvent(event) {
+    const text = compactText(event.text);
+    if (isNoiseEventText(text)) return false;
+    if (event.source === "dom" && displayName(event) === "匿名" && !event.uid && !event.avatarUrl && text.length <= 2) return false;
+    return true;
+  }
   function usefulBadgeText(raw, uname) {
     const text = compactText(raw).replace(/^粉丝牌[:：]?/, "").replace(/^荣耀[:：]?/, "").replace(/^用户等级[:：]?/, "UL ");
     if (!text || text.length > 16) return null;
@@ -5867,16 +5877,21 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
   function isBadDisplayName(value) {
     return !value || /通过活动|查看我的装扮|获得|装扮|荣耀|粉丝牌|用户等级|头像|复制|举报|回复|关闭/.test(value);
   }
+  function cleanDisplayName(value) {
+    return compactText(value).replace(/\s*[：:]\s*$/, "");
+  }
   function displayName(message) {
-    let name = compactText(message.uname) || "匿名";
+    let name = cleanDisplayName(message.uname) || "匿名";
     for (const raw of message.badges) {
       const badge = compactText(raw);
       if (badge && name.startsWith(`${badge} `)) {
-        name = compactText(name.slice(badge.length));
+        name = cleanDisplayName(name.slice(badge.length));
       }
     }
     const medalPrefix = name.match(/^[^\s:：]{1,10}\s+\d{1,3}\s+(.{1,32})$/);
-    if (medalPrefix?.[1] && !isBadDisplayName(medalPrefix[1])) name = compactText(medalPrefix[1]);
+    const medalName = cleanDisplayName(medalPrefix?.[1] ?? "");
+    if (medalName && !isBadDisplayName(medalName)) name = medalName;
+    name = cleanDisplayName(name);
     if (isBadDisplayName(name)) return "匿名";
     return name || "匿名";
   }
@@ -5962,7 +5977,7 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
     for (const selector of selectors) {
       const el = node.querySelector(selector);
       const value = el?.getAttribute("data-uname") ?? el?.getAttribute("title") ?? el?.textContent;
-      const clean = compactText(value ?? "");
+      const clean = cleanDisplayName(value ?? "");
       if (clean && clean !== text && clean.length <= 32 && !isBadDisplayName(clean)) return clean;
     }
     return "匿名";
@@ -6001,12 +6016,14 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
     if (node.classList.contains("danmaku-item")) return null;
     if (node.closest(`#${ROOT_ID}`)) return null;
     const text = nodeText(node);
-    if (text.length < 2) return null;
+    if (isNoiseEventText(text) || text.length < 2) return null;
     const kind = nativeKind(node, text);
     if (!kind) return null;
     const uname = nativeUname(node, text);
     const uid = nativeUid(node);
     const badges = nativeBadges(node, text, uname);
+    const avatar = nativeAvatar(node) || avatarUrl(uid);
+    if (uname === "匿名" && !uid && !avatar && text.length <= 4) return null;
     return {
       id: `native-${++messageSeq}`,
       kind,
@@ -6018,7 +6035,7 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
       isReply: false,
       source: "dom",
       badges,
-      avatarUrl: nativeAvatar(node) || avatarUrl(uid)
+      avatarUrl: avatar
     };
   }
   function tokenMatches(message, token) {
@@ -6086,6 +6103,10 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
     }
     if (pauseBtn) pauseBtn.setAttribute("aria-pressed", paused ? "true" : "false");
   }
+  function isNearBottom() {
+    if (!listEl) return true;
+    return listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight < 80;
+  }
   function scrollToBottom() {
     if (!listEl) return;
     listEl.scrollTop = listEl.scrollHeight;
@@ -6100,6 +6121,7 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
   }
   function renderMessage(message, countUnread = true) {
     if (!listEl) return;
+    const shouldStickToBottom = !paused && isNearBottom();
     if (!messageMatchesSearch(message)) {
       updateMatchCount();
       return;
@@ -6192,7 +6214,7 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
     listEl.append(row);
     window.setTimeout(() => row.classList.remove("lc-chat-peek"), 2600);
     pruneMessages();
-    if (paused && countUnread) {
+    if (!shouldStickToBottom && countUnread) {
       unread++;
       updateUnread();
     } else {
@@ -6316,9 +6338,15 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
     filterRow.className = "lc-chat-menu-row";
     filterRow.append(filterLabel, filterbar);
     menu.append(searchRow, controlRow, filterRow, statusRow);
-    toolbar.append(spacer, title, menuBtn, menu);
+    toolbar.append(spacer, title, menuBtn);
     listEl = document.createElement("div");
     listEl.className = "lc-chat-list";
+    listEl.addEventListener("scroll", () => {
+      if (isNearBottom() && unread > 0) {
+        unread = 0;
+        updateUnread();
+      }
+    }, { passive: true });
     const composer = document.createElement("div");
     composer.className = "lc-chat-composer";
     const inputWrap = document.createElement("div");
@@ -6344,7 +6372,7 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
     hint.textContent = "偷 / +1 / 复制，设置可贴 CSS";
     sendRow.append(sendBtn, hint);
     composer.append(inputWrap, sendRow);
-    panel.append(toolbar, listEl, composer);
+    panel.append(toolbar, menu, listEl, composer);
     updateUnread();
     return panel;
   }
@@ -6415,6 +6443,7 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
     });
   }
   function addEvent(event) {
+    if (!isReliableEvent(event)) return;
     if (messages.some((message) => message.id === event.id && message.source === event.source)) return;
     if (!rememberEvent(event)) return;
     messages.push(event);
