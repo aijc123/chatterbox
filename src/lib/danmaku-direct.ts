@@ -30,10 +30,6 @@ const STYLE = `
   pointer-events: auto;
   transform: translateY(-50%) translateX(-2px);
 }
-.${MARKER}.lc-dm-direct-peek {
-  opacity: 1;
-  pointer-events: auto;
-}
 .${MARKER} button {
   all: unset;
   cursor: pointer;
@@ -69,7 +65,7 @@ function injectButtons(node: HTMLElement, msg: string): void {
   if (!anchor) return
 
   const container = document.createElement('span')
-  container.className = `${MARKER} lc-dm-direct-peek`
+  container.className = MARKER
   container.dataset.msg = msg
 
   const stealBtn = document.createElement('button')
@@ -87,10 +83,6 @@ function injectButtons(node: HTMLElement, msg: string): void {
   container.appendChild(stealBtn)
   container.appendChild(repeatBtn)
   anchor.after(container)
-
-  window.setTimeout(() => {
-    container.classList.remove('lc-dm-direct-peek')
-  }, 2400)
 }
 
 function handleDelegatedClick(e: MouseEvent): void {
