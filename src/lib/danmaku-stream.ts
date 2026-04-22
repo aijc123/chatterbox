@@ -54,7 +54,6 @@ const USER_SELECTORS = [
   '.user-name',
   '.username',
   '.danmaku-item-user',
-  '.danmaku-item-left',
   '.chat-user-name',
   '[class*="user-name"]',
   '[class*="username"]',
@@ -89,12 +88,17 @@ function cleanInlineText(value: string | null | undefined): string {
   return (value ?? '').replace(/\s+/g, ' ').trim()
 }
 
+function isBadNameCandidate(value: string, text = ''): boolean {
+  if (!value || value === text || value.length > 36) return true
+  if (/通过活动|查看我的装扮|获得|装扮|荣耀|粉丝牌|用户等级|头像|复制|举报|回复|关闭/.test(value)) return true
+  if (/^[\d\s:：/.-]+$/.test(value)) return true
+  return false
+}
+
 function firstUsefulText(el: Element | null): string | null {
   if (!el) return null
   const value =
     el.getAttribute('data-uname') ||
-    el.getAttribute('title') ||
-    el.getAttribute('aria-label') ||
     cleanInlineText(el.textContent)
   return value ? value : null
 }
@@ -109,10 +113,10 @@ function extractUid(node: HTMLElement, userEl: Element | null): string | null {
 
 function extractUname(node: HTMLElement, userEl: Element | null, text: string): string | null {
   const direct = firstUsefulText(userEl)
-  if (direct && direct !== text && direct.length <= 32) return direct
+  if (direct && !isBadNameCandidate(direct, text)) return direct
   for (const selector of USER_SELECTORS) {
     const value = firstUsefulText(node.querySelector(selector))
-    if (value && value !== text && value.length <= 32) return value
+    if (value && !isBadNameCandidate(value, text)) return value
   }
   return null
 }

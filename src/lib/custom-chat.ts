@@ -427,10 +427,13 @@ const STYLE = `
   color: var(--lc-chat-chip-text);
   font-size: 10px;
   line-height: 1.25;
-  max-width: min(7em, 38%);
+  max-width: min(11em, 58%);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+#${ROOT_ID} .lc-chat-medal {
+  max-width: min(12em, 72%);
 }
 #${ROOT_ID} .lc-chat-kind {
   color: var(--lc-chat-own-text);
@@ -735,6 +738,10 @@ function usefulBadgeText(raw: string, uname: string): string | null {
   return text
 }
 
+function isBadDisplayName(value: string): boolean {
+  return !value || /通过活动|查看我的装扮|获得|装扮|荣耀|粉丝牌|用户等级|头像|复制|举报|回复|关闭/.test(value)
+}
+
 function displayName(message: CustomChatEvent): string {
   let name = compactText(message.uname) || '匿名'
   for (const raw of message.badges) {
@@ -744,7 +751,8 @@ function displayName(message: CustomChatEvent): string {
     }
   }
   const medalPrefix = name.match(/^[^\s:：]{1,10}\s+\d{1,3}\s+(.{1,32})$/)
-  if (medalPrefix?.[1]) name = compactText(medalPrefix[1])
+  if (medalPrefix?.[1] && !isBadDisplayName(medalPrefix[1])) name = compactText(medalPrefix[1])
+  if (isBadDisplayName(name)) return '匿名'
   return name || '匿名'
 }
 
@@ -842,7 +850,7 @@ function nativeUname(node: HTMLElement, text: string): string {
     const el = node.querySelector<HTMLElement>(selector)
     const value = el?.getAttribute('data-uname') ?? el?.getAttribute('title') ?? el?.textContent
     const clean = compactText(value ?? '')
-    if (clean && clean !== text && clean.length <= 32) return clean
+    if (clean && clean !== text && clean.length <= 32 && !isBadDisplayName(clean)) return clean
   }
   return '匿名'
 }

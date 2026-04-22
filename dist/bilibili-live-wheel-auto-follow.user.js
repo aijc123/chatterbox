@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.8.6
+// @version      2.8.7
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、粉丝牌禁言巡检、常规发送、同传、烂梗库和弹幕替换规则。
 // @license      AGPL-3.0
@@ -2021,7 +2021,6 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
     ".user-name",
     ".username",
     ".danmaku-item-user",
-    ".danmaku-item-left",
     ".chat-user-name",
     '[class*="user-name"]',
     '[class*="username"]'
@@ -2052,9 +2051,15 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
   function cleanInlineText(value) {
     return (value ?? "").replace(/\s+/g, " ").trim();
   }
+  function isBadNameCandidate(value, text = "") {
+    if (!value || value === text || value.length > 36) return true;
+    if (/通过活动|查看我的装扮|获得|装扮|荣耀|粉丝牌|用户等级|头像|复制|举报|回复|关闭/.test(value)) return true;
+    if (/^[\d\s:：/.-]+$/.test(value)) return true;
+    return false;
+  }
   function firstUsefulText(el) {
     if (!el) return null;
-    const value = el.getAttribute("data-uname") || el.getAttribute("title") || el.getAttribute("aria-label") || cleanInlineText(el.textContent);
+    const value = el.getAttribute("data-uname") || cleanInlineText(el.textContent);
     return value ? value : null;
   }
   function extractUid(node, userEl) {
@@ -2066,10 +2071,10 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
   }
   function extractUname(node, userEl, text) {
     const direct = firstUsefulText(userEl);
-    if (direct && direct !== text && direct.length <= 32) return direct;
+    if (direct && !isBadNameCandidate(direct, text)) return direct;
     for (const selector of USER_SELECTORS) {
       const value = firstUsefulText(node.querySelector(selector));
-      if (value && value !== text && value.length <= 32) return value;
+      if (value && !isBadNameCandidate(value, text)) return value;
     }
     return null;
   }
@@ -5564,10 +5569,13 @@ ws;
   color: var(--lc-chat-chip-text);
   font-size: 10px;
   line-height: 1.25;
-  max-width: min(7em, 38%);
+  max-width: min(11em, 58%);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+#${ROOT_ID} .lc-chat-medal {
+  max-width: min(12em, 72%);
 }
 #${ROOT_ID} .lc-chat-kind {
   color: var(--lc-chat-own-text);
@@ -5856,6 +5864,9 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
     if (uname && (text === uname || text.startsWith(`${uname} `) || text.startsWith(`${uname}　`))) return null;
     return text;
   }
+  function isBadDisplayName(value) {
+    return !value || /通过活动|查看我的装扮|获得|装扮|荣耀|粉丝牌|用户等级|头像|复制|举报|回复|关闭/.test(value);
+  }
   function displayName(message) {
     let name = compactText(message.uname) || "匿名";
     for (const raw of message.badges) {
@@ -5865,7 +5876,8 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
       }
     }
     const medalPrefix = name.match(/^[^\s:：]{1,10}\s+\d{1,3}\s+(.{1,32})$/);
-    if (medalPrefix?.[1]) name = compactText(medalPrefix[1]);
+    if (medalPrefix?.[1] && !isBadDisplayName(medalPrefix[1])) name = compactText(medalPrefix[1]);
+    if (isBadDisplayName(name)) return "匿名";
     return name || "匿名";
   }
   function normalizeBadges(message, name = displayName(message)) {
@@ -5951,7 +5963,7 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
       const el = node.querySelector(selector);
       const value = el?.getAttribute("data-uname") ?? el?.getAttribute("title") ?? el?.textContent;
       const clean = compactText(value ?? "");
-      if (clean && clean !== text && clean.length <= 32) return clean;
+      if (clean && clean !== text && clean.length <= 32 && !isBadDisplayName(clean)) return clean;
     }
     return "匿名";
   }
