@@ -168,14 +168,26 @@ export async function sendDanmaku(message: string, roomId: number, csrfToken: st
       body: form,
     })
 
-    const json: { message?: string } = await resp.json()
-
-    if (json.message) {
+    if (!resp.ok) {
       return {
         success: false,
         message,
         isEmoticon: emoticon,
-        error: json.message,
+        error: `HTTP ${resp.status}`,
+      }
+    }
+
+    // Bilibili returns code 0 on success; non-zero means failure even when
+    // HTTP status is 200. Both `message` and `msg` are used for error text
+    // depending on the endpoint version.
+    const json: { code?: number; message?: string; msg?: string } = await resp.json()
+
+    if (json.code !== 0) {
+      return {
+        success: false,
+        message,
+        isEmoticon: emoticon,
+        error: json.message ?? json.msg ?? `code ${json.code}`,
       }
     }
 

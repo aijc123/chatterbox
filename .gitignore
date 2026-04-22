@@ -34,3 +34,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .DS_Store
 
 references/
+
+# local Claude Code settings (permissions are machine-specific)
+.claude/settings.local.json

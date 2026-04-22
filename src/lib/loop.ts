@@ -161,6 +161,13 @@ export async function loop(): Promise<void> {
             await setRandomDanmakuColor(roomId, csrfToken ?? '')
           }
 
+          // Re-check abort after the async color call: the user may have
+          // clicked stop while setRandomDanmakuColor was awaiting.
+          if (signal.aborted) {
+            completed = false
+            break
+          }
+
           const result = await enqueueDanmaku(processedMessage, roomId, csrfToken ?? '', SendPriority.AUTO)
           const displayMsg = wasReplaced ? `${originalMessage} → ${processedMessage}` : processedMessage
           const baseLabel = result.isEmoticon ? '自动表情' : '自动'
