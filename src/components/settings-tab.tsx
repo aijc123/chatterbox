@@ -10,6 +10,7 @@ import {
   sendDanmaku,
 } from '../lib/api'
 import { BASE_URL } from '../lib/const'
+import { gmSignal } from '../lib/gm-signal'
 import { appendLog, maxLogLines } from '../lib/log'
 import { buildReplacementMap } from '../lib/replacement'
 import {
@@ -28,6 +29,9 @@ import {
 import { EmoteIds } from './emote-ids'
 
 const SYNC_INTERVAL = 10 * 60 * 1000
+const medalCheckOnlyIssues = gmSignal('medalCheckOnlyIssues', false)
+const medalCheckStatus = gmSignal('medalCheckStatus', '未检查')
+const medalCheckResults = gmSignal<MedalRestrictionCheck[]>('medalCheckResults', [])
 
 interface RemoteKeywords {
   global?: { keywords?: Record<string, string> }
@@ -53,12 +57,60 @@ function signalKindLabel(kind: string): string {
 }
 
 function formatCheckTime(ts: number): string {
-  return new Date(ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  return new Date(ts).toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
 }
 
 function sortMedalResults(results: MedalRestrictionCheck[]): MedalRestrictionCheck[] {
   const rank = { restricted: 0, unknown: 1, deactivated: 2, ok: 3 } satisfies Record<MedalRestrictionCheck['status'], number>
   return [...results].sort((a, b) => rank[a.status] - rank[b.status] || a.room.anchorName.localeCompare(b.room.anchorName))
+}
+
+function medalStatusTitle(status: MedalRestrictionCheck['status']): string {
+  if (status === 'restricted') return '发现限制'
+  if (status === 'unknown') return '无法确认'
+  if (status === 'deactivated') return '主播已注销'
+  return '未发现限制'
+}
+
+function medalStatusColor(status: MedalRestrictionCheck['status']): string {
+  if (status === 'restricted') return '#a15c00'
+  if (status === 'unknown') return '#666'
+  if (status === 'deactivated') return '#8e8e93'
+  return '#0a7f55'
+}
+
+function getFilteredMedalResults(results: MedalRestrictionCheck[], onlyIssues: boolean): MedalRestrictionCheck[] {
+  const sorted = sortMedalResults(results)
+  return onlyIssues ? sorted.filter(result => result.status !== 'ok') : sorted
+}
+
+function formatMedalResultLine(result: MedalRestrictionCheck): string {
+  const room = `${result.room.anchorName} / ${result.room.medalName}`
+  const header = `${medalStatusTitle(result.status)}｜${room}｜房间号：${result.room.roomId}｜检查时间：${formatCheckTime(result.checkedAt)}`
+  if (result.signals.length === 0) return `${header}\n${result.note ?? '接口未发现禁言/封禁信号'}`
+  const details = result.signals
+    .map(signal => `${signalKindLabel(signal.kind)}：${signal.message}；时长：${signal.duration}；来源：${signal.source}`)
+    .join('\n')
+  return `${header}\n${details}`
+}
+
+function formatMedalCheckReport(results: MedalRestrictionCheck[], status: string, onlyIssues: boolean): string {
+  const counts = getMedalCheckCounts(results)
+  const shown = getFilteredMedalResults(results, onlyIssues)
+  return [
+    '粉丝牌禁言巡检',
+    status,
+    `统计：限制 ${counts.restricted}，未知 ${counts.unknown}，主播注销 ${counts.deactivated}，正常 ${counts.ok}`,
+    onlyIssues ? `当前复制范围：只显示异常（${shown.length} 条）` : `当前复制范围：全部结果（${shown.length} 条）`,
+    '',
+    ...shown.map(formatMedalResultLine),
+  ].join('\n\n')
 }
 
 async function fetchRemoteKeywords(): Promise<RemoteKeywords> {
@@ -74,8 +126,7 @@ export function SettingsTab() {
   const testingRemote = useSignal(false)
   const testingLocal = useSignal(false)
   const checkingMedalRooms = useSignal(false)
-  const medalCheckStatus = useSignal('未检查')
-  const medalCheckResults = useSignal<MedalRestrictionCheck[]>([])
+  const medalCheckCopyStatus = useSignal('')
 
   const globalReplaceFrom = useSignal('')
   const globalReplaceTo = useSignal('')
@@ -360,6 +411,23 @@ export function SettingsTab() {
       appendLog(`禁言巡检失败：${msg}`)
     } finally {
       checkingMedalRooms.value = false
+    }
+  }
+
+  const copyMedalCheckResults = async () => {
+    const results = medalCheckResults.value
+    if (results.length === 0) {
+      medalCheckCopyStatus.value = '还没有巡检结果'
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(formatMedalCheckReport(results, medalCheckStatus.value, medalCheckOnlyIssues.value))
+      medalCheckCopyStatus.value = medalCheckOnlyIssues.value ? '已复制异常结果' : '已复制全部结果'
+      setTimeout(() => {
+        medalCheckCopyStatus.value = ''
+      }, 1800)
+    } catch {
+      medalCheckCopyStatus.value = '复制失败，请检查浏览器剪贴板权限'
     }
   }
 
@@ -756,7 +824,7 @@ export function SettingsTab() {
           粉丝牌禁言巡检
         </div>
         <div className='cb-note' style={{ marginBlock: '.5em', color: '#666' }}>
-          只读取 B 站接口，不发送弹幕。结果会按限制、无法确认、主播注销、正常排序；接口不给时长时会标明。
+          只读取 B 站接口，不发送弹幕。结果会按限制、无法确认、主播注销、正常排序；上次巡检会自动保留。
         </div>
         <div
           className='cb-row'
@@ -765,41 +833,50 @@ export function SettingsTab() {
           <button type='button' disabled={checkingMedalRooms.value} onClick={() => void checkMedalRooms()}>
             {checkingMedalRooms.value ? '检查中…' : '检查粉丝牌禁言'}
           </button>
+          <button type='button' disabled={medalCheckResults.value.length === 0} onClick={() => void copyMedalCheckResults()}>
+            复制巡检结果
+          </button>
+          <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
+            <input
+              id='medalCheckOnlyIssues'
+              type='checkbox'
+              checked={medalCheckOnlyIssues.value}
+              disabled={medalCheckResults.value.length === 0}
+              onInput={e => {
+                medalCheckOnlyIssues.value = e.currentTarget.checked
+              }}
+            />
+            <label htmlFor='medalCheckOnlyIssues'>只显示异常</label>
+          </span>
           <span style={{ color: medalCheckStatus.value.includes('发现限制') ? '#a15c00' : '#666' }}>
             {medalCheckStatus.value}
           </span>
+          {medalCheckCopyStatus.value && <span className='cb-note'>{medalCheckCopyStatus.value}</span>}
         </div>
         {medalCheckResults.value.length > 0 && (
           <div className='cb-stack'>
             {(() => {
               const counts = getMedalCheckCounts(medalCheckResults.value)
+              const shownCount = getFilteredMedalResults(medalCheckResults.value, medalCheckOnlyIssues.value).length
               return (
-                <div className='cb-panel' style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '4px' }}>
-                  <span style={{ color: '#a15c00' }}>限制 {counts.restricted}</span>
-                  <span style={{ color: '#666' }}>未知 {counts.unknown}</span>
-                  <span style={{ color: '#8e8e93' }}>注销 {counts.deactivated}</span>
-                  <span style={{ color: '#0a7f55' }}>正常 {counts.ok}</span>
+                <div className='cb-panel' style={{ display: 'grid', gap: '6px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '4px' }}>
+                    <span style={{ color: '#a15c00' }}>限制 {counts.restricted}</span>
+                    <span style={{ color: '#666' }}>未知 {counts.unknown}</span>
+                    <span style={{ color: '#8e8e93' }}>注销 {counts.deactivated}</span>
+                    <span style={{ color: '#0a7f55' }}>正常 {counts.ok}</span>
+                  </div>
+                  <div className='cb-note'>
+                    当前显示 {shownCount} / {medalCheckResults.value.length} 条
+                    {medalCheckOnlyIssues.value ? '，已隐藏正常房间' : ''}
+                  </div>
                 </div>
               )
             })()}
             <div style={{ maxHeight: '220px', overflowY: 'auto', display: 'grid', gap: '.35em' }}>
-            {sortMedalResults(medalCheckResults.value).map(result => {
-              const color =
-                result.status === 'restricted'
-                  ? '#a15c00'
-                  : result.status === 'unknown'
-                    ? '#666'
-                    : result.status === 'deactivated'
-                      ? '#8e8e93'
-                      : '#0a7f55'
-              const title =
-                result.status === 'restricted'
-                  ? '发现限制'
-                  : result.status === 'unknown'
-                    ? '无法确认'
-                    : result.status === 'deactivated'
-                      ? '主播已注销'
-                      : '未发现限制'
+            {getFilteredMedalResults(medalCheckResults.value, medalCheckOnlyIssues.value).map(result => {
+              const color = medalStatusColor(result.status)
+              const title = medalStatusTitle(result.status)
               return (
                 <div
                   key={result.room.roomId}
