@@ -9,7 +9,7 @@ import {
   type MedalRestrictionCheck,
   sendDanmaku,
 } from '../lib/api'
-import { BASE_URL } from '../lib/const'
+import { BASE_URL, VERSION } from '../lib/const'
 import { gmSignal } from '../lib/gm-signal'
 import { appendLog, maxLogLines } from '../lib/log'
 import { buildReplacementMap } from '../lib/replacement'
@@ -19,6 +19,8 @@ import {
   danmakuDirectConfirm,
   danmakuDirectMode,
   forceScrollDanmaku,
+  guardRoomEndpoint,
+  guardRoomSyncKey,
   localGlobalRules,
   localRoomRules,
   optimizeLayout,
@@ -134,6 +136,37 @@ function formatMedalCheckReport(
   ].join('\n\n')
 }
 
+function normalizeGuardRoomEndpoint(endpoint: string): string {
+  return endpoint.trim().replace(/\/+$/, '')
+}
+
+function buildGuardRoomInspectionRun(results: MedalRestrictionCheck[]) {
+  const checkedAtValues = results.map(result => result.checkedAt)
+  const startedAt = checkedAtValues.length > 0 ? Math.min(...checkedAtValues) : Date.now()
+  const finishedAt = checkedAtValues.length > 0 ? Math.max(...checkedAtValues) : Date.now()
+  return {
+    runId: `chatterbox-${Date.now()}`,
+    scriptVersion: VERSION,
+    startedAt: new Date(startedAt).toISOString(),
+    finishedAt: new Date(finishedAt).toISOString(),
+    results: results.map(result => ({
+      roomId: result.room.roomId,
+      anchorName: result.room.anchorName,
+      anchorUid: result.room.anchorUid,
+      medalName: result.room.medalName,
+      status: result.status,
+      signals: result.signals.map(signal => ({
+        kind: signal.kind,
+        message: signal.message,
+        duration: signal.duration,
+        source: signal.source,
+      })),
+      checkedAt: new Date(result.checkedAt).toISOString(),
+      note: result.note,
+    })),
+  }
+}
+
 async function fetchRemoteKeywords(): Promise<RemoteKeywords> {
   const response = await fetch(BASE_URL.REMOTE_KEYWORDS)
   if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
@@ -148,6 +181,8 @@ export function SettingsTab() {
   const testingLocal = useSignal(false)
   const checkingMedalRooms = useSignal(false)
   const medalCheckCopyStatus = useSignal('')
+  const guardRoomSyncing = useSignal(false)
+  const guardRoomSyncStatus = useSignal('')
 
   const globalReplaceFrom = useSignal('')
   const globalReplaceTo = useSignal('')
@@ -426,12 +461,48 @@ export function SettingsTab() {
       appendLog(
         `禁言巡检完成：${rooms.length} 个房间，${counts.restricted} 个限制，${counts.deactivated} 个主播注销，${counts.unknown} 个无法确认`
       )
+      if (guardRoomSyncKey.value.trim()) await syncGuardRoomInspection(results)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       medalCheckStatus.value = `检查失败：${msg}`
       appendLog(`禁言巡检失败：${msg}`)
     } finally {
       checkingMedalRooms.value = false
+    }
+  }
+
+  const syncGuardRoomInspection = async (results = medalCheckResults.value) => {
+    if (results.length === 0) {
+      guardRoomSyncStatus.value = '还没有巡检结果'
+      return
+    }
+    const endpoint = normalizeGuardRoomEndpoint(guardRoomEndpoint.value)
+    const syncKey = guardRoomSyncKey.value.trim()
+    if (!endpoint || !syncKey) {
+      guardRoomSyncStatus.value = '缺少保安室地址或同步密钥'
+      return
+    }
+    guardRoomSyncing.value = true
+    guardRoomSyncStatus.value = '同步中…'
+    try {
+      const response = await fetch(`${endpoint}/api/inspection-runs`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-sync-key': syncKey,
+        },
+        body: JSON.stringify(buildGuardRoomInspectionRun(results)),
+      })
+      const json: { message?: string } = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(json.message ?? `HTTP ${response.status}`)
+      guardRoomSyncStatus.value = '已同步到直播间保安室'
+      appendLog('直播间保安室：巡检结果已同步')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      guardRoomSyncStatus.value = `同步失败：${msg}`
+      appendLog(`直播间保安室：同步失败：${msg}`)
+    } finally {
+      guardRoomSyncing.value = false
     }
   }
 
@@ -846,6 +917,37 @@ export function SettingsTab() {
         </div>
         <div className='cb-note' style={{ marginBlock: '.5em', color: '#666' }}>
           只读取 B 站接口，不发送弹幕。结果会按限制、无法确认、主播注销、正常排序；上次巡检会自动保留。
+        </div>
+        <div className='cb-panel cb-stack' style={{ marginBottom: '.5em' }}>
+          <div className='cb-heading' style={{ marginBottom: 0 }}>
+            直播间保安室同步
+          </div>
+          <input
+            type='text'
+            placeholder='https://bilibili-guard-room.vercel.app'
+            value={guardRoomEndpoint.value}
+            onInput={e => {
+              guardRoomEndpoint.value = e.currentTarget.value
+            }}
+          />
+          <input
+            type='text'
+            placeholder='spaceId@syncSecret'
+            value={guardRoomSyncKey.value}
+            onInput={e => {
+              guardRoomSyncKey.value = e.currentTarget.value
+            }}
+          />
+          <div className='cb-row'>
+            <button
+              type='button'
+              disabled={guardRoomSyncing.value || medalCheckResults.value.length === 0}
+              onClick={() => void syncGuardRoomInspection()}
+            >
+              {guardRoomSyncing.value ? '同步中…' : '保存并同步'}
+            </button>
+            {guardRoomSyncStatus.value && <span className='cb-note'>{guardRoomSyncStatus.value}</span>}
+          </div>
         </div>
         <div
           className='cb-row'

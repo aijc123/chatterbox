@@ -19,6 +19,7 @@ export default defineConfig({
         homepageURL: 'https://github.com/aijc123/bilibili-live-wheel-auto-follow',
         supportURL: 'https://github.com/aijc123/bilibili-live-wheel-auto-follow/issues',
         match: ['*://live.bilibili.com/*'],
+        connect: ['bilibili-guard-room.vercel.app', 'localhost'],
         'run-at': 'document-start',
       },
       build: {
