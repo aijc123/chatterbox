@@ -131,9 +131,7 @@ async function fetchDanmuInfo(roomId: number): Promise<DanmuInfo> {
   }
   const addresses = [
     ...new Set(
-      json.data.host_list
-        ?.filter(item => item.host)
-        .map(item => `wss://${item.host}:${item.wss_port || 443}/sub`) ?? []
+      json.data.host_list?.filter(item => item.host).map(item => `wss://${item.host}:${item.wss_port || 443}/sub`) ?? []
     ),
   ]
   if (addresses.length === 0) throw new Error('弹幕服务器地址为空')
