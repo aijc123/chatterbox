@@ -6,10 +6,12 @@ import {
   autoBlendPanelOpen,
   autoBlendRequireDistinctUsers,
   autoBlendRoutineIntervalSec,
+  autoBlendSendAllTrending,
   autoBlendSendCount,
   autoBlendThreshold,
   autoBlendUseReplacements,
   autoBlendWindowSec,
+  msgSendInterval,
 } from '../lib/store'
 
 function NumberInput({
@@ -175,6 +177,17 @@ export function AutoBlendControls() {
           />
           <label for='autoBlendUseReplacements'>应用替换规则</label>
         </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
+          <input
+            id='autoBlendSendAllTrending'
+            type='checkbox'
+            checked={autoBlendSendAllTrending.value}
+            onInput={e => {
+              autoBlendSendAllTrending.value = e.currentTarget.checked
+            }}
+          />
+          <label for='autoBlendSendAllTrending'>爆发时发所有趋势</label>
+        </span>
       </div>
 
       <div
@@ -214,6 +227,11 @@ export function AutoBlendControls() {
         )}
       </div>
 
+      {autoBlendSendCount.value * msgSendInterval.value > autoBlendCooldownSec.value && (
+        <div style={{ color: '#e6a700', fontSize: '12px', lineHeight: 1.5, marginBottom: '.25em' }}>
+          ⚠️ 跟车 {autoBlendSendCount.value} 次 × 间隔 {msgSendInterval.value}s = {autoBlendSendCount.value * msgSendInterval.value}s，超过冷却时间 {autoBlendCooldownSec.value}s。冷却结束后若仍在发送，新触发会被跳过。
+        </div>
+      )}
       <div style={{ color: '#999', fontSize: '12px', lineHeight: 1.5 }}>
         监测弹幕爆发，在窗口内重复达到阈值时立即跟发，并每隔一段时间从热门候选中加权随机挑一条跟发。会复用「独轮车」面板里的随机字符
         / 随机颜色 / 最大字数；自己发出的弹幕不会被计入

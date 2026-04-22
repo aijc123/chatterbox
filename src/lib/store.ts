@@ -33,7 +33,7 @@ export const dialogOpen = gmSignal('dialogOpen', false)
 // then freeze the detector for C seconds. A routine timer picks from active candidates
 // by weighted random choice for sustained multi-topic trends.
 // Optional: require N distinct users for a stricter social-consensus trigger.
-export const autoBlendWindowSec = gmSignal('autoBlendWindowSec', 8) // rolling window W
+export const autoBlendWindowSec = gmSignal('autoBlendWindowSec', 15) // rolling window W
 export const autoBlendThreshold = gmSignal('autoBlendThreshold', 3) // burst threshold N
 export const autoBlendCooldownSec = gmSignal('autoBlendCooldownSec', 12) // post-send freeze C
 export const autoBlendRoutineIntervalSec = gmSignal('autoBlendRoutineIntervalSec', 30) // routine timer period
@@ -42,6 +42,10 @@ export const autoBlendUseReplacements = gmSignal('autoBlendUseReplacements', tru
 export const autoBlendRequireDistinctUsers = gmSignal('autoBlendRequireDistinctUsers', true)
 export const autoBlendMinDistinctUsers = gmSignal('autoBlendMinDistinctUsers', 2)
 export const autoBlendSendCount = gmSignal('autoBlendSendCount', 1)
+// When enabled, a burst trigger sends ALL currently-trending messages (sorted by
+// count) instead of just the one that crossed the threshold first.
+// The routine timer always picks one message per tick (weighted random).
+export const autoBlendSendAllTrending = gmSignal('autoBlendSendAllTrending', false)
 
 // Meme Contributor (社区烂梗贡献者)
 export const enableMemeContribution = gmSignal('enableMemeContribution', false)

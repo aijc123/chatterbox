@@ -1,3 +1,5 @@
+import { GM_getValue, GM_setValue } from '$'
+
 import { appendLog } from './log'
 import {
   enableMemeContribution,
@@ -9,9 +11,32 @@ const MAX_PER_HOUR = 5
 const MAX_CANDIDATES = 15
 const MAX_SEEN = 200
 const MIN_RECURRENCE_GAP_MS = 10 * 60 * 1000 // 10 minutes between first and last trigger
+const SESSION_MAP_KEY = 'memeSessionMap'
+// Discard entries whose most recent timestamp is older than 2 hours on load.
+const SESSION_MAP_MAX_AGE_MS = 2 * 60 * 60 * 1000
 
 // text → list of timestamps when 自动融入 fired for this text
-const sessionMap = new Map<string, number[]>()
+// Persisted to GM storage so the 10-minute recurrence check survives page reloads.
+function loadSessionMap(): Map<string, number[]> {
+  const raw = GM_getValue<Record<string, number[]>>(SESSION_MAP_KEY, {})
+  const now = Date.now()
+  const map = new Map<string, number[]>()
+  for (const [text, timestamps] of Object.entries(raw)) {
+    const last = timestamps.at(-1)
+    if (last !== undefined && now - last < SESSION_MAP_MAX_AGE_MS) {
+      map.set(text, timestamps)
+    }
+  }
+  return map
+}
+
+function saveSessionMap(map: Map<string, number[]>): void {
+  const raw: Record<string, number[]> = {}
+  for (const [text, timestamps] of map) raw[text] = timestamps
+  GM_setValue(SESSION_MAP_KEY, raw)
+}
+
+const sessionMap = loadSessionMap()
 
 const nominationTimestamps: number[] = []
 
@@ -37,6 +62,7 @@ export function recordMemeCandidate(text: string): void {
   const times = sessionMap.get(text) ?? []
   times.push(now)
   sessionMap.set(text, times)
+  saveSessionMap(sessionMap)
 
   // Need at least 2 separate triggers with a 10-minute gap between first and last.
   // A phrase that keeps coming back across a stream is more meme-like than a one-wave spike.
@@ -73,4 +99,5 @@ export function ignoreMemeCandidate(text: string): void {
 
 export function clearMemeSession(): void {
   sessionMap.clear()
+  saveSessionMap(sessionMap)
 }
