@@ -1,17 +1,30 @@
 import { useEffect, useRef } from 'preact/hooks'
 
 import { logLines, maxLogLines } from '../lib/log'
-import { logPanelOpen } from '../lib/store'
+import { logPanelFocusRequest, logPanelOpen } from '../lib/store'
 
 export function LogPanel() {
+  const detailsRef = useRef<HTMLDetailsElement>(null)
   const ref = useRef<HTMLTextAreaElement>(null)
 
-  useEffect(() => {
+  const scrollToBottom = () => {
     if (ref.current) ref.current.scrollTop = ref.current.scrollHeight
+  }
+
+  useEffect(() => {
+    scrollToBottom()
   }, [logLines.value])
+
+  useEffect(() => {
+    if (logPanelFocusRequest.value <= 0) return
+    detailsRef.current?.scrollIntoView({ block: 'nearest' })
+    scrollToBottom()
+    ref.current?.focus()
+  }, [logPanelFocusRequest.value])
 
   return (
     <details
+      ref={detailsRef}
       open={logPanelOpen.value}
       onToggle={e => {
         logPanelOpen.value = e.currentTarget.open

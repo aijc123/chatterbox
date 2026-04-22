@@ -1097,6 +1097,27 @@
   }
   const maxLogLines = gmSignal("maxLogLines", 1e3);
   const logLines = y$1([]);
+  const userNotice = y$1(null);
+  let noticeTimer = null;
+  function showUserNotice(message, tone) {
+    userNotice.value = {
+      id: Date.now(),
+      tone,
+      message
+    };
+    if (noticeTimer) clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(() => {
+      userNotice.value = null;
+      noticeTimer = null;
+    }, 5e3);
+  }
+  function maybeSurfaceLogMessage(message) {
+    if (/^(❌|🔴)/.test(message) || /失败|出错|错误|没发出去|未找到登录信息/.test(message)) {
+      showUserNotice(message, "error");
+    } else if (/^⚠️/.test(message)) {
+      showUserNotice(message, "warning");
+    }
+  }
   function appendLog(arg, label, display) {
     const now = new Date();
     const ts = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
@@ -1105,6 +1126,11 @@
     const lines = logLines.value;
     const next = lines.length >= max ? [...lines.slice(lines.length - max + 1), message] : [...lines, message];
     logLines.value = next;
+    if (typeof arg === "string") {
+      maybeSurfaceLogMessage(arg);
+    } else if (!arg.success && !arg.cancelled) {
+      showUserNotice(`${label}: ${display}，原因：${formatDanmakuError(arg.error)}`, "error");
+    }
   }
   const msgSendInterval = gmSignal("msgSendInterval", 1);
   const maxLength = gmSignal("maxLength", 38);
@@ -1135,6 +1161,7 @@
   const msgTemplates = gmSignal("MsgTemplates", []);
   const activeTemplateIndex = gmSignal("activeTemplateIndex", 0);
   const logPanelOpen = gmSignal("logPanelOpen", false);
+  const logPanelFocusRequest = y$1(0);
   const autoSendPanelOpen = gmSignal("autoSendPanelOpen", true);
   const autoBlendPanelOpen = gmSignal("autoBlendPanelOpen", true);
   const memesPanelOpen = gmSignal("memesPanelOpen", true);
@@ -2884,7 +2911,7 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
   }
   const handlers = new Set();
   const wsStatusHandlers = new Set();
-  let currentWsStatus = "off";
+  let currentWsStatus$1 = "off";
   function subscribeCustomChatEvents(handler) {
     handlers.add(handler);
     return () => handlers.delete(handler);
@@ -2924,11 +2951,11 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
   }
   function subscribeCustomChatWsStatus(handler) {
     wsStatusHandlers.add(handler);
-    handler(currentWsStatus);
+    handler(currentWsStatus$1);
     return () => wsStatusHandlers.delete(handler);
   }
   function emitCustomChatWsStatus(status) {
-    currentWsStatus = status;
+    currentWsStatus$1 = status;
     for (const handler of wsStatusHandlers) {
       handler(status);
     }
@@ -5437,6 +5464,13 @@ ws;
   const USER_STYLE_ID = "laplace-custom-chat-user-style";
   const MAX_MESSAGES = CUSTOM_CHAT_MAX_MESSAGES;
   const MAX_NATIVE_SCAN_BATCH = 48;
+  const VIRTUAL_OVERSCAN = 7;
+  const DEFAULT_ROW_HEIGHT = 62;
+  const CARD_ROW_HEIGHT = 102;
+  const COMPACT_CARD_ROW_HEIGHT = 78;
+  const NATIVE_HEALTH_WINDOW = 12e3;
+  const NATIVE_HEALTH_MIN_SCANS = 24;
+  const NATIVE_HEALTH_MAX_EVENTS = 0;
   const NATIVE_EVENT_SELECTOR = '.chat-item, .super-chat-card, .gift-item, [class*="super"], [class*="gift"], [class*="guard"], [class*="privilege"]';
   const STYLE$1 = `
 #${ROOT_ID}, #${ROOT_ID} * {
@@ -5472,6 +5506,10 @@ ws;
   border-left: 1px solid var(--lc-chat-border);
   overflow: hidden;
   contain: layout style;
+  transition:
+    color .18s ease,
+    background-color .18s ease,
+    border-color .18s ease;
 }
 html.lc-custom-chat-mounted #${ROOT_ID} {
   display: grid !important;
@@ -5652,6 +5690,7 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   border-color: var(--lc-chat-own);
 }
 #${ROOT_ID} .lc-chat-list {
+  position: relative;
   min-height: 0;
   min-width: 0;
   overflow-y: auto;
@@ -5661,6 +5700,24 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   scroll-behavior: auto;
   -webkit-mask-image: linear-gradient(to bottom, transparent, #000 18px, #000 calc(100% - 18px), transparent);
   mask-image: linear-gradient(to bottom, transparent, #000 18px, #000 calc(100% - 18px), transparent);
+}
+#${ROOT_ID} .lc-chat-virtual-items {
+  min-width: 0;
+}
+#${ROOT_ID} .lc-chat-virtual-spacer {
+  min-width: 1px;
+  pointer-events: none;
+}
+#${ROOT_ID} .lc-chat-empty {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 32px 18px;
+  color: var(--lc-chat-muted);
+  font-size: 12px;
+  line-height: 1.55;
+  text-align: center;
+  pointer-events: none;
 }
 #${ROOT_ID} .lc-chat-message {
   position: relative;
@@ -5675,6 +5732,10 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   border: 1px solid transparent;
   background: transparent;
   overflow: visible;
+}
+#${ROOT_ID} .lc-chat-message:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--lc-chat-own) 64%, transparent);
+  outline-offset: -2px;
 }
 #${ROOT_ID} .lc-chat-message:hover {
   background: transparent;
@@ -6091,15 +6152,38 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   white-space: nowrap;
 }
 #${ROOT_ID} .lc-chat-ws-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  max-width: 100%;
+  padding: 2px 7px;
+  border-radius: 999px;
   font-size: 11px;
   color: var(--lc-chat-muted);
   min-width: 38px;
+  background: color-mix(in srgb, var(--lc-chat-chip) 70%, transparent);
+  overflow-wrap: anywhere;
 }
 #${ROOT_ID} .lc-chat-ws-status[data-status="live"] {
   color: var(--lc-chat-accent);
 }
-#${ROOT_ID} .lc-chat-ws-status[data-status="error"] {
-  color: #ff453a;
+#${ROOT_ID} .lc-chat-ws-status[data-status="fallback"] {
+  color: #8a4b00;
+  background: rgba(255, 159, 10, .18);
+  border: 1px solid rgba(255, 159, 10, .34);
+}
+#${ROOT_ID} .lc-chat-ws-status[data-status="dom-warning"] {
+  color: #9a3412;
+  background: rgba(255, 204, 0, .20);
+  border: 1px solid rgba(255, 204, 0, .42);
+}
+#${ROOT_ID}[data-theme="laplace"] .lc-chat-ws-status[data-status="fallback"],
+#${ROOT_ID}[data-theme="compact"] .lc-chat-ws-status[data-status="fallback"],
+#${ROOT_ID}[data-theme="laplace"] .lc-chat-ws-status[data-status="dom-warning"],
+#${ROOT_ID}[data-theme="compact"] .lc-chat-ws-status[data-status="dom-warning"] {
+  color: #ffd60a;
+  background: rgba(255, 159, 10, .20);
+  border-color: rgba(255, 214, 10, .36);
 }
 #${ROOT_ID} .lc-chat-perf {
   display: none;
@@ -6184,11 +6268,15 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   let root = null;
   let rootOutsideHistory = false;
   let listEl = null;
+  let virtualTopSpacer = null;
+  let virtualItemsEl = null;
+  let virtualBottomSpacer = null;
   let pauseBtn = null;
   let unreadEl = null;
   let searchInput = null;
   let matchCountEl = null;
   let wsStatusEl = null;
+  let emptyEl = null;
   let perfEl = null;
   let debugEl = null;
   let textarea = null;
@@ -6200,11 +6288,17 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   let unread = 0;
   let sending = false;
   let searchQuery = "";
+  let hasClearedMessages = false;
+  let currentWsStatus = "off";
+  let nativeDomWarning = false;
   const messages = [];
   const messageKeys = new Set();
   const recentEventKeys = new Map();
   const renderQueue = [];
+  let visibleMessages = [];
+  const rowHeights = new Map();
   const eventTicks = [];
+  const nativeHealthSamples = [];
   const seenNativeNodes = new WeakSet();
   const pendingNativeNodes = new Set();
   const sourceCounts = { dom: 0, ws: 0, local: 0 };
@@ -6282,7 +6376,8 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     }
     const totalSources = sourceCounts.dom + sourceCounts.ws + sourceCounts.local || 1;
     const pct = (value) => Math.round(value / totalSources * 100);
-    perfEl.textContent = `msg ${messages.length}/${MAX_MESSAGES} | eps ${eventTicks.length}/s | batch ${lastBatchSize} | q ${renderQueue.length} | native ${pendingNativeNodes.size} | ws ${pct(sourceCounts.ws)}% dom ${pct(sourceCounts.dom)}% local ${pct(sourceCounts.local)}%`;
+    const rendered = virtualItemsEl?.querySelectorAll(".lc-chat-message").length ?? 0;
+    perfEl.textContent = `消息 ${messages.length}/${MAX_MESSAGES} | 可见 ${visibleMessages.length} | DOM节点 ${rendered} | 事件 ${eventTicks.length}/秒 | 本帧 ${lastBatchSize} | 待渲染 ${renderQueue.length} | DOM待扫 ${pendingNativeNodes.size} | WS ${pct(sourceCounts.ws)}% DOM ${pct(sourceCounts.dom)}% 本地 ${pct(sourceCounts.local)}%`;
   }
   function isNoiseEventText(text) {
     const clean = compactText(text);
@@ -6530,6 +6625,18 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
       fields
     };
   }
+  function recordNativeHealth(parsed) {
+    const now = Date.now();
+    nativeHealthSamples.push({ ts: now, parsed });
+    while (nativeHealthSamples.length > 0 && now - nativeHealthSamples[0].ts > NATIVE_HEALTH_WINDOW) {
+      nativeHealthSamples.shift();
+    }
+    const parsedCount = nativeHealthSamples.filter((sample) => sample.parsed).length;
+    const unhealthy = nativeHealthSamples.length >= NATIVE_HEALTH_MIN_SCANS && parsedCount <= NATIVE_HEALTH_MAX_EVENTS;
+    if (nativeDomWarning === unhealthy) return;
+    nativeDomWarning = unhealthy;
+    updateWsStatus(currentWsStatus);
+  }
   function kindVisible(kind) {
     if (kind === "danmaku") return customChatShowDanmaku.value;
     if (kind === "gift") return customChatShowGift.value;
@@ -6543,17 +6650,88 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   function messageMatchesSearch(message) {
     return messageMatchesCustomChatSearch(message, searchQuery, kindVisible);
   }
+  const SEARCH_KIND_ALIASES = {
+    danmaku: "danmaku",
+    弹幕: "danmaku",
+    gift: "gift",
+    礼物: "gift",
+    superchat: "superchat",
+    sc: "superchat",
+    醒目留言: "superchat",
+    guard: "guard",
+    舰队: "guard",
+    舰长: "guard",
+    redpacket: "redpacket",
+    红包: "redpacket",
+    lottery: "lottery",
+    天选: "lottery",
+    enter: "enter",
+    进场: "enter",
+    follow: "follow",
+    关注: "follow",
+    like: "like",
+    点赞: "like",
+    share: "share",
+    分享: "share",
+    notice: "notice",
+    通知: "notice",
+    system: "system",
+    系统: "system"
+  };
+  function levenshteinDistance(a2, b2) {
+    const previous = Array.from({ length: b2.length + 1 }, (_2, index) => index);
+    const current = Array.from({ length: b2.length + 1 }, () => 0);
+    for (let i2 = 1; i2 <= a2.length; i2++) {
+      current[0] = i2;
+      for (let j2 = 1; j2 <= b2.length; j2++) {
+        current[j2] = a2[i2 - 1] === b2[j2 - 1] ? previous[j2 - 1] : Math.min(previous[j2 - 1] + 1, previous[j2] + 1, current[j2 - 1] + 1);
+      }
+      previous.splice(0, previous.length, ...current);
+    }
+    return previous[b2.length];
+  }
+  function searchHint() {
+    const kindToken = searchQuery.match(/(?:^|\s)kind:([^\s"]+)/i)?.[1]?.trim().toLowerCase();
+    if (!kindToken || SEARCH_KIND_ALIASES[kindToken]) return "";
+    const candidates = Object.keys(SEARCH_KIND_ALIASES).map((value) => ({ value, distance: levenshteinDistance(kindToken, value.toLowerCase()) })).sort((a2, b2) => a2.distance - b2.distance);
+    const suggestion = candidates[0];
+    return suggestion && suggestion.distance <= 3 ? `没有这种类型，试试 kind:${suggestion.value}` : "没有这种消息类型";
+  }
+  function renderedMessageCount() {
+    return visibleMessages.length;
+  }
+  function updateEmptyState() {
+    if (!listEl || !emptyEl) return;
+    const visibleCount = renderedMessageCount();
+    if (visibleCount > 0) {
+      emptyEl.remove();
+      return;
+    }
+    const trimmedQuery = searchQuery.trim();
+    const hint = searchHint();
+    if (trimmedQuery) {
+      emptyEl.textContent = hint || `没有找到匹配“${trimmedQuery}”的消息`;
+    } else if (hasClearedMessages) {
+      emptyEl.textContent = "已清屏，新的弹幕会继续出现在这里";
+    } else {
+      emptyEl.textContent = "还没有收到消息";
+    }
+    if (!emptyEl.isConnected) listEl.append(emptyEl);
+  }
   function wsStatusLabel(status) {
+    if (nativeDomWarning && (status === "error" || status === "closed" || status === "off"))
+      return "页面兜底疑似失效，B站页面结构可能变了";
     if (status === "connecting") return "实时事件源连接中";
     if (status === "live") return "实时事件源正常";
-    if (status === "error") return "页面兜底运行中";
-    if (status === "closed") return "页面兜底运行中";
+    if (status === "error") return "直连异常，使用页面兜底，可能漏消息";
+    if (status === "closed") return "直连已断开，使用页面兜底，可能漏消息";
     return "实时事件源关闭";
   }
   function updateWsStatus(status) {
+    currentWsStatus = status;
     if (!wsStatusEl) return;
     wsStatusEl.textContent = wsStatusLabel(status);
-    wsStatusEl.dataset.status = status === "error" || status === "closed" ? "fallback" : status;
+    wsStatusEl.dataset.status = nativeDomWarning && (status === "error" || status === "closed" || status === "off") ? "dom-warning" : status === "error" || status === "closed" ? "fallback" : status;
   }
   function updateMatchCount() {
     if (!matchCountEl) return;
@@ -6576,35 +6754,54 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   }
   function isNearBottom() {
     if (!listEl) return true;
-    return listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight < 80;
+    return virtualContentHeight() - listEl.scrollTop - listEl.clientHeight < 80;
   }
-  function scrollToBottom() {
+  function scrollToBottom(behavior = "auto") {
     if (!listEl) return;
-    listEl.scrollTop = listEl.scrollHeight;
+    const top = Math.max(0, virtualContentHeight() - listEl.clientHeight);
+    listEl.scrollTo({ top, behavior });
+    if (behavior === "auto") renderVirtualWindow();
   }
   function pruneMessages() {
     while (messages.length > MAX_MESSAGES) {
       const removed = messages.shift();
-      if (removed) messageKeys.delete(messageKey(removed));
-    }
-    while (listEl && listEl.children.length > MAX_MESSAGES) {
-      listEl?.firstElementChild?.remove();
+      if (removed) {
+        const key = messageKey(removed);
+        messageKeys.delete(key);
+        rowHeights.delete(key);
+      }
     }
     updatePerfDebug();
   }
-  function renderMessage(message, countUnread = true, updateCount2 = true, manageFlow = true) {
-    if (!listEl) return false;
-    const shouldStickToBottom = !paused && isNearBottom();
-    if (!messageMatchesSearch(message)) {
-      if (updateCount2) updateMatchCount();
-      return false;
-    }
+  function estimatedRowHeight(message) {
+    const card = cardType(message);
+    if (card === "gift" && !message.amount) return COMPACT_CARD_ROW_HEIGHT;
+    if (card) return CARD_ROW_HEIGHT;
+    return DEFAULT_ROW_HEIGHT + Math.max(0, Math.ceil(message.text.length / 34) - 1) * 18;
+  }
+  function rowHeight(message) {
+    return rowHeights.get(messageKey(message)) ?? estimatedRowHeight(message);
+  }
+  function virtualContentHeight(end = visibleMessages.length) {
+    let height = 0;
+    for (let index = 0; index < end; index++) height += rowHeight(visibleMessages[index]);
+    return height;
+  }
+  function setSpacerHeight(spacer, height) {
+    if (!spacer) return;
+    spacer.style.height = `${Math.max(0, Math.round(height))}px`;
+  }
+  function refreshVisibleMessages() {
+    visibleMessages = visibleRenderMessages(messages, messageMatchesSearch);
+  }
+  function createMessageRow(message, animate = false, virtualIndex = 0) {
     const row = document.createElement("div");
-    row.className = countUnread ? "lc-chat-message lc-chat-peek" : "lc-chat-message";
+    row.className = animate ? "lc-chat-message lc-chat-peek" : "lc-chat-message";
     row.dataset.uid = message.uid ?? "";
     row.dataset.kind = message.kind;
     row.dataset.source = message.source;
     row.dataset.user = displayName(message);
+    row.dataset.virtualIndex = String(virtualIndex);
     row.tabIndex = 0;
     const guard = guardLevel(message);
     const card = cardType(message);
@@ -6707,34 +6904,118 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     }
     body.append(meta, text);
     row.append(avatarEl, body, actions);
-    listEl.append(row);
-    if (manageFlow) {
-      pruneMessages();
-      if (!shouldStickToBottom && countUnread) {
-        unread++;
-        updateUnread();
-      } else {
-        scrollToBottom();
-      }
-      if (updateCount2) updateMatchCount();
+    return row;
+  }
+  function virtualRange() {
+    const total = virtualContentHeight();
+    if (!listEl || visibleMessages.length === 0) return { start: 0, end: 0, top: 0, bottom: 0, total };
+    const viewportTop = listEl.scrollTop;
+    const viewportBottom = viewportTop + Math.max(listEl.clientHeight, 1);
+    let start = 0;
+    let top = 0;
+    while (start < visibleMessages.length && top + rowHeight(visibleMessages[start]) < viewportTop) {
+      top += rowHeight(visibleMessages[start]);
+      start++;
     }
-    return true;
+    start = Math.max(0, start - VIRTUAL_OVERSCAN);
+    top = virtualContentHeight(start);
+    let end = start;
+    let bottom = top;
+    while (end < visibleMessages.length && bottom < viewportBottom) {
+      bottom += rowHeight(visibleMessages[end]);
+      end++;
+    }
+    end = Math.min(visibleMessages.length, end + VIRTUAL_OVERSCAN);
+    bottom = virtualContentHeight(end);
+    return { start, end, top, bottom, total };
+  }
+  function measureRenderedRows() {
+    if (!virtualItemsEl) return;
+    let changed = false;
+    for (const row of virtualItemsEl.querySelectorAll(".lc-chat-message")) {
+      const index = Number(row.dataset.virtualIndex);
+      const message = visibleMessages[index];
+      if (!message) continue;
+      const measured = Math.ceil(row.getBoundingClientRect().height);
+      if (measured <= 0) continue;
+      const key = messageKey(message);
+      if (Math.abs((rowHeights.get(key) ?? 0) - measured) > 2) {
+        rowHeights.set(key, measured);
+        changed = true;
+      }
+    }
+    if (changed) {
+      const range = virtualRange();
+      setSpacerHeight(virtualTopSpacer, range.top);
+      setSpacerHeight(virtualBottomSpacer, range.total - range.bottom);
+    }
+  }
+  function renderVirtualWindow(animateKeys = new Set()) {
+    if (!listEl || !virtualItemsEl) return;
+    if (visibleMessages.length === 0) {
+      virtualItemsEl.replaceChildren();
+      setSpacerHeight(virtualTopSpacer, 0);
+      setSpacerHeight(virtualBottomSpacer, 0);
+      updateEmptyState();
+      updatePerfDebug();
+      return;
+    }
+    emptyEl?.remove();
+    const activeKey = document.activeElement instanceof HTMLElement ? document.activeElement.closest(".lc-chat-message")?.dataset.key : void 0;
+    const range = virtualRange();
+    const rows = [];
+    for (let index = range.start; index < range.end; index++) {
+      const message = visibleMessages[index];
+      const key = messageKey(message);
+      const row = createMessageRow(message, animateKeys.has(key), index);
+      row.dataset.key = key;
+      rows.push(row);
+    }
+    virtualItemsEl.replaceChildren(...rows);
+    setSpacerHeight(virtualTopSpacer, range.top);
+    setSpacerHeight(virtualBottomSpacer, range.total - range.bottom);
+    if (activeKey) {
+      for (const row of virtualItemsEl.querySelectorAll(".lc-chat-message")) {
+        if (row.dataset.key === activeKey) {
+          row.focus();
+          break;
+        }
+      }
+    }
+    measureRenderedRows();
+    updateEmptyState();
+    updatePerfDebug();
+  }
+  function scrollToVirtualIndex(index) {
+    if (!listEl || visibleMessages.length === 0) return;
+    const clamped = Math.max(0, Math.min(visibleMessages.length - 1, index));
+    const top = virtualContentHeight(clamped);
+    listEl.scrollTo({ top: Math.max(0, top - 10), behavior: "auto" });
+    renderVirtualWindow();
+    virtualItemsEl?.querySelector(`.lc-chat-message[data-virtual-index="${clamped}"]`)?.focus();
   }
   function clearMessages() {
     messages.length = 0;
     messageKeys.clear();
     renderQueue.length = 0;
+    visibleMessages = [];
+    rowHeights.clear();
     unread = 0;
-    listEl?.replaceChildren();
+    hasClearedMessages = true;
+    virtualItemsEl?.replaceChildren();
+    setSpacerHeight(virtualTopSpacer, 0);
+    setSpacerHeight(virtualBottomSpacer, 0);
     updateUnread();
     updateMatchCount();
+    updateEmptyState();
   }
   function rerenderMessages() {
-    if (!listEl) return;
-    listEl.replaceChildren();
-    for (const message of messages) renderMessage(message, false, false, false);
+    if (!listEl || !virtualItemsEl) return;
     pruneMessages();
+    refreshVisibleMessages();
+    renderVirtualWindow();
     updateMatchCount();
+    updateEmptyState();
     if (!paused) scrollToBottom();
   }
   function scheduleRerenderMessages() {
@@ -6744,23 +7025,12 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     rerenderFrame = window.requestAnimationFrame(() => {
       rerenderFrame = null;
       if (!listEl || token !== rerenderToken) return;
-      listEl.replaceChildren();
-      const visible = visibleRenderMessages(messages, messageMatchesSearch);
-      let index = 0;
-      const renderChunk = () => {
-        if (!listEl || token !== rerenderToken) return;
-        const end = Math.min(index + CUSTOM_CHAT_MAX_RENDER_BATCH, visible.length);
-        for (; index < end; index++) renderMessage(visible[index], false, false, false);
-        if (index < visible.length) {
-          rerenderFrame = window.requestAnimationFrame(renderChunk);
-          return;
-        }
-        rerenderFrame = null;
-        updateMatchCount();
-        updatePerfDebug();
-        if (!paused) scrollToBottom();
-      };
-      renderChunk();
+      refreshVisibleMessages();
+      renderVirtualWindow();
+      updateMatchCount();
+      updatePerfDebug();
+      updateEmptyState();
+      if (!paused) scrollToBottom();
     });
   }
   function flushRenderQueue() {
@@ -6770,26 +7040,33 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     lastBatchSize = batch.length;
     const shouldStickToBottom = !paused && isNearBottom();
     const animate = shouldAnimateRenderBatch(batch.length);
-    let appended = 0;
+    const animateKeys = new Set();
+    let matched = 0;
     for (const event of batch) {
       if (!messageKeys.has(messageKey(event))) continue;
-      if (renderMessage(event, animate, false, false)) appended++;
+      if (!messageMatchesSearch(event)) continue;
+      matched++;
+      if (animate) animateKeys.add(messageKey(event));
     }
+    refreshVisibleMessages();
+    renderVirtualWindow(animateKeys);
     if (renderQueue.length > 0) renderFrame = window.requestAnimationFrame(flushRenderQueue);
-    if (appended === 0) {
+    if (matched === 0) {
       updateMatchCount();
       updatePerfDebug();
+      updateEmptyState();
       return;
     }
     pruneMessages();
     if (!shouldStickToBottom) {
-      unread += appended;
+      unread += matched;
       updateUnread();
     } else {
       scrollToBottom();
     }
     updateMatchCount();
     updatePerfDebug();
+    updateEmptyState();
   }
   function scheduleRender(event) {
     renderQueue.push(event);
@@ -6892,7 +7169,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
       paused = !paused;
       if (!paused) {
         unread = 0;
-        scrollToBottom();
+        scrollToBottom("smooth");
       }
       updateUnread();
     });
@@ -6904,7 +7181,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     matchCountEl.style.display = "none";
     wsStatusEl = document.createElement("span");
     wsStatusEl.className = "lc-chat-ws-status";
-    updateWsStatus("off");
+    updateWsStatus(currentWsStatus);
     perfEl = document.createElement("div");
     perfEl.className = "lc-chat-perf";
     updatePerfDebug();
@@ -6962,10 +7239,22 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     debugEl.className = "lc-chat-event-debug";
     listEl = document.createElement("div");
     listEl.className = "lc-chat-list";
+    listEl.tabIndex = 0;
+    listEl.setAttribute("aria-label", "直播聊天消息");
+    virtualTopSpacer = document.createElement("div");
+    virtualTopSpacer.className = "lc-chat-virtual-spacer";
+    virtualItemsEl = document.createElement("div");
+    virtualItemsEl.className = "lc-chat-virtual-items";
+    virtualBottomSpacer = document.createElement("div");
+    virtualBottomSpacer.className = "lc-chat-virtual-spacer";
+    emptyEl = document.createElement("div");
+    emptyEl.className = "lc-chat-empty";
+    listEl.append(virtualTopSpacer, virtualItemsEl, virtualBottomSpacer);
     addRootEventListener(
       listEl,
       "scroll",
       () => {
+        renderVirtualWindow();
         if (isNearBottom() && unread > 0) {
           unread = 0;
           updateUnread();
@@ -6973,6 +7262,15 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
       },
       { passive: true }
     );
+    addRootEventListener(listEl, "keydown", (e2) => {
+      if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(e2.key)) return;
+      if (visibleMessages.length === 0) return;
+      e2.preventDefault();
+      const active = document.activeElement instanceof HTMLElement ? document.activeElement.closest(".lc-chat-message") : null;
+      const index = active instanceof HTMLElement ? Number(active.dataset.virtualIndex) : -1;
+      const nextIndex = e2.key === "Home" ? 0 : e2.key === "End" ? visibleMessages.length - 1 : Math.max(0, Math.min(visibleMessages.length - 1, index + (e2.key === "ArrowUp" ? -1 : 1)));
+      scrollToVirtualIndex(nextIndex);
+    });
     const composer = document.createElement("div");
     composer.className = "lc-chat-composer";
     const inputWrap = document.createElement("div");
@@ -7004,6 +7302,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     composer.append(inputWrap, sendRow);
     panel.append(toolbar, menu, debugEl, listEl, composer);
     updateUnread();
+    updateEmptyState();
     return panel;
   }
   function ensureStyles() {
@@ -7038,6 +7337,9 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   function observeNativeEvents(container) {
     nativeEventObserver?.disconnect();
     pendingNativeNodes.clear();
+    nativeHealthSamples.length = 0;
+    nativeDomWarning = false;
+    updateWsStatus(currentWsStatus);
     if (nativeScanFrame !== null) {
       window.cancelAnimationFrame(nativeScanFrame);
       nativeScanFrame = null;
@@ -7051,13 +7353,17 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
       if (seenNativeNodes.has(node)) return;
       seenNativeNodes.add(node);
       const event = parseNativeEvent(node);
+      let parsed = false;
       if (event) emitCustomChatEvent(event);
+      if (event) parsed = true;
       for (const child of node.querySelectorAll(NATIVE_EVENT_SELECTOR)) {
         if (seenNativeNodes.has(child) || child.classList.contains("danmaku-item")) continue;
         seenNativeNodes.add(child);
         const childEvent = parseNativeEvent(child);
         if (childEvent) emitCustomChatEvent(childEvent);
+        if (childEvent) parsed = true;
       }
+      recordNativeHealth(parsed);
     };
     const flushScan = () => {
       nativeScanFrame = null;
@@ -7110,6 +7416,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     const key = messageKey(event);
     if (messageKeys.has(key)) return;
     if (!rememberEvent(event)) return;
+    hasClearedMessages = false;
     recordEventStats(event);
     messages.push(event);
     messageKeys.add(key);
@@ -7175,6 +7482,9 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     userStyleEl?.remove();
     userStyleEl = null;
     listEl = null;
+    virtualTopSpacer = null;
+    virtualItemsEl = null;
+    virtualBottomSpacer = null;
     pauseBtn = null;
     unreadEl = null;
     textarea = null;
@@ -7182,12 +7492,16 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     searchInput = null;
     matchCountEl = null;
     wsStatusEl = null;
+    emptyEl = null;
     perfEl = null;
     debugEl = null;
     messages.length = 0;
     messageKeys.clear();
     renderQueue.length = 0;
+    visibleMessages = [];
+    rowHeights.clear();
     eventTicks.length = 0;
+    nativeHealthSamples.length = 0;
     rerenderToken++;
     sourceCounts.dom = 0;
     sourceCounts.ws = 0;
@@ -7205,6 +7519,9 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     paused = false;
     sending = false;
     searchQuery = "";
+    hasClearedMessages = false;
+    currentWsStatus = "off";
+    nativeDomWarning = false;
     recentEventKeys.clear();
   }
   function startCustomChat() {
@@ -7795,6 +8112,9 @@ u$2("div", { style: { fontSize: ".9em", color: "#555" }, children: service.descr
       fontWeight: active ? "bold" : void 0
     };
   }
+  function SettingHint({ children }) {
+    return u$2("div", { className: "cb-note", style: { marginTop: "-.25em" }, children });
+  }
   function AutoBlendControls() {
     const isOn = autoBlendEnabled.value;
     const currentPreset = autoBlendPreset.value;
@@ -7919,6 +8239,7 @@ u$2(
                         ),
 u$2("span", { children: "条" })
                       ] }),
+u$2(SettingHint, { children: "在指定秒数内，同一句弹幕达到条数才触发；阈值越低越积极。" }),
 u$2("div", { style: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: ".25em" }, children: [
 u$2("span", { children: "节奏：" }),
 u$2("span", { children: "冷却" }),
@@ -7949,6 +8270,7 @@ u$2(
                         ),
 u$2("span", { children: "秒" })
                       ] }),
+u$2(SettingHint, { children: "冷却是每次发送后的停顿；补跟是没有突发时重新检查热门弹幕的间隔。" }),
 u$2("div", { style: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: ".25em" }, children: [
 u$2("span", { children: "突发等待" }),
 u$2(
@@ -7966,6 +8288,7 @@ u$2(
                         ),
 u$2("span", { children: "毫秒" })
                       ] }),
+u$2(SettingHint, { children: "检测到刷屏后先等一小会儿，把同一波里的其它高频弹幕一起纳入判断。" }),
 u$2("div", { style: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: ".25em" }, children: [
 u$2("span", { children: "限频保护：" }),
 u$2(
@@ -7997,6 +8320,7 @@ u$2(
                         ),
 u$2("span", { children: "次后停车" })
                       ] }),
+u$2(SettingHint, { children: "限制连续失败或风控信号；超过次数会自动停止跟车，避免继续刷失败。" }),
 u$2("div", { style: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: ".25em" }, children: [
 u$2("span", { children: "每次发：" }),
 u$2(
@@ -8013,7 +8337,8 @@ u$2(
                           }
                         ),
 u$2("span", { children: "遍" })
-                      ] })
+                      ] }),
+u$2(SettingHint, { children: "同一句被选中后重复发送的次数；建议配合发送间隔和冷却一起调。" })
                     ]
                   }
                 ),
@@ -8296,13 +8621,24 @@ u$2("label", { for: "persistSendState", children: "保持当前直播间独轮�
     );
   }
   function LogPanel() {
+    const detailsRef = A(null);
     const ref = A(null);
-    y$2(() => {
+    const scrollToBottom2 = () => {
       if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
+    };
+    y$2(() => {
+      scrollToBottom2();
     }, [logLines.value]);
+    y$2(() => {
+      if (logPanelFocusRequest.value <= 0) return;
+      detailsRef.current?.scrollIntoView({ block: "nearest" });
+      scrollToBottom2();
+      ref.current?.focus();
+    }, [logPanelFocusRequest.value]);
     return u$2(
       "details",
       {
+        ref: detailsRef,
         open: logPanelOpen.value,
         onToggle: (e2) => {
           logPanelOpen.value = e2.currentTarget.open;
@@ -9048,6 +9384,72 @@ u$2(
     "medalCheckFilter",
     "issues"
   );
+  function ReplacementRuleList({
+    rules,
+    emptyText,
+    onRemove
+  }) {
+    if (rules.length === 0) {
+      return u$2("div", { className: "cb-empty", children: emptyText });
+    }
+    return u$2("div", { className: "cb-rule-list", children: rules.map((rule, i2) => u$2("div", { className: "cb-rule-item", children: [
+u$2("div", { className: "cb-rule-pair", children: [
+u$2("div", { children: [
+u$2("div", { className: "cb-label", children: "替换前" }),
+u$2("code", { children: rule.from || "(空)" })
+        ] }),
+u$2("div", { children: [
+u$2("div", { className: "cb-label", children: "替换后" }),
+u$2("code", { children: rule.to || "(空)" })
+        ] })
+      ] }),
+u$2("button", { type: "button", className: "cb-rule-remove", onClick: () => onRemove(i2), "aria-label": "删除替换规则", children: "删除" })
+    ] }, i2)) });
+  }
+  function ReplacementRuleForm({
+    from,
+    to,
+    onFromChange,
+    onToChange,
+    onAdd,
+    disabled
+  }) {
+    const handleKeyDown = (e2) => {
+      if (e2.key === "Enter" && !e2.isComposing) {
+        e2.preventDefault();
+        onAdd();
+      }
+    };
+    return u$2("div", { className: "cb-rule-form", children: [
+u$2("label", { children: [
+u$2("span", { className: "cb-label", children: "替换前" }),
+u$2(
+          "input",
+          {
+            placeholder: "会被屏蔽或想改写的原词",
+            value: from,
+            disabled,
+            onInput: (e2) => onFromChange(e2.currentTarget.value),
+            onKeyDown: handleKeyDown
+          }
+        )
+      ] }),
+u$2("label", { children: [
+u$2("span", { className: "cb-label", children: "替换后" }),
+u$2(
+          "input",
+          {
+            placeholder: "实际发送的内容",
+            value: to,
+            disabled,
+            onInput: (e2) => onToChange(e2.currentTarget.value),
+            onKeyDown: handleKeyDown
+          }
+        )
+      ] }),
+u$2("button", { type: "button", disabled, onClick: onAdd, children: "添加规则" })
+    ] });
+  }
   function getMedalCheckCounts(results) {
     return {
       restricted: results.filter((result) => result.status === "restricted").length,
@@ -9570,150 +9972,97 @@ ${details}`;
     }
     const editingRules = editingRoomId.value ? localRoomRules.value[editingRoomId.value] ?? [] : [];
     return u$2(S$1, { children: [
+u$2("details", { className: "cb-settings-accordion", open: true, children: [
+u$2("summary", { children: "云端规则替换" }),
 u$2(
-        "div",
-        {
-          className: "cb-section cb-stack",
-          style: { margin: ".5em 0", paddingBottom: "1em", borderBottom: "1px solid var(--Ga2, #eee)" },
-          children: [
+          "div",
+          {
+            className: "cb-section cb-stack",
+            style: { margin: ".5em 0", paddingBottom: "1em", borderBottom: "1px solid var(--Ga2, #eee)" },
+            children: [
 u$2("div", { className: "cb-heading", style: { fontWeight: "bold", marginBottom: ".5em" }, children: [
-              "云端规则替换",
-              " ",
+                "云端规则替换",
+                " ",
 u$2(
-                "a",
-                {
-                  href: "https://github.com/laplace-live/public/blob/master/artifacts/livesrtream-keywords.json",
-                  target: "_blank",
-                  style: { color: "#288bb8", textDecoration: "none" },
-                  rel: "noopener",
-                  children: "我要贡献规则"
-                }
-              )
-            ] }),
+                  "a",
+                  {
+                    href: "https://github.com/laplace-live/public/blob/master/artifacts/livesrtream-keywords.json",
+                    target: "_blank",
+                    style: { color: "#288bb8", textDecoration: "none" },
+                    rel: "noopener",
+                    children: "我要贡献规则"
+                  }
+                )
+              ] }),
 u$2("div", { className: "cb-note", style: { marginBlock: ".5em", color: "#666" }, children: "每10分钟会自动同步云端替换规则" }),
 u$2(
-              "div",
-              {
-                className: "cb-row",
-                style: { display: "flex", gap: ".5em", alignItems: "center", flexWrap: "wrap", marginBottom: ".5em" },
-                children: [
+                "div",
+                {
+                  className: "cb-row",
+                  style: { display: "flex", gap: ".5em", alignItems: "center", flexWrap: "wrap", marginBottom: ".5em" },
+                  children: [
 u$2("button", { type: "button", disabled: syncing.value, onClick: () => void syncRemote(), children: syncing.value ? "同步中…" : "同步" }),
 u$2("button", { type: "button", disabled: testingRemote.value, onClick: () => void testRemote(), children: testingRemote.value ? "测试中…" : "测试云端词库" }),
 u$2("span", { style: { color: syncStatusColor.value }, children: syncStatus.value })
-                ]
-              }
-            )
-          ]
-        }
-      ),
+                  ]
+                }
+              )
+            ]
+          }
+        )
+      ] }),
+u$2("details", { className: "cb-settings-accordion", open: true, children: [
+u$2("summary", { children: "本地全局规则" }),
 u$2(
-        "div",
-        {
-          className: "cb-section cb-stack",
-          style: { margin: ".5em 0", paddingBottom: "1em", borderBottom: "1px solid var(--Ga2, #eee)" },
-          children: [
+          "div",
+          {
+            className: "cb-section cb-stack",
+            style: { margin: ".5em 0", paddingBottom: "1em", borderBottom: "1px solid var(--Ga2, #eee)" },
+            children: [
 u$2(
-              "div",
-              {
-                className: "cb-row",
-                style: { display: "flex", gap: ".5em", alignItems: "center", flexWrap: "wrap", marginBottom: ".5em" },
-                children: [
+                "div",
+                {
+                  className: "cb-row",
+                  style: { display: "flex", gap: ".5em", alignItems: "center", flexWrap: "wrap", marginBottom: ".5em" },
+                  children: [
 u$2("div", { className: "cb-heading", style: { fontWeight: "bold" }, children: "本地全局规则" }),
 u$2("button", { type: "button", disabled: testingLocal.value, onClick: () => void testLocal(), children: testingLocal.value ? "测试中…" : "测试本地词库" })
-                ]
-              }
-            ),
+                  ]
+                }
+              ),
 u$2("div", { className: "cb-note", style: { marginBlock: ".5em", color: "#666" }, children: "适用于所有直播间，优先级高于云端规则" }),
-u$2("div", { style: { marginBottom: ".5em", maxHeight: "160px", overflowY: "auto" }, children: globalRules.length === 0 ? u$2("div", { className: "cb-empty", style: { color: "#999" }, children: "暂无全局替换规则，请在下方添加" }) : globalRules.map((rule, i2) => u$2(
-              "div",
-              {
-                style: {
-                  display: "flex",
-                  alignItems: "center",
-                  gap: ".5em",
-                  padding: ".2em",
-                  borderBottom: "1px solid var(--Ga2, #eee)"
-                },
-                children: [
-u$2("span", { style: { flex: 1, wordBreak: "break-all", fontFamily: "monospace" }, children: [
-                    rule.from ?? "(空)",
-                    " → ",
-                    rule.to ?? "(空)"
-                  ] }),
+u$2(ReplacementRuleList, { rules: globalRules, emptyText: "暂无全局替换规则，请在下方添加", onRemove: removeGlobalRule }),
 u$2(
-                    "button",
-                    {
-                      type: "button",
-                      onClick: () => removeGlobalRule(i2),
-                      style: {
-                        cursor: "pointer",
-                        background: "transparent",
-                        color: "red",
-                        border: "none",
-                        borderRadius: "2px"
-                      },
-                      children: "删除"
-                    }
-                  )
-                ]
-              },
-              i2
-            )) }),
-u$2("div", { className: "cb-row", style: { display: "flex", gap: ".25em", alignItems: "center", flexWrap: "wrap" }, children: [
-u$2(
-                "input",
+                ReplacementRuleForm,
                 {
-                  placeholder: "替换前",
-                  style: { flex: 1, minWidth: "80px" },
-                  value: globalReplaceFrom.value,
-                  onInput: (e2) => {
-                    globalReplaceFrom.value = e2.currentTarget.value;
+                  from: globalReplaceFrom.value,
+                  to: globalReplaceTo.value,
+                  onFromChange: (value) => {
+                    globalReplaceFrom.value = value;
                   },
-                  onKeyDown: (e2) => {
-                    if (e2.key === "Enter" && !e2.isComposing) {
-                      e2.preventDefault();
-                      addGlobalRule();
-                    }
-                  }
-                }
-              ),
-u$2("span", { children: "→" }),
-u$2(
-                "input",
-                {
-                  placeholder: "替换后",
-                  style: { flex: 1, minWidth: "80px" },
-                  value: globalReplaceTo.value,
-                  onInput: (e2) => {
-                    globalReplaceTo.value = e2.currentTarget.value;
+                  onToChange: (value) => {
+                    globalReplaceTo.value = value;
                   },
-                  onKeyDown: (e2) => {
-                    if (e2.key === "Enter" && !e2.isComposing) {
-                      e2.preventDefault();
-                      addGlobalRule();
-                    }
-                  }
+                  onAdd: addGlobalRule
                 }
-              ),
-u$2("button", { type: "button", onClick: addGlobalRule, children: "添加" })
-            ] })
-          ]
-        }
-      ),
+              )
+            ]
+          }
+        )
+      ] }),
+u$2("details", { className: "cb-settings-accordion", children: [
+u$2("summary", { children: "本地直播间规则" }),
 u$2(
-        "div",
-        {
-          className: "cb-section cb-stack",
-          style: { margin: ".5em 0", paddingBottom: "1em", borderBottom: "1px solid var(--Ga2, #eee)" },
-          children: [
+          "div",
+          {
+            className: "cb-section cb-stack",
+            style: { margin: ".5em 0", paddingBottom: "1em", borderBottom: "1px solid var(--Ga2, #eee)" },
+            children: [
 u$2("div", { className: "cb-heading", style: { fontWeight: "bold", marginBottom: ".5em" }, children: "本地直播间规则" }),
 u$2("div", { className: "cb-note", style: { marginBlock: ".5em", color: "#666" }, children: "仅在对应直播间生效；优先级高于全局规则" }),
-u$2(
-              "div",
-              {
-                className: "cb-row",
-                style: { display: "flex", gap: ".5em", alignItems: "center", flexWrap: "wrap", marginBottom: ".5em" },
-                children: [
+u$2("div", { className: "cb-rule-room-form", children: [
+u$2("label", { children: [
+u$2("span", { className: "cb-label", children: "正在编辑" }),
 u$2(
                     "select",
                     {
@@ -9721,7 +10070,6 @@ u$2(
                       onChange: (e2) => {
                         editingRoomId.value = e2.currentTarget.value;
                       },
-                      style: { minWidth: "120px" },
                       children: [
 u$2("option", { value: "", disabled: true, children: "选择直播间" }),
                         knownRoomIds.map((rid) => u$2("option", { value: rid, children: [
@@ -9730,624 +10078,587 @@ u$2("option", { value: "", disabled: true, children: "选择直播间" }),
                         ] }, rid))
                       ]
                     }
-                  ),
-u$2("div", { className: "cb-row", style: { display: "flex", gap: ".25em", alignItems: "center" }, children: [
+                  )
+                ] }),
+u$2("label", { children: [
+u$2("span", { className: "cb-label", children: "添加房间号" }),
 u$2(
-                      "input",
-                      {
-                        placeholder: "房间号",
-                        style: { width: "80px" },
-                        value: newRoomId.value,
-                        onInput: (e2) => {
-                          newRoomId.value = e2.currentTarget.value.replace(/\D/g, "");
-                        },
-                        onKeyDown: (e2) => {
-                          if (e2.key === "Enter" && !e2.isComposing) {
-                            e2.preventDefault();
-                            addRoom();
-                          }
+                    "input",
+                    {
+                      placeholder: "输入房间号",
+                      value: newRoomId.value,
+                      onInput: (e2) => {
+                        newRoomId.value = e2.currentTarget.value.replace(/\D/g, "");
+                      },
+                      onKeyDown: (e2) => {
+                        if (e2.key === "Enter" && !e2.isComposing) {
+                          e2.preventDefault();
+                          addRoom();
                         }
                       }
-                    ),
-u$2("button", { type: "button", onClick: addRoom, children: "添加房间" })
-                  ] }),
-                  editingRoomId.value && editingRoomId.value !== currentRoomStr && u$2("button", { type: "button", onClick: () => deleteRoom(editingRoomId.value), style: { color: "red" }, children: "删除此房间" })
-                ]
-              }
-            ),
-            editingRoomId.value ? u$2(S$1, { children: [
-u$2("div", { style: { marginBottom: ".5em", maxHeight: "160px", overflowY: "auto" }, children: editingRules.length === 0 ? u$2("div", { className: "cb-empty", style: { color: "#999" }, children: "暂无此房间的替换规则，请在下方添加" }) : editingRules.map((rule, i2) => u$2(
-                "div",
-                {
-                  style: {
-                    display: "flex",
-                    alignItems: "center",
-                    gap: ".5em",
-                    padding: ".2em",
-                    borderBottom: "1px solid var(--Ga2, #eee)"
-                  },
-                  children: [
-u$2("span", { style: { flex: 1, wordBreak: "break-all", fontFamily: "monospace" }, children: [
-                      rule.from ?? "(空)",
-                      " → ",
-                      rule.to ?? "(空)"
-                    ] }),
-u$2(
-                      "button",
-                      {
-                        type: "button",
-                        onClick: () => removeRoomRule(i2),
-                        style: {
-                          cursor: "pointer",
-                          background: "transparent",
-                          color: "red",
-                          border: "none",
-                          borderRadius: "2px"
-                        },
-                        children: "删除"
-                      }
-                    )
-                  ]
-                },
-                i2
-              )) }),
-u$2("div", { className: "cb-row", style: { display: "flex", gap: ".25em", alignItems: "center", flexWrap: "wrap" }, children: [
-u$2(
-                  "input",
-                  {
-                    placeholder: "替换前",
-                    style: { flex: 1, minWidth: "80px" },
-                    value: roomReplaceFrom.value,
-                    onInput: (e2) => {
-                      roomReplaceFrom.value = e2.currentTarget.value;
-                    },
-                    onKeyDown: (e2) => {
-                      if (e2.key === "Enter" && !e2.isComposing) {
-                        e2.preventDefault();
-                        addRoomRule();
-                      }
                     }
+                  )
+                ] }),
+u$2("div", { className: "cb-rule-room-actions", children: [
+u$2("button", { type: "button", onClick: addRoom, children: "添加房间" }),
+                  editingRoomId.value && editingRoomId.value !== currentRoomStr && u$2("button", { type: "button", className: "cb-rule-remove", onClick: () => deleteRoom(editingRoomId.value), children: "删除此房间" })
+                ] })
+              ] }),
+              editingRoomId.value ? u$2(S$1, { children: [
+u$2(
+                  ReplacementRuleList,
+                  {
+                    rules: editingRules,
+                    emptyText: "暂无此房间的替换规则，请在下方添加",
+                    onRemove: removeRoomRule
                   }
                 ),
-u$2("span", { children: "→" }),
 u$2(
-                  "input",
+                  ReplacementRuleForm,
                   {
-                    placeholder: "替换后",
-                    style: { flex: 1, minWidth: "80px" },
-                    value: roomReplaceTo.value,
-                    onInput: (e2) => {
-                      roomReplaceTo.value = e2.currentTarget.value;
+                    from: roomReplaceFrom.value,
+                    to: roomReplaceTo.value,
+                    onFromChange: (value) => {
+                      roomReplaceFrom.value = value;
                     },
-                    onKeyDown: (e2) => {
-                      if (e2.key === "Enter" && !e2.isComposing) {
-                        e2.preventDefault();
-                        addRoomRule();
-                      }
-                    }
+                    onToChange: (value) => {
+                      roomReplaceTo.value = value;
+                    },
+                    onAdd: addRoomRule
                   }
-                ),
-u$2("button", { type: "button", onClick: addRoomRule, children: "添加" })
-              ] })
-            ] }) : u$2("div", { className: "cb-empty", style: { color: "#999" }, children: "请选择或添加一个直播间" })
-          ]
-        }
-      ),
+                )
+              ] }) : u$2("div", { className: "cb-empty", style: { color: "#999" }, children: "请选择或添加一个直播间" })
+            ]
+          }
+        )
+      ] }),
+u$2("details", { className: "cb-settings-accordion", children: [
+u$2("summary", { children: "表情" }),
 u$2(
-        "div",
-        {
-          className: "cb-section cb-stack",
-          style: { margin: ".5em 0", paddingBottom: "1em", borderBottom: "1px solid var(--Ga2, #eee)" },
-          children: [
+          "div",
+          {
+            className: "cb-section cb-stack",
+            style: { margin: ".5em 0", paddingBottom: "1em", borderBottom: "1px solid var(--Ga2, #eee)" },
+            children: [
 u$2("div", { className: "cb-heading", style: { fontWeight: "bold", marginBottom: ".5em" }, children: "表情（复制后可在独轮车或常规发送中直接发送）" }),
 u$2("div", { style: { maxHeight: "200px", overflowY: "auto" }, children: u$2(EmoteIds, {}) })
-          ]
-        }
-      ),
+            ]
+          }
+        )
+      ] }),
+u$2("details", { className: "cb-settings-accordion", children: [
+u$2("summary", { children: "粉丝牌禁言巡检" }),
 u$2(
-        "div",
-        {
-          className: "cb-section cb-stack",
-          style: { margin: ".5em 0", paddingBottom: "1em", borderBottom: "1px solid var(--Ga2, #eee)" },
-          children: [
+          "div",
+          {
+            className: "cb-section cb-stack",
+            style: { margin: ".5em 0", paddingBottom: "1em", borderBottom: "1px solid var(--Ga2, #eee)" },
+            children: [
 u$2("div", { className: "cb-heading", style: { fontWeight: "bold", marginBottom: ".5em" }, children: "粉丝牌禁言巡检" }),
 u$2("div", { className: "cb-note", style: { marginBlock: ".5em", color: "#666" }, children: "只读取 B 站接口，不发送弹幕。结果会按限制、无法确认、主播注销、正常排序；上次巡检会自动保留。" }),
 u$2("div", { className: "cb-panel cb-stack", style: { marginBottom: ".5em" }, children: [
 u$2("div", { className: "cb-heading", style: { marginBottom: 0 }, children: "直播间保安室同步" }),
 u$2(
-                "input",
-                {
-                  type: "text",
-                  placeholder: "https://bilibili-guard-room.vercel.app",
-                  value: guardRoomEndpoint.value,
-                  onInput: (e2) => {
-                    guardRoomEndpoint.value = e2.currentTarget.value;
-                  }
-                }
-              ),
-u$2(
-                "input",
-                {
-                  type: "text",
-                  placeholder: "spaceId@syncSecret",
-                  value: guardRoomSyncKey.value,
-                  onInput: (e2) => {
-                    guardRoomSyncKey.value = e2.currentTarget.value;
-                  }
-                }
-              ),
-u$2("div", { className: "cb-row", children: [
-u$2(
-                  "button",
+                  "input",
                   {
-                    type: "button",
-                    disabled: guardRoomSyncing.value || medalCheckResults.value.length === 0,
-                    onClick: () => void syncGuardRoomInspection(),
-                    children: guardRoomSyncing.value ? "同步中…" : "保存并同步"
+                    type: "text",
+                    placeholder: "https://bilibili-guard-room.vercel.app",
+                    value: guardRoomEndpoint.value,
+                    onInput: (e2) => {
+                      guardRoomEndpoint.value = e2.currentTarget.value;
+                    }
                   }
                 ),
-                guardRoomSyncStatus.value && u$2("span", { className: "cb-note", children: guardRoomSyncStatus.value })
-              ] })
-            ] }),
 u$2(
-              "div",
-              {
-                className: "cb-row",
-                style: { display: "flex", gap: ".5em", alignItems: "center", flexWrap: "wrap", marginBottom: ".5em" },
-                children: [
-u$2("button", { type: "button", disabled: checkingMedalRooms.value, onClick: () => void checkMedalRooms(), children: checkingMedalRooms.value ? "检查中…" : "检查粉丝牌禁言" }),
+                  "input",
+                  {
+                    type: "text",
+                    placeholder: "spaceId@syncSecret",
+                    value: guardRoomSyncKey.value,
+                    onInput: (e2) => {
+                      guardRoomSyncKey.value = e2.currentTarget.value;
+                    }
+                  }
+                ),
+u$2("div", { className: "cb-row", children: [
 u$2(
                     "button",
                     {
                       type: "button",
-                      disabled: medalCheckResults.value.length === 0,
-                      onClick: () => void copyMedalCheckResults(),
-                      children: "复制巡检结果"
+                      disabled: guardRoomSyncing.value || medalCheckResults.value.length === 0,
+                      onClick: () => void syncGuardRoomInspection(),
+                      children: guardRoomSyncing.value ? "同步中…" : "保存并同步"
                     }
                   ),
+                  guardRoomSyncStatus.value && u$2("span", { className: "cb-note", children: guardRoomSyncStatus.value })
+                ] })
+              ] }),
+u$2(
+                "div",
+                {
+                  className: "cb-row",
+                  style: { display: "flex", gap: ".5em", alignItems: "center", flexWrap: "wrap", marginBottom: ".5em" },
+                  children: [
+u$2("button", { type: "button", disabled: checkingMedalRooms.value, onClick: () => void checkMedalRooms(), children: checkingMedalRooms.value ? "检查中…" : "检查粉丝牌禁言" }),
+u$2(
+                      "button",
+                      {
+                        type: "button",
+                        disabled: medalCheckResults.value.length === 0,
+                        onClick: () => void copyMedalCheckResults(),
+                        children: "复制巡检结果"
+                      }
+                    ),
 u$2("span", { style: { color: medalCheckStatus.value.includes("发现限制") ? "#a15c00" : "#666" }, children: medalCheckStatus.value }),
-                  medalCheckCopyStatus.value && u$2("span", { className: "cb-note", children: medalCheckCopyStatus.value })
-                ]
-              }
-            ),
-            medalCheckResults.value.length > 0 && u$2("div", { className: "cb-stack", children: [
-              (() => {
-                const counts = getMedalCheckCounts(medalCheckResults.value);
-                const filter = medalCheckFilter.value;
-                const shownCount = getFilteredMedalResults(medalCheckResults.value, filter).length;
-                const filterButtonStyle = (active, color) => ({
-                  minHeight: "24px",
-                  padding: "2px 6px",
-                  borderColor: active ? color : void 0,
-                  background: active ? "rgba(0, 122, 255, .08)" : void 0,
-                  color,
-                  boxShadow: active ? "inset 0 0 0 1px currentColor" : void 0
-                });
-                return u$2("div", { className: "cb-panel", style: { display: "grid", gap: "6px" }, children: [
+                    medalCheckCopyStatus.value && u$2("span", { className: "cb-note", children: medalCheckCopyStatus.value })
+                  ]
+                }
+              ),
+              medalCheckResults.value.length > 0 && u$2("div", { className: "cb-stack", children: [
+                (() => {
+                  const counts = getMedalCheckCounts(medalCheckResults.value);
+                  const filter = medalCheckFilter.value;
+                  const shownCount = getFilteredMedalResults(medalCheckResults.value, filter).length;
+                  const filterButtonStyle = (active, color) => ({
+                    minHeight: "24px",
+                    padding: "2px 6px",
+                    borderColor: active ? color : void 0,
+                    background: active ? "rgba(0, 122, 255, .08)" : void 0,
+                    color,
+                    boxShadow: active ? "inset 0 0 0 1px currentColor" : void 0
+                  });
+                  return u$2("div", { className: "cb-panel", style: { display: "grid", gap: "6px" }, children: [
 u$2("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "4px" }, children: [
 u$2(
-                      "button",
-                      {
-                        type: "button",
-                        "aria-pressed": filter === "issues",
-                        onClick: () => {
-                          medalCheckFilter.value = "issues";
-                        },
-                        style: filterButtonStyle(filter === "issues", "#a15c00"),
-                        children: [
-                          "异常 ",
-                          counts.restricted + counts.unknown + counts.deactivated
-                        ]
-                      }
-                    ),
+                        "button",
+                        {
+                          type: "button",
+                          "aria-pressed": filter === "issues",
+                          onClick: () => {
+                            medalCheckFilter.value = "issues";
+                          },
+                          style: filterButtonStyle(filter === "issues", "#a15c00"),
+                          children: [
+                            "异常 ",
+                            counts.restricted + counts.unknown + counts.deactivated
+                          ]
+                        }
+                      ),
 u$2(
-                      "button",
-                      {
-                        type: "button",
-                        "aria-pressed": filter === "all",
-                        onClick: () => {
-                          medalCheckFilter.value = "all";
-                        },
-                        style: filterButtonStyle(filter === "all"),
-                        children: [
-                          "全部 ",
-                          medalCheckResults.value.length
-                        ]
-                      }
-                    ),
+                        "button",
+                        {
+                          type: "button",
+                          "aria-pressed": filter === "all",
+                          onClick: () => {
+                            medalCheckFilter.value = "all";
+                          },
+                          style: filterButtonStyle(filter === "all"),
+                          children: [
+                            "全部 ",
+                            medalCheckResults.value.length
+                          ]
+                        }
+                      ),
 u$2(
-                      "button",
-                      {
-                        type: "button",
-                        "aria-pressed": filter === "restricted",
-                        onClick: () => {
-                          medalCheckFilter.value = "restricted";
-                        },
-                        style: filterButtonStyle(filter === "restricted", "#a15c00"),
-                        children: [
-                          "限制 ",
-                          counts.restricted
-                        ]
-                      }
-                    ),
+                        "button",
+                        {
+                          type: "button",
+                          "aria-pressed": filter === "restricted",
+                          onClick: () => {
+                            medalCheckFilter.value = "restricted";
+                          },
+                          style: filterButtonStyle(filter === "restricted", "#a15c00"),
+                          children: [
+                            "限制 ",
+                            counts.restricted
+                          ]
+                        }
+                      ),
 u$2(
-                      "button",
-                      {
-                        type: "button",
-                        "aria-pressed": filter === "unknown",
-                        onClick: () => {
-                          medalCheckFilter.value = "unknown";
-                        },
-                        style: filterButtonStyle(filter === "unknown", "#666"),
-                        children: [
-                          "未知 ",
-                          counts.unknown
-                        ]
-                      }
-                    ),
+                        "button",
+                        {
+                          type: "button",
+                          "aria-pressed": filter === "unknown",
+                          onClick: () => {
+                            medalCheckFilter.value = "unknown";
+                          },
+                          style: filterButtonStyle(filter === "unknown", "#666"),
+                          children: [
+                            "未知 ",
+                            counts.unknown
+                          ]
+                        }
+                      ),
 u$2(
-                      "button",
-                      {
-                        type: "button",
-                        "aria-pressed": filter === "deactivated",
-                        onClick: () => {
-                          medalCheckFilter.value = "deactivated";
-                        },
-                        style: filterButtonStyle(filter === "deactivated", "#8e8e93"),
-                        children: [
-                          "注销 ",
-                          counts.deactivated
-                        ]
-                      }
-                    ),
+                        "button",
+                        {
+                          type: "button",
+                          "aria-pressed": filter === "deactivated",
+                          onClick: () => {
+                            medalCheckFilter.value = "deactivated";
+                          },
+                          style: filterButtonStyle(filter === "deactivated", "#8e8e93"),
+                          children: [
+                            "注销 ",
+                            counts.deactivated
+                          ]
+                        }
+                      ),
 u$2(
-                      "button",
-                      {
-                        type: "button",
-                        "aria-pressed": filter === "ok",
-                        onClick: () => {
-                          medalCheckFilter.value = "ok";
-                        },
-                        style: filterButtonStyle(filter === "ok", "#0a7f55"),
-                        children: [
-                          "正常 ",
-                          counts.ok
-                        ]
-                      }
-                    )
-                  ] }),
+                        "button",
+                        {
+                          type: "button",
+                          "aria-pressed": filter === "ok",
+                          onClick: () => {
+                            medalCheckFilter.value = "ok";
+                          },
+                          style: filterButtonStyle(filter === "ok", "#0a7f55"),
+                          children: [
+                            "正常 ",
+                            counts.ok
+                          ]
+                        }
+                      )
+                    ] }),
 u$2("div", { className: "cb-note", children: [
-                    "当前显示：",
-                    medalFilterLabel(filter),
-                    " ",
-                    shownCount,
-                    " / ",
-                    medalCheckResults.value.length,
-                    " 条"
-                  ] })
-                ] });
-              })(),
+                      "当前显示：",
+                      medalFilterLabel(filter),
+                      " ",
+                      shownCount,
+                      " / ",
+                      medalCheckResults.value.length,
+                      " 条"
+                    ] })
+                  ] });
+                })(),
 u$2("div", { style: { maxHeight: "220px", overflowY: "auto", display: "grid", gap: ".35em" }, children: getFilteredMedalResults(medalCheckResults.value, medalCheckFilter.value).map((result) => {
-                const color = medalStatusColor(result.status);
-                const title = medalStatusTitle(result.status);
-                return u$2(
-                  "div",
-                  {
-                    className: "cb-panel",
-                    style: {
-                      display: "grid",
-                      gap: ".25em",
-                      borderColor: result.status === "restricted" ? "#f0b35a" : void 0
-                    },
-                    children: [
+                  const color = medalStatusColor(result.status);
+                  const title = medalStatusTitle(result.status);
+                  return u$2(
+                    "div",
+                    {
+                      className: "cb-panel",
+                      style: {
+                        display: "grid",
+                        gap: ".25em",
+                        borderColor: result.status === "restricted" ? "#f0b35a" : void 0
+                      },
+                      children: [
 u$2("div", { style: { display: "flex", justifyContent: "space-between", gap: ".5em" }, children: [
 u$2("strong", { style: { wordBreak: "break-all" }, children: [
-                          result.room.anchorName,
-                          " / ",
-                          result.room.medalName
-                        ] }),
+                            result.room.anchorName,
+                            " / ",
+                            result.room.medalName
+                          ] }),
 u$2("span", { style: { color, whiteSpace: "nowrap" }, children: title })
-                      ] }),
+                        ] }),
 u$2("div", { className: "cb-note", children: [
-                        "房间号：",
-                        result.room.roomId,
-                        " · 检查时间：",
-                        formatCheckTime(result.checkedAt)
-                      ] }),
-                      result.signals.length > 0 ? result.signals.map((signal, index) => u$2("div", { style: { color, wordBreak: "break-all", lineHeight: 1.5 }, children: [
-                        signalKindLabel(signal.kind),
-                        "：",
-                        signal.message,
+                          "房间号：",
+                          result.room.roomId,
+                          " · 检查时间：",
+                          formatCheckTime(result.checkedAt)
+                        ] }),
+                        result.signals.length > 0 ? result.signals.map((signal, index) => u$2("div", { style: { color, wordBreak: "break-all", lineHeight: 1.5 }, children: [
+                          signalKindLabel(signal.kind),
+                          "：",
+                          signal.message,
 u$2("br", {}),
-                        "时长：",
-                        signal.duration,
-                        " · 来源：",
-                        signal.source
-                      ] }, index)) : u$2("div", { className: "cb-note", children: result.note ?? "接口未发现禁言/封禁信号" })
-                    ]
-                  },
-                  result.room.roomId
-                );
-              }) })
-            ] })
-          ]
-        }
-      ),
+                          "时长：",
+                          signal.duration,
+                          " · 来源：",
+                          signal.source
+                        ] }, index)) : u$2("div", { className: "cb-note", children: result.note ?? "接口未发现禁言/封禁信号" })
+                      ]
+                    },
+                    result.room.roomId
+                  );
+                }) })
+              ] })
+            ]
+          }
+        )
+      ] }),
+u$2("details", { className: "cb-settings-accordion", children: [
+u$2("summary", { children: "其他设置" }),
 u$2(
-        "div",
-        {
-          className: "cb-section cb-stack",
-          style: { margin: ".5em 0", paddingBottom: "1em", borderBottom: "1px solid var(--Ga2, #eee)" },
-          children: [
+          "div",
+          {
+            className: "cb-section cb-stack",
+            style: { margin: ".5em 0", paddingBottom: "1em", borderBottom: "1px solid var(--Ga2, #eee)" },
+            children: [
 u$2("div", { className: "cb-heading", style: { fontWeight: "bold", marginBottom: ".5em" }, children: "其他设置" }),
 u$2("div", { style: { display: "flex", flexDirection: "column", gap: ".5em" }, children: [
 u$2("span", { className: "cb-switch-row", style: { display: "inline-flex", alignItems: "center", gap: ".25em" }, children: [
 u$2(
-                  "input",
-                  {
-                    id: "customChatEnabled",
-                    type: "checkbox",
-                    checked: customChatEnabled.value,
-                    onInput: (e2) => {
-                      customChatEnabled.value = e2.currentTarget.checked;
+                    "input",
+                    {
+                      id: "customChatEnabled",
+                      type: "checkbox",
+                      checked: customChatEnabled.value,
+                      onInput: (e2) => {
+                        customChatEnabled.value = e2.currentTarget.checked;
+                      }
                     }
+                  ),
+u$2("label", { htmlFor: "customChatEnabled", children: "接管 B 站评论区（Chatterbox Chat）" })
+                ] }),
+u$2(
+                  "span",
+                  {
+                    className: "cb-switch-row",
+                    style: { display: "inline-flex", alignItems: "center", gap: ".25em", paddingLeft: "1.5em" },
+                    children: [
+u$2(
+                        "input",
+                        {
+                          id: "customChatHideNative",
+                          type: "checkbox",
+                          checked: customChatHideNative.value,
+                          disabled: !customChatEnabled.value,
+                          onInput: (e2) => {
+                            customChatHideNative.value = e2.currentTarget.checked;
+                          }
+                        }
+                      ),
+u$2("label", { htmlFor: "customChatHideNative", style: { color: customChatEnabled.value ? void 0 : "#999" }, children: "隐藏 B 站原评论列表和原发送框" })
+                    ]
                   }
                 ),
-u$2("label", { htmlFor: "customChatEnabled", children: "接管 B 站评论区（Chatterbox Chat）" })
-              ] }),
 u$2(
-                "span",
-                {
-                  className: "cb-switch-row",
-                  style: { display: "inline-flex", alignItems: "center", gap: ".25em", paddingLeft: "1.5em" },
-                  children: [
+                  "span",
+                  {
+                    className: "cb-switch-row",
+                    style: { display: "inline-flex", alignItems: "center", gap: ".25em", paddingLeft: "1.5em" },
+                    children: [
 u$2(
-                      "input",
-                      {
-                        id: "customChatHideNative",
-                        type: "checkbox",
-                        checked: customChatHideNative.value,
-                        disabled: !customChatEnabled.value,
-                        onInput: (e2) => {
-                          customChatHideNative.value = e2.currentTarget.checked;
+                        "input",
+                        {
+                          id: "customChatUseWs",
+                          type: "checkbox",
+                          checked: customChatUseWs.value,
+                          disabled: !customChatEnabled.value,
+                          onInput: (e2) => {
+                            customChatUseWs.value = e2.currentTarget.checked;
+                          }
                         }
-                      }
-                    ),
-u$2("label", { htmlFor: "customChatHideNative", style: { color: customChatEnabled.value ? void 0 : "#999" }, children: "隐藏 B 站原评论列表和原发送框" })
-                  ]
-                }
-              ),
-u$2(
-                "span",
-                {
-                  className: "cb-switch-row",
-                  style: { display: "inline-flex", alignItems: "center", gap: ".25em", paddingLeft: "1.5em" },
-                  children: [
-u$2(
-                      "input",
-                      {
-                        id: "customChatUseWs",
-                        type: "checkbox",
-                        checked: customChatUseWs.value,
-                        disabled: !customChatEnabled.value,
-                        onInput: (e2) => {
-                          customChatUseWs.value = e2.currentTarget.checked;
-                        }
-                      }
-                    ),
+                      ),
 u$2("label", { htmlFor: "customChatUseWs", style: { color: customChatEnabled.value ? void 0 : "#999" }, children: "直连 WebSocket 获取礼物、醒目留言、进场等事件（DOM 兜底）" })
-                  ]
-                }
-              ),
+                    ]
+                  }
+                ),
 u$2("div", { className: "cb-row", style: { paddingLeft: "1.5em" }, children: [
 u$2("label", { htmlFor: "customChatTheme", children: "评论区主题" }),
 u$2(
-                  "select",
-                  {
-                    id: "customChatTheme",
-                    value: customChatTheme.value,
-                    disabled: !customChatEnabled.value,
-                    onChange: (e2) => {
-                      customChatTheme.value = e2.currentTarget.value;
-                    },
-                    children: [
+                    "select",
+                    {
+                      id: "customChatTheme",
+                      value: customChatTheme.value,
+                      disabled: !customChatEnabled.value,
+                      onChange: (e2) => {
+                        customChatTheme.value = e2.currentTarget.value;
+                      },
+                      children: [
 u$2("option", { value: "laplace", children: "iMessage Dark" }),
 u$2("option", { value: "light", children: "iMessage Light" }),
 u$2("option", { value: "compact", children: "Compact Bubble" })
-                    ]
-                  }
-                )
-              ] }),
+                      ]
+                    }
+                  )
+                ] }),
 u$2("details", { style: { marginLeft: "1.5em" }, children: [
 u$2("summary", { children: "自定义评论区 CSS" }),
 u$2("div", { className: "cb-body cb-stack", children: [
 u$2("div", { className: "cb-row", children: [
 u$2(
-                      "button",
+                        "button",
+                        {
+                          type: "button",
+                          disabled: !customChatEnabled.value,
+                          onClick: () => {
+                            customChatCss.value = MILK_GREEN_IMESSAGE_CSS;
+                          },
+                          children: "奶绿 iMessage"
+                        }
+                      ),
+u$2(
+                        "button",
+                        {
+                          type: "button",
+                          disabled: !customChatEnabled.value || !customChatCss.value.trim(),
+                          onClick: () => {
+                            customChatCss.value = "";
+                          },
+                          children: "清空 CSS"
+                        }
+                      )
+                    ] }),
+u$2(
+                      "textarea",
                       {
-                        type: "button",
+                        value: customChatCss.value,
                         disabled: !customChatEnabled.value,
-                        onClick: () => {
-                          customChatCss.value = MILK_GREEN_IMESSAGE_CSS;
+                        onInput: (e2) => {
+                          customChatCss.value = e2.currentTarget.value;
                         },
-                        children: "奶绿 iMessage"
+                        placeholder: "#laplace-custom-chat .lc-chat-message { ... }",
+                        style: { minHeight: "90px", resize: "vertical", width: "100%" }
                       }
                     ),
+u$2("div", { className: "cb-note", children: "可覆盖 #laplace-custom-chat 的 --lc-chat-* 变量，以及 .lc-chat-bubble、.lc-chat-medal、.lc-chat-name、.lc-chat-action、.lc-chat-card-event、[data-kind]、[data-card]、[data-guard] 等选择器。" })
+                  ] })
+                ] }),
 u$2(
-                      "button",
-                      {
-                        type: "button",
-                        disabled: !customChatEnabled.value || !customChatCss.value.trim(),
-                        onClick: () => {
-                          customChatCss.value = "";
-                        },
-                        children: "清空 CSS"
-                      }
-                    )
-                  ] }),
+                  "span",
+                  {
+                    className: "cb-switch-row",
+                    style: { display: "inline-flex", alignItems: "center", gap: ".25em", paddingLeft: "1.5em" },
+                    children: [
 u$2(
-                    "textarea",
+                        "input",
+                        {
+                          id: "customChatPerfDebug",
+                          type: "checkbox",
+                          checked: customChatPerfDebug.value,
+                          disabled: !customChatEnabled.value,
+                          onInput: (e2) => {
+                            customChatPerfDebug.value = e2.currentTarget.checked;
+                          }
+                        }
+                      ),
+u$2("label", { htmlFor: "customChatPerfDebug", style: { color: customChatEnabled.value ? void 0 : "#999" }, children: "显示 Chatterbox 性能调试信息" })
+                    ]
+                  }
+                ),
+u$2("span", { className: "cb-switch-row", style: { display: "inline-flex", alignItems: "center", gap: ".25em" }, children: [
+u$2(
+                    "input",
                     {
-                      value: customChatCss.value,
-                      disabled: !customChatEnabled.value,
+                      id: "danmakuDirectMode",
+                      type: "checkbox",
+                      checked: danmakuDirectMode.value,
                       onInput: (e2) => {
-                        customChatCss.value = e2.currentTarget.value;
-                      },
-                      placeholder: "#laplace-custom-chat .lc-chat-message { ... }",
-                      style: { minHeight: "90px", resize: "vertical", width: "100%" }
+                        danmakuDirectMode.value = e2.currentTarget.checked;
+                      }
                     }
                   ),
-u$2("div", { className: "cb-note", children: "可覆盖 #laplace-custom-chat 的 --lc-chat-* 变量，以及 .lc-chat-bubble、.lc-chat-medal、.lc-chat-name、.lc-chat-action、.lc-chat-card-event、[data-kind]、[data-card]、[data-guard] 等选择器。" })
-                ] })
-              ] }),
-u$2(
-                "span",
-                {
-                  className: "cb-switch-row",
-                  style: { display: "inline-flex", alignItems: "center", gap: ".25em", paddingLeft: "1.5em" },
-                  children: [
-u$2(
-                      "input",
-                      {
-                        id: "customChatPerfDebug",
-                        type: "checkbox",
-                        checked: customChatPerfDebug.value,
-                        disabled: !customChatEnabled.value,
-                        onInput: (e2) => {
-                          customChatPerfDebug.value = e2.currentTarget.checked;
-                        }
-                      }
-                    ),
-u$2("label", { htmlFor: "customChatPerfDebug", style: { color: customChatEnabled.value ? void 0 : "#999" }, children: "显示 Chatterbox 性能调试信息" })
-                  ]
-                }
-              ),
-u$2("span", { className: "cb-switch-row", style: { display: "inline-flex", alignItems: "center", gap: ".25em" }, children: [
-u$2(
-                  "input",
-                  {
-                    id: "danmakuDirectMode",
-                    type: "checkbox",
-                    checked: danmakuDirectMode.value,
-                    onInput: (e2) => {
-                      danmakuDirectMode.value = e2.currentTarget.checked;
-                    }
-                  }
-                ),
 u$2("label", { htmlFor: "danmakuDirectMode", children: "+1模式（在聊天消息旁显示偷弹幕和+1按钮）" })
-              ] }),
+                ] }),
 u$2(
-                "span",
-                {
-                  className: "cb-switch-row",
-                  style: { display: "inline-flex", alignItems: "center", gap: ".25em", paddingLeft: "1.5em" },
-                  children: [
+                  "span",
+                  {
+                    className: "cb-switch-row",
+                    style: { display: "inline-flex", alignItems: "center", gap: ".25em", paddingLeft: "1.5em" },
+                    children: [
 u$2(
-                      "input",
-                      {
-                        id: "danmakuDirectConfirm",
-                        type: "checkbox",
-                        checked: danmakuDirectConfirm.value,
-                        disabled: !danmakuDirectMode.value,
-                        onInput: (e2) => {
-                          danmakuDirectConfirm.value = e2.currentTarget.checked;
+                        "input",
+                        {
+                          id: "danmakuDirectConfirm",
+                          type: "checkbox",
+                          checked: danmakuDirectConfirm.value,
+                          disabled: !danmakuDirectMode.value,
+                          onInput: (e2) => {
+                            danmakuDirectConfirm.value = e2.currentTarget.checked;
+                          }
                         }
-                      }
-                    ),
+                      ),
 u$2("label", { htmlFor: "danmakuDirectConfirm", style: { color: danmakuDirectMode.value ? void 0 : "#999" }, children: "+1弹幕发送前需确认（防误触）" })
-                  ]
-                }
-              ),
+                    ]
+                  }
+                ),
 u$2(
-                "span",
-                {
-                  className: "cb-switch-row",
-                  style: { display: "inline-flex", alignItems: "center", gap: ".25em", paddingLeft: "1.5em" },
-                  children: [
+                  "span",
+                  {
+                    className: "cb-switch-row",
+                    style: { display: "inline-flex", alignItems: "center", gap: ".25em", paddingLeft: "1.5em" },
+                    children: [
 u$2(
-                      "input",
-                      {
-                        id: "danmakuDirectAlwaysShow",
-                        type: "checkbox",
-                        checked: danmakuDirectAlwaysShow.value,
-                        disabled: !danmakuDirectMode.value,
-                        onInput: (e2) => {
-                          danmakuDirectAlwaysShow.value = e2.currentTarget.checked;
+                        "input",
+                        {
+                          id: "danmakuDirectAlwaysShow",
+                          type: "checkbox",
+                          checked: danmakuDirectAlwaysShow.value,
+                          disabled: !danmakuDirectMode.value,
+                          onInput: (e2) => {
+                            danmakuDirectAlwaysShow.value = e2.currentTarget.checked;
+                          }
                         }
-                      }
-                    ),
+                      ),
 u$2("label", { htmlFor: "danmakuDirectAlwaysShow", style: { color: danmakuDirectMode.value ? void 0 : "#999" }, children: "总是显示偷/+1按钮" })
-                  ]
-                }
-              ),
-u$2("span", { className: "cb-switch-row", style: { display: "inline-flex", alignItems: "center", gap: ".25em" }, children: [
-u$2(
-                  "input",
-                  {
-                    id: "forceScrollDanmaku",
-                    type: "checkbox",
-                    checked: forceScrollDanmaku.value,
-                    onInput: (e2) => {
-                      forceScrollDanmaku.value = e2.currentTarget.checked;
-                    }
+                    ]
                   }
                 ),
+u$2("span", { className: "cb-switch-row", style: { display: "inline-flex", alignItems: "center", gap: ".25em" }, children: [
+u$2(
+                    "input",
+                    {
+                      id: "forceScrollDanmaku",
+                      type: "checkbox",
+                      checked: forceScrollDanmaku.value,
+                      onInput: (e2) => {
+                        forceScrollDanmaku.value = e2.currentTarget.checked;
+                      }
+                    }
+                  ),
 u$2("label", { htmlFor: "forceScrollDanmaku", children: "脚本载入时强制配置弹幕位置为滚动方向" })
-              ] }),
+                ] }),
 u$2("span", { className: "cb-switch-row", style: { display: "inline-flex", alignItems: "center", gap: ".25em" }, children: [
 u$2(
-                  "input",
-                  {
-                    id: "unlockForbidLive",
-                    type: "checkbox",
-                    checked: unlockForbidLive.value,
-                    onInput: (e2) => {
-                      unlockForbidLive.value = e2.currentTarget.checked;
+                    "input",
+                    {
+                      id: "unlockForbidLive",
+                      type: "checkbox",
+                      checked: unlockForbidLive.value,
+                      onInput: (e2) => {
+                        unlockForbidLive.value = e2.currentTarget.checked;
+                      }
                     }
-                  }
-                ),
+                  ),
 u$2("label", { htmlFor: "unlockForbidLive", children: "拉黑直播间解锁（刷新生效，仅布局解锁）" })
-              ] }),
+                ] }),
 u$2("span", { className: "cb-switch-row", style: { display: "inline-flex", alignItems: "center", gap: ".25em" }, children: [
 u$2(
-                  "input",
-                  {
-                    id: "optimizeLayout",
-                    type: "checkbox",
-                    checked: optimizeLayout.value,
-                    onInput: (e2) => {
-                      optimizeLayout.value = e2.currentTarget.checked;
+                    "input",
+                    {
+                      id: "optimizeLayout",
+                      type: "checkbox",
+                      checked: optimizeLayout.value,
+                      onInput: (e2) => {
+                        optimizeLayout.value = e2.currentTarget.checked;
+                      }
                     }
-                  }
-                ),
+                  ),
 u$2("label", { htmlFor: "optimizeLayout", children: "优化布局" })
+                ] })
               ] })
-            ] })
-          ]
-        }
-      ),
+            ]
+          }
+        )
+      ] }),
+u$2("details", { className: "cb-settings-accordion", children: [
+u$2("summary", { children: "日志设置" }),
 u$2("div", { className: "cb-section cb-stack", style: { margin: ".5em 0", paddingBottom: "1em" }, children: [
 u$2("div", { className: "cb-heading", style: { fontWeight: "bold", marginBottom: ".5em" }, children: "日志设置" }),
 u$2("div", { className: "cb-row", style: { display: "flex", gap: ".5em", alignItems: "center", flexWrap: "wrap" }, children: [
 u$2("label", { htmlFor: "maxLogLines", style: { color: "#666" }, children: "最大日志行数:" }),
 u$2(
-            "input",
-            {
-              id: "maxLogLines",
-              type: "number",
-              min: "1",
-              max: "1000",
-              style: { width: "80px" },
-              value: maxLogLines.value,
-              onChange: (e2) => {
-                let v2 = parseInt(e2.currentTarget.value, 10);
-                if (Number.isNaN(v2) || v2 < 1) v2 = 1;
-                else if (v2 > 1e3) v2 = 1e3;
-                maxLogLines.value = v2;
+              "input",
+              {
+                id: "maxLogLines",
+                type: "number",
+                min: "1",
+                max: "1000",
+                style: { width: "80px" },
+                value: maxLogLines.value,
+                onChange: (e2) => {
+                  let v2 = parseInt(e2.currentTarget.value, 10);
+                  if (Number.isNaN(v2) || v2 < 1) v2 = 1;
+                  else if (v2 > 1e3) v2 = 1e3;
+                  maxLogLines.value = v2;
+                }
               }
-            }
-          ),
+            ),
 u$2("span", { style: { color: "#999", fontSize: "0.9em" }, children: "(1-1000)" })
+          ] })
         ] })
       ] })
     ] });
@@ -10366,11 +10677,11 @@ u$2("span", { style: { color: "#999", fontSize: "0.9em" }, children: "(1-1000)" 
     const sendBuffer = A("");
     const flushTimeout = A(null);
     const isFlushing = A(false);
-    const resetState = () => {
+    const resetState = (nextStatusText = "未启动", nextStatusColor = "#666") => {
       state.value = "stopped";
       sttRunning.value = false;
-      statusText.value = "未启动";
-      statusColor.value = "#666";
+      statusText.value = nextStatusText;
+      statusColor.value = nextStatusColor;
       clientRef.current = null;
       sendBuffer.current = "";
       isFlushing.current = false;
@@ -10525,9 +10836,7 @@ u$2("span", { style: { color: "#999", fontSize: "0.9em" }, children: "(1-1000)" 
             onError: (_status, message) => {
               console.error("Soniox error:", message);
               appendLog(`🔴 Soniox 错误：${message}`);
-              statusText.value = `错误: ${message}`;
-              statusColor.value = "#f44";
-              if (state.value !== "stopping" && state.value !== "stopped") resetState();
+              if (state.value !== "stopping" && state.value !== "stopped") resetState(`错误: ${message}`, "#f44");
             }
           };
           if (translationEnabled) {
@@ -10539,16 +10848,14 @@ u$2("span", { style: { color: "#999", fontSize: "0.9em" }, children: "(1-1000)" 
           const message = err instanceof Error ? err.message : String(err);
           if (err instanceof Error && (err.name === "NotAllowedError" || err.name === "PermissionDeniedError")) {
             appendLog("❌ 麦克风权限被拒绝，请在浏览器设置中允许使用麦克风");
-            statusText.value = "麦克风权限被拒绝";
+            resetState("麦克风权限被拒绝，请允许浏览器使用麦克风", "#f44");
           } else if (err instanceof Error && err.name === "NotFoundError") {
             appendLog("❌ 未找到麦克风设备");
-            statusText.value = "未找到麦克风";
+            resetState("未找到麦克风设备", "#f44");
           } else {
             appendLog(`🔴 启动同传失败：${message}`);
-            statusText.value = `启动失败: ${message}`;
+            resetState(`启动失败: ${message}`, "#f44");
           }
-          statusColor.value = "#f44";
-          resetState();
         }
       } else if (state.value === "running") {
         state.value = "stopping";
@@ -10605,13 +10912,27 @@ u$2(
                 ]
               }
             ),
-u$2("div", { className: "cb-note", style: { marginBlock: ".5em", color: "#666", fontSize: "0.9em" }, children: [
-              "前往",
-              " ",
-u$2("a", { href: "https://soniox.com/", target: "_blank", style: { color: "#288bb8" }, rel: "noopener", children: "Soniox" }),
-              " ",
-              "注册账号并获取 API Key"
-            ] })
+u$2(
+              "div",
+              {
+                className: "cb-row",
+                style: { display: "flex", gap: ".5em", alignItems: "center", flexWrap: "wrap", marginBottom: ".25em" },
+                children: [
+u$2(
+                    "a",
+                    {
+                      href: "https://soniox.com/",
+                      target: "_blank",
+                      className: "cb-primary",
+                      style: { display: "inline-flex", alignItems: "center", minHeight: "26px", padding: "3px 9px" },
+                      rel: "noopener",
+                      children: "获取 Soniox API Key"
+                    }
+                  ),
+u$2("span", { className: "cb-note", children: "注册后把 API Key 粘贴到上方。" })
+                ]
+              }
+            )
           ]
         }
       ),
@@ -10833,7 +11154,8 @@ u$2("span", { style: { color: "#999" }, children: nonFinalText.value })
           display: visible ? "block" : "none",
           maxHeight: "50vh",
           overflowY: "auto",
-          width: "320px"
+          width: "360px",
+          maxWidth: "calc(100vw - 16px)"
         },
         children: [
 u$2(Tabs, {}),
@@ -10924,6 +11246,63 @@ u$2("div", { style: { paddingInline: "10px", paddingBlockEnd: "10px" }, children
       }
     );
   }
+  function UserNotice() {
+    const notice = userNotice.value;
+    if (!notice) return null;
+    const toneColor = notice.tone === "error" ? "#ff3b30" : "#a15c00";
+    const showLog = () => {
+      logPanelOpen.value = true;
+      logPanelFocusRequest.value += 1;
+    };
+    return u$2(
+      "div",
+      {
+        role: "status",
+        "aria-live": "polite",
+        style: {
+          position: "fixed",
+          right: "8px",
+          bottom: "86px",
+          zIndex: 2147483647,
+          width: "min(360px, calc(100vw - 16px))",
+          border: `1px solid ${toneColor}`,
+          borderRadius: "8px",
+          background: "rgba(255, 255, 255, .94)",
+          color: "#1d1d1f",
+          boxShadow: "0 18px 48px rgba(0,0,0,.22)",
+          backdropFilter: "blur(22px) saturate(1.4)",
+          WebkitBackdropFilter: "blur(22px) saturate(1.4)",
+          padding: "9px 10px",
+          fontSize: "12px",
+          lineHeight: 1.45,
+          wordBreak: "break-word"
+        },
+        children: [
+u$2("div", { style: { color: toneColor, fontWeight: 650, marginBottom: "2px" }, children: notice.tone === "error" ? "操作失败" : "需要注意" }),
+u$2("div", { children: notice.message }),
+u$2(
+            "button",
+            {
+              type: "button",
+              onClick: showLog,
+              style: {
+                marginTop: "7px",
+                minHeight: "24px",
+                border: `1px solid ${toneColor}`,
+                borderRadius: "8px",
+                background: "#fff",
+                color: toneColor,
+                padding: "3px 8px",
+                cursor: "pointer",
+                fontWeight: 650
+              },
+              children: "查看日志"
+            }
+          )
+        ]
+      }
+    );
+  }
   function App() {
     y$2(() => {
       const style = document.createElement("style");
@@ -10977,6 +11356,20 @@ u$2("div", { style: { paddingInline: "10px", paddingBlockEnd: "10px" }, children
 
       #laplace-chatterbox-dialog details[open] {
         background: rgba(255, 255, 255, .84) !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-settings-accordion > .cb-section {
+        margin: 0 !important;
+        padding: 0 9px 8px !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-settings-accordion[open] > .cb-section > .cb-heading,
+      #laplace-chatterbox-dialog .cb-settings-accordion[open] > .cb-section > .cb-row:first-child > .cb-heading {
+        display: none;
       }
 
       #laplace-chatterbox-dialog details > :not(summary):not(.cb-body) {
@@ -11286,6 +11679,75 @@ u$2("div", { style: { paddingInline: "10px", paddingBlockEnd: "10px" }, children
         padding: 8px;
       }
 
+      #laplace-chatterbox-dialog .cb-rule-list {
+        display: grid;
+        gap: 6px;
+        max-height: 190px;
+        overflow-y: auto;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-item {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 7px;
+        align-items: center;
+        border: 1px solid rgba(0,0,0,.06);
+        border-radius: 8px;
+        background: rgba(255,255,255,.7);
+        padding: 7px;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-pair {
+        min-width: 0;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 7px;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-pair code {
+        display: block;
+        min-height: 24px;
+        padding: 4px 6px;
+        border-radius: 6px;
+        background: rgba(118, 118, 128, .08);
+        color: #1d1d1f;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        white-space: normal;
+        word-break: break-all;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-form,
+      #laplace-chatterbox-dialog .cb-rule-room-form {
+        display: grid;
+        grid-template-columns: 1fr 1fr auto;
+        gap: 7px;
+        align-items: end;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-form label,
+      #laplace-chatterbox-dialog .cb-rule-room-form label {
+        min-width: 0;
+        display: grid;
+        gap: 3px;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-form input,
+      #laplace-chatterbox-dialog .cb-rule-room-form input,
+      #laplace-chatterbox-dialog .cb-rule-room-form select {
+        width: 100%;
+        min-width: 0;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-room-actions {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-remove {
+        color: #ff3b30 !important;
+      }
+
       #laplace-chatterbox-dialog .cb-icon-button {
         width: 28px !important;
         min-width: 28px !important;
@@ -11305,6 +11767,14 @@ u$2("div", { style: { paddingInline: "10px", paddingBlockEnd: "10px" }, children
       #laplace-chatterbox-dialog .cb-emote[data-copied="true"] {
         background: #34c759 !important;
         color: #fff !important;
+      }
+
+      @media (max-width: 420px) {
+        #laplace-chatterbox-dialog .cb-rule-item,
+        #laplace-chatterbox-dialog .cb-rule-form,
+        #laplace-chatterbox-dialog .cb-rule-room-form {
+          grid-template-columns: 1fr;
+        }
       }
     `;
       document.head.appendChild(style);
@@ -11355,6 +11825,7 @@ u$2("div", { style: { paddingInline: "10px", paddingBlockEnd: "10px" }, children
     return u$2(S$1, { children: [
 u$2(ToggleButton, {}),
 u$2(Configurator, {}),
+u$2(UserNotice, {}),
 u$2(AlertDialog, {})
     ] });
   }

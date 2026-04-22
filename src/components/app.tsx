@@ -9,6 +9,7 @@ import { autoBlendEnabled, customChatEnabled, customChatUseWs, danmakuDirectMode
 import { Configurator } from './configurator'
 import { ToggleButton } from './toggle-button'
 import { AlertDialog } from './ui/alert-dialog'
+import { UserNotice } from './user-notice'
 
 export function App() {
   useEffect(() => {
@@ -63,6 +64,20 @@ export function App() {
 
       #laplace-chatterbox-dialog details[open] {
         background: rgba(255, 255, 255, .84) !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-settings-accordion > .cb-section {
+        margin: 0 !important;
+        padding: 0 9px 8px !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-settings-accordion[open] > .cb-section > .cb-heading,
+      #laplace-chatterbox-dialog .cb-settings-accordion[open] > .cb-section > .cb-row:first-child > .cb-heading {
+        display: none;
       }
 
       #laplace-chatterbox-dialog details > :not(summary):not(.cb-body) {
@@ -372,6 +387,75 @@ export function App() {
         padding: 8px;
       }
 
+      #laplace-chatterbox-dialog .cb-rule-list {
+        display: grid;
+        gap: 6px;
+        max-height: 190px;
+        overflow-y: auto;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-item {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 7px;
+        align-items: center;
+        border: 1px solid rgba(0,0,0,.06);
+        border-radius: 8px;
+        background: rgba(255,255,255,.7);
+        padding: 7px;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-pair {
+        min-width: 0;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 7px;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-pair code {
+        display: block;
+        min-height: 24px;
+        padding: 4px 6px;
+        border-radius: 6px;
+        background: rgba(118, 118, 128, .08);
+        color: #1d1d1f;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        white-space: normal;
+        word-break: break-all;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-form,
+      #laplace-chatterbox-dialog .cb-rule-room-form {
+        display: grid;
+        grid-template-columns: 1fr 1fr auto;
+        gap: 7px;
+        align-items: end;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-form label,
+      #laplace-chatterbox-dialog .cb-rule-room-form label {
+        min-width: 0;
+        display: grid;
+        gap: 3px;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-form input,
+      #laplace-chatterbox-dialog .cb-rule-room-form input,
+      #laplace-chatterbox-dialog .cb-rule-room-form select {
+        width: 100%;
+        min-width: 0;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-room-actions {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-remove {
+        color: #ff3b30 !important;
+      }
+
       #laplace-chatterbox-dialog .cb-icon-button {
         width: 28px !important;
         min-width: 28px !important;
@@ -391,6 +475,14 @@ export function App() {
       #laplace-chatterbox-dialog .cb-emote[data-copied="true"] {
         background: #34c759 !important;
         color: #fff !important;
+      }
+
+      @media (max-width: 420px) {
+        #laplace-chatterbox-dialog .cb-rule-item,
+        #laplace-chatterbox-dialog .cb-rule-form,
+        #laplace-chatterbox-dialog .cb-rule-room-form {
+          grid-template-columns: 1fr;
+        }
       }
     `
     document.head.appendChild(style)
@@ -448,6 +540,7 @@ export function App() {
     <>
       <ToggleButton />
       <Configurator />
+      <UserNotice />
       <AlertDialog />
     </>
   )

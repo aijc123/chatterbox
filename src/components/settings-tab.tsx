@@ -50,6 +50,98 @@ interface RemoteKeywords {
   rooms?: Array<{ room: string; keywords?: Record<string, string> }>
 }
 
+interface ReplacementRule {
+  from?: string
+  to?: string
+}
+
+function ReplacementRuleList({
+  rules,
+  emptyText,
+  onRemove,
+}: {
+  rules: ReplacementRule[]
+  emptyText: string
+  onRemove: (index: number) => void
+}) {
+  if (rules.length === 0) {
+    return <div className='cb-empty'>{emptyText}</div>
+  }
+
+  return (
+    <div className='cb-rule-list'>
+      {rules.map((rule, i) => (
+        <div key={i} className='cb-rule-item'>
+          <div className='cb-rule-pair'>
+            <div>
+              <div className='cb-label'>替换前</div>
+              <code>{rule.from || '(空)'}</code>
+            </div>
+            <div>
+              <div className='cb-label'>替换后</div>
+              <code>{rule.to || '(空)'}</code>
+            </div>
+          </div>
+          <button type='button' className='cb-rule-remove' onClick={() => onRemove(i)} aria-label='删除替换规则'>
+            删除
+          </button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function ReplacementRuleForm({
+  from,
+  to,
+  onFromChange,
+  onToChange,
+  onAdd,
+  disabled,
+}: {
+  from: string
+  to: string
+  onFromChange: (value: string) => void
+  onToChange: (value: string) => void
+  onAdd: () => void
+  disabled?: boolean
+}) {
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.isComposing) {
+      e.preventDefault()
+      onAdd()
+    }
+  }
+
+  return (
+    <div className='cb-rule-form'>
+      <label>
+        <span className='cb-label'>替换前</span>
+        <input
+          placeholder='会被屏蔽或想改写的原词'
+          value={from}
+          disabled={disabled}
+          onInput={e => onFromChange(e.currentTarget.value)}
+          onKeyDown={handleKeyDown}
+        />
+      </label>
+      <label>
+        <span className='cb-label'>替换后</span>
+        <input
+          placeholder='实际发送的内容'
+          value={to}
+          disabled={disabled}
+          onInput={e => onToChange(e.currentTarget.value)}
+          onKeyDown={handleKeyDown}
+        />
+      </label>
+      <button type='button' disabled={disabled} onClick={onAdd}>
+        添加规则
+      </button>
+    </div>
+  )
+}
+
 function getMedalCheckCounts(results: MedalRestrictionCheck[]) {
   return {
     restricted: results.filter(result => result.status === 'restricted').length,
@@ -651,6 +743,8 @@ export function SettingsTab() {
 
   return (
     <>
+      <details className='cb-settings-accordion' open>
+        <summary>云端规则替换</summary>
       <div
         className='cb-section cb-stack'
         style={{ margin: '.5em 0', paddingBottom: '1em', borderBottom: '1px solid var(--Ga2, #eee)' }}
@@ -682,7 +776,10 @@ export function SettingsTab() {
           <span style={{ color: syncStatusColor.value }}>{syncStatus.value}</span>
         </div>
       </div>
+      </details>
 
+      <details className='cb-settings-accordion' open>
+        <summary>本地全局规则</summary>
       <div
         className='cb-section cb-stack'
         style={{ margin: '.5em 0', paddingBottom: '1em', borderBottom: '1px solid var(--Ga2, #eee)' }}
@@ -701,79 +798,23 @@ export function SettingsTab() {
         <div className='cb-note' style={{ marginBlock: '.5em', color: '#666' }}>
           适用于所有直播间，优先级高于云端规则
         </div>
-        <div style={{ marginBottom: '.5em', maxHeight: '160px', overflowY: 'auto' }}>
-          {globalRules.length === 0 ? (
-            <div className='cb-empty' style={{ color: '#999' }}>
-              暂无全局替换规则，请在下方添加
-            </div>
-          ) : (
-            globalRules.map((rule, i) => (
-              <div
-                key={i}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '.5em',
-                  padding: '.2em',
-                  borderBottom: '1px solid var(--Ga2, #eee)',
-                }}
-              >
-                <span style={{ flex: 1, wordBreak: 'break-all', fontFamily: 'monospace' }}>
-                  {rule.from ?? '(空)'} → {rule.to ?? '(空)'}
-                </span>
-                <button
-                  type='button'
-                  onClick={() => removeGlobalRule(i)}
-                  style={{
-                    cursor: 'pointer',
-                    background: 'transparent',
-                    color: 'red',
-                    border: 'none',
-                    borderRadius: '2px',
-                  }}
-                >
-                  删除
-                </button>
-              </div>
-            ))
-          )}
-        </div>
-        <div className='cb-row' style={{ display: 'flex', gap: '.25em', alignItems: 'center', flexWrap: 'wrap' }}>
-          <input
-            placeholder='替换前'
-            style={{ flex: 1, minWidth: '80px' }}
-            value={globalReplaceFrom.value}
-            onInput={e => {
-              globalReplaceFrom.value = e.currentTarget.value
-            }}
-            onKeyDown={e => {
-              if (e.key === 'Enter' && !e.isComposing) {
-                e.preventDefault()
-                addGlobalRule()
-              }
-            }}
-          />
-          <span>→</span>
-          <input
-            placeholder='替换后'
-            style={{ flex: 1, minWidth: '80px' }}
-            value={globalReplaceTo.value}
-            onInput={e => {
-              globalReplaceTo.value = e.currentTarget.value
-            }}
-            onKeyDown={e => {
-              if (e.key === 'Enter' && !e.isComposing) {
-                e.preventDefault()
-                addGlobalRule()
-              }
-            }}
-          />
-          <button type='button' onClick={addGlobalRule}>
-            添加
-          </button>
-        </div>
+        <ReplacementRuleList rules={globalRules} emptyText='暂无全局替换规则，请在下方添加' onRemove={removeGlobalRule} />
+        <ReplacementRuleForm
+          from={globalReplaceFrom.value}
+          to={globalReplaceTo.value}
+          onFromChange={value => {
+            globalReplaceFrom.value = value
+          }}
+          onToChange={value => {
+            globalReplaceTo.value = value
+          }}
+          onAdd={addGlobalRule}
+        />
       </div>
+      </details>
 
+      <details className='cb-settings-accordion'>
+        <summary>本地直播间规则</summary>
       <div
         className='cb-section cb-stack'
         style={{ margin: '.5em 0', paddingBottom: '1em', borderBottom: '1px solid var(--Ga2, #eee)' }}
@@ -784,31 +825,30 @@ export function SettingsTab() {
         <div className='cb-note' style={{ marginBlock: '.5em', color: '#666' }}>
           仅在对应直播间生效；优先级高于全局规则
         </div>
-        <div
-          className='cb-row'
-          style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.5em' }}
-        >
-          <select
-            value={editingRoomId.value}
-            onChange={e => {
-              editingRoomId.value = e.currentTarget.value
-            }}
-            style={{ minWidth: '120px' }}
-          >
-            <option value='' disabled>
-              选择直播间
-            </option>
-            {knownRoomIds.map(rid => (
-              <option key={rid} value={rid}>
-                {rid}
-                {rid === currentRoomStr ? ' (当前)' : ''}
+        <div className='cb-rule-room-form'>
+          <label>
+            <span className='cb-label'>正在编辑</span>
+            <select
+              value={editingRoomId.value}
+              onChange={e => {
+                editingRoomId.value = e.currentTarget.value
+              }}
+            >
+              <option value='' disabled>
+                选择直播间
               </option>
-            ))}
-          </select>
-          <div className='cb-row' style={{ display: 'flex', gap: '.25em', alignItems: 'center' }}>
+              {knownRoomIds.map(rid => (
+                <option key={rid} value={rid}>
+                  {rid}
+                  {rid === currentRoomStr ? ' (当前)' : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span className='cb-label'>添加房间号</span>
             <input
-              placeholder='房间号'
-              style={{ width: '80px' }}
+              placeholder='输入房间号'
               value={newRoomId.value}
               onInput={e => {
                 newRoomId.value = e.currentTarget.value.replace(/\D/g, '')
@@ -820,90 +860,37 @@ export function SettingsTab() {
                 }
               }}
             />
+          </label>
+          <div className='cb-rule-room-actions'>
             <button type='button' onClick={addRoom}>
               添加房间
             </button>
+            {editingRoomId.value && editingRoomId.value !== currentRoomStr && (
+              <button type='button' className='cb-rule-remove' onClick={() => deleteRoom(editingRoomId.value)}>
+                删除此房间
+              </button>
+            )}
           </div>
-          {editingRoomId.value && editingRoomId.value !== currentRoomStr && (
-            <button type='button' onClick={() => deleteRoom(editingRoomId.value)} style={{ color: 'red' }}>
-              删除此房间
-            </button>
-          )}
         </div>
 
         {editingRoomId.value ? (
           <>
-            <div style={{ marginBottom: '.5em', maxHeight: '160px', overflowY: 'auto' }}>
-              {editingRules.length === 0 ? (
-                <div className='cb-empty' style={{ color: '#999' }}>
-                  暂无此房间的替换规则，请在下方添加
-                </div>
-              ) : (
-                editingRules.map((rule, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '.5em',
-                      padding: '.2em',
-                      borderBottom: '1px solid var(--Ga2, #eee)',
-                    }}
-                  >
-                    <span style={{ flex: 1, wordBreak: 'break-all', fontFamily: 'monospace' }}>
-                      {rule.from ?? '(空)'} → {rule.to ?? '(空)'}
-                    </span>
-                    <button
-                      type='button'
-                      onClick={() => removeRoomRule(i)}
-                      style={{
-                        cursor: 'pointer',
-                        background: 'transparent',
-                        color: 'red',
-                        border: 'none',
-                        borderRadius: '2px',
-                      }}
-                    >
-                      删除
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-            <div className='cb-row' style={{ display: 'flex', gap: '.25em', alignItems: 'center', flexWrap: 'wrap' }}>
-              <input
-                placeholder='替换前'
-                style={{ flex: 1, minWidth: '80px' }}
-                value={roomReplaceFrom.value}
-                onInput={e => {
-                  roomReplaceFrom.value = e.currentTarget.value
-                }}
-                onKeyDown={e => {
-                  if (e.key === 'Enter' && !e.isComposing) {
-                    e.preventDefault()
-                    addRoomRule()
-                  }
-                }}
-              />
-              <span>→</span>
-              <input
-                placeholder='替换后'
-                style={{ flex: 1, minWidth: '80px' }}
-                value={roomReplaceTo.value}
-                onInput={e => {
-                  roomReplaceTo.value = e.currentTarget.value
-                }}
-                onKeyDown={e => {
-                  if (e.key === 'Enter' && !e.isComposing) {
-                    e.preventDefault()
-                    addRoomRule()
-                  }
-                }}
-              />
-              <button type='button' onClick={addRoomRule}>
-                添加
-              </button>
-            </div>
+            <ReplacementRuleList
+              rules={editingRules}
+              emptyText='暂无此房间的替换规则，请在下方添加'
+              onRemove={removeRoomRule}
+            />
+            <ReplacementRuleForm
+              from={roomReplaceFrom.value}
+              to={roomReplaceTo.value}
+              onFromChange={value => {
+                roomReplaceFrom.value = value
+              }}
+              onToChange={value => {
+                roomReplaceTo.value = value
+              }}
+              onAdd={addRoomRule}
+            />
           </>
         ) : (
           <div className='cb-empty' style={{ color: '#999' }}>
@@ -911,7 +898,10 @@ export function SettingsTab() {
           </div>
         )}
       </div>
+      </details>
 
+      <details className='cb-settings-accordion'>
+        <summary>表情</summary>
       <div
         className='cb-section cb-stack'
         style={{ margin: '.5em 0', paddingBottom: '1em', borderBottom: '1px solid var(--Ga2, #eee)' }}
@@ -923,7 +913,10 @@ export function SettingsTab() {
           <EmoteIds />
         </div>
       </div>
+      </details>
 
+      <details className='cb-settings-accordion'>
+        <summary>粉丝牌禁言巡检</summary>
       <div
         className='cb-section cb-stack'
         style={{ margin: '.5em 0', paddingBottom: '1em', borderBottom: '1px solid var(--Ga2, #eee)' }}
@@ -1112,7 +1105,10 @@ export function SettingsTab() {
           </div>
         )}
       </div>
+      </details>
 
+      <details className='cb-settings-accordion'>
+        <summary>其他设置</summary>
       <div
         className='cb-section cb-stack'
         style={{ margin: '.5em 0', paddingBottom: '1em', borderBottom: '1px solid var(--Ga2, #eee)' }}
@@ -1317,7 +1313,10 @@ export function SettingsTab() {
           </span>
         </div>
       </div>
+      </details>
 
+      <details className='cb-settings-accordion'>
+        <summary>日志设置</summary>
       <div className='cb-section cb-stack' style={{ margin: '.5em 0', paddingBottom: '1em' }}>
         <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.5em' }}>
           日志设置
@@ -1343,6 +1342,7 @@ export function SettingsTab() {
           <span style={{ color: '#999', fontSize: '0.9em' }}>(1-1000)</span>
         </div>
       </div>
+      </details>
     </>
   )
 }

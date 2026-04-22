@@ -13,7 +13,6 @@ import {
 } from './custom-chat-events'
 import {
   CUSTOM_CHAT_MAX_MESSAGES,
-  CUSTOM_CHAT_MAX_RENDER_BATCH,
   shouldAnimateRenderBatch,
   takeRenderBatch,
   trimRenderQueue,
@@ -43,6 +42,13 @@ const USER_STYLE_ID = 'laplace-custom-chat-user-style'
 const MAX_MESSAGES = CUSTOM_CHAT_MAX_MESSAGES
 const MAX_NATIVE_SCAN_BATCH = 48
 const MAX_NATIVE_INITIAL_SCAN = 80
+const VIRTUAL_OVERSCAN = 7
+const DEFAULT_ROW_HEIGHT = 62
+const CARD_ROW_HEIGHT = 102
+const COMPACT_CARD_ROW_HEIGHT = 78
+const NATIVE_HEALTH_WINDOW = 12000
+const NATIVE_HEALTH_MIN_SCANS = 24
+const NATIVE_HEALTH_MAX_EVENTS = 0
 const NATIVE_EVENT_SELECTOR =
   '.chat-item, .super-chat-card, .gift-item, [class*="super"], [class*="gift"], [class*="guard"], [class*="privilege"]'
 
@@ -80,6 +86,10 @@ const STYLE = `
   border-left: 1px solid var(--lc-chat-border);
   overflow: hidden;
   contain: layout style;
+  transition:
+    color .18s ease,
+    background-color .18s ease,
+    border-color .18s ease;
 }
 html.lc-custom-chat-mounted #${ROOT_ID} {
   display: grid !important;
@@ -260,6 +270,7 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   border-color: var(--lc-chat-own);
 }
 #${ROOT_ID} .lc-chat-list {
+  position: relative;
   min-height: 0;
   min-width: 0;
   overflow-y: auto;
@@ -269,6 +280,24 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   scroll-behavior: auto;
   -webkit-mask-image: linear-gradient(to bottom, transparent, #000 18px, #000 calc(100% - 18px), transparent);
   mask-image: linear-gradient(to bottom, transparent, #000 18px, #000 calc(100% - 18px), transparent);
+}
+#${ROOT_ID} .lc-chat-virtual-items {
+  min-width: 0;
+}
+#${ROOT_ID} .lc-chat-virtual-spacer {
+  min-width: 1px;
+  pointer-events: none;
+}
+#${ROOT_ID} .lc-chat-empty {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 32px 18px;
+  color: var(--lc-chat-muted);
+  font-size: 12px;
+  line-height: 1.55;
+  text-align: center;
+  pointer-events: none;
 }
 #${ROOT_ID} .lc-chat-message {
   position: relative;
@@ -283,6 +312,10 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   border: 1px solid transparent;
   background: transparent;
   overflow: visible;
+}
+#${ROOT_ID} .lc-chat-message:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--lc-chat-own) 64%, transparent);
+  outline-offset: -2px;
 }
 #${ROOT_ID} .lc-chat-message:hover {
   background: transparent;
@@ -699,15 +732,38 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   white-space: nowrap;
 }
 #${ROOT_ID} .lc-chat-ws-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  max-width: 100%;
+  padding: 2px 7px;
+  border-radius: 999px;
   font-size: 11px;
   color: var(--lc-chat-muted);
   min-width: 38px;
+  background: color-mix(in srgb, var(--lc-chat-chip) 70%, transparent);
+  overflow-wrap: anywhere;
 }
 #${ROOT_ID} .lc-chat-ws-status[data-status="live"] {
   color: var(--lc-chat-accent);
 }
-#${ROOT_ID} .lc-chat-ws-status[data-status="error"] {
-  color: #ff453a;
+#${ROOT_ID} .lc-chat-ws-status[data-status="fallback"] {
+  color: #8a4b00;
+  background: rgba(255, 159, 10, .18);
+  border: 1px solid rgba(255, 159, 10, .34);
+}
+#${ROOT_ID} .lc-chat-ws-status[data-status="dom-warning"] {
+  color: #9a3412;
+  background: rgba(255, 204, 0, .20);
+  border: 1px solid rgba(255, 204, 0, .42);
+}
+#${ROOT_ID}[data-theme="laplace"] .lc-chat-ws-status[data-status="fallback"],
+#${ROOT_ID}[data-theme="compact"] .lc-chat-ws-status[data-status="fallback"],
+#${ROOT_ID}[data-theme="laplace"] .lc-chat-ws-status[data-status="dom-warning"],
+#${ROOT_ID}[data-theme="compact"] .lc-chat-ws-status[data-status="dom-warning"] {
+  color: #ffd60a;
+  background: rgba(255, 159, 10, .20);
+  border-color: rgba(255, 214, 10, .36);
 }
 #${ROOT_ID} .lc-chat-perf {
   display: none;
@@ -793,11 +849,15 @@ let nativeEventObserver: MutationObserver | null = null
 let root: HTMLElement | null = null
 let rootOutsideHistory = false
 let listEl: HTMLElement | null = null
+let virtualTopSpacer: HTMLElement | null = null
+let virtualItemsEl: HTMLElement | null = null
+let virtualBottomSpacer: HTMLElement | null = null
 let pauseBtn: HTMLButtonElement | null = null
 let unreadEl: HTMLElement | null = null
 let searchInput: HTMLInputElement | null = null
 let matchCountEl: HTMLElement | null = null
 let wsStatusEl: HTMLElement | null = null
+let emptyEl: HTMLElement | null = null
 let perfEl: HTMLElement | null = null
 let debugEl: HTMLElement | null = null
 let textarea: HTMLTextAreaElement | null = null
@@ -809,11 +869,17 @@ let paused = false
 let unread = 0
 let sending = false
 let searchQuery = ''
+let hasClearedMessages = false
+let currentWsStatus: CustomChatWsStatus = 'off'
+let nativeDomWarning = false
 const messages: CustomChatEvent[] = []
 const messageKeys = new Set<string>()
 const recentEventKeys = new Map<string, number>()
 const renderQueue: CustomChatEvent[] = []
+let visibleMessages: CustomChatEvent[] = []
+const rowHeights = new Map<string, number>()
 const eventTicks: number[] = []
+const nativeHealthSamples: Array<{ ts: number; parsed: boolean }> = []
 const seenNativeNodes = new WeakSet<HTMLElement>()
 const pendingNativeNodes = new Set<HTMLElement>()
 const sourceCounts: Record<CustomChatEvent['source'], number> = { dom: 0, ws: 0, local: 0 }
@@ -913,7 +979,8 @@ function updatePerfDebug(): void {
   }
   const totalSources = sourceCounts.dom + sourceCounts.ws + sourceCounts.local || 1
   const pct = (value: number) => Math.round((value / totalSources) * 100)
-  perfEl.textContent = `msg ${messages.length}/${MAX_MESSAGES} | eps ${eventTicks.length}/s | batch ${lastBatchSize} | q ${renderQueue.length} | native ${pendingNativeNodes.size} | ws ${pct(sourceCounts.ws)}% dom ${pct(sourceCounts.dom)}% local ${pct(sourceCounts.local)}%`
+  const rendered = virtualItemsEl?.querySelectorAll('.lc-chat-message').length ?? 0
+  perfEl.textContent = `消息 ${messages.length}/${MAX_MESSAGES} | 可见 ${visibleMessages.length} | DOM节点 ${rendered} | 事件 ${eventTicks.length}/秒 | 本帧 ${lastBatchSize} | 待渲染 ${renderQueue.length} | DOM待扫 ${pendingNativeNodes.size} | WS ${pct(sourceCounts.ws)}% DOM ${pct(sourceCounts.dom)}% 本地 ${pct(sourceCounts.local)}%`
 }
 
 function isNoiseEventText(text: string): boolean {
@@ -1197,6 +1264,20 @@ function parseNativeEvent(node: HTMLElement): CustomChatEvent | null {
     fields,
   }
 }
+
+function recordNativeHealth(parsed: boolean): void {
+  const now = Date.now()
+  nativeHealthSamples.push({ ts: now, parsed })
+  while (nativeHealthSamples.length > 0 && now - nativeHealthSamples[0].ts > NATIVE_HEALTH_WINDOW) {
+    nativeHealthSamples.shift()
+  }
+  const parsedCount = nativeHealthSamples.filter(sample => sample.parsed).length
+  const unhealthy = nativeHealthSamples.length >= NATIVE_HEALTH_MIN_SCANS && parsedCount <= NATIVE_HEALTH_MAX_EVENTS
+  if (nativeDomWarning === unhealthy) return
+  nativeDomWarning = unhealthy
+  updateWsStatus(currentWsStatus)
+}
+
 function kindVisible(kind: CustomChatKind): boolean {
   if (kind === 'danmaku') return customChatShowDanmaku.value
   if (kind === 'gift') return customChatShowGift.value
@@ -1212,18 +1293,105 @@ function messageMatchesSearch(message: CustomChatEvent): boolean {
   return messageMatchesCustomChatSearch(message, searchQuery, kindVisible)
 }
 
+const SEARCH_KIND_ALIASES: Record<string, CustomChatKind> = {
+  danmaku: 'danmaku',
+  弹幕: 'danmaku',
+  gift: 'gift',
+  礼物: 'gift',
+  superchat: 'superchat',
+  sc: 'superchat',
+  醒目留言: 'superchat',
+  guard: 'guard',
+  舰队: 'guard',
+  舰长: 'guard',
+  redpacket: 'redpacket',
+  红包: 'redpacket',
+  lottery: 'lottery',
+  天选: 'lottery',
+  enter: 'enter',
+  进场: 'enter',
+  follow: 'follow',
+  关注: 'follow',
+  like: 'like',
+  点赞: 'like',
+  share: 'share',
+  分享: 'share',
+  notice: 'notice',
+  通知: 'notice',
+  system: 'system',
+  系统: 'system',
+}
+
+function levenshteinDistance(a: string, b: string): number {
+  const previous = Array.from({ length: b.length + 1 }, (_, index) => index)
+  const current = Array.from({ length: b.length + 1 }, () => 0)
+  for (let i = 1; i <= a.length; i++) {
+    current[0] = i
+    for (let j = 1; j <= b.length; j++) {
+      current[j] =
+        a[i - 1] === b[j - 1] ? previous[j - 1] : Math.min(previous[j - 1] + 1, previous[j] + 1, current[j - 1] + 1)
+    }
+    previous.splice(0, previous.length, ...current)
+  }
+  return previous[b.length]
+}
+
+function searchHint(): string {
+  const kindToken = searchQuery
+    .match(/(?:^|\s)kind:([^\s"]+)/i)?.[1]
+    ?.trim()
+    .toLowerCase()
+  if (!kindToken || SEARCH_KIND_ALIASES[kindToken]) return ''
+  const candidates = Object.keys(SEARCH_KIND_ALIASES)
+    .map(value => ({ value, distance: levenshteinDistance(kindToken, value.toLowerCase()) }))
+    .sort((a, b) => a.distance - b.distance)
+  const suggestion = candidates[0]
+  return suggestion && suggestion.distance <= 3 ? `没有这种类型，试试 kind:${suggestion.value}` : '没有这种消息类型'
+}
+
+function renderedMessageCount(): number {
+  return visibleMessages.length
+}
+
+function updateEmptyState(): void {
+  if (!listEl || !emptyEl) return
+  const visibleCount = renderedMessageCount()
+  if (visibleCount > 0) {
+    emptyEl.remove()
+    return
+  }
+  const trimmedQuery = searchQuery.trim()
+  const hint = searchHint()
+  if (trimmedQuery) {
+    emptyEl.textContent = hint || `没有找到匹配“${trimmedQuery}”的消息`
+  } else if (hasClearedMessages) {
+    emptyEl.textContent = '已清屏，新的弹幕会继续出现在这里'
+  } else {
+    emptyEl.textContent = '还没有收到消息'
+  }
+  if (!emptyEl.isConnected) listEl.append(emptyEl)
+}
+
 function wsStatusLabel(status: CustomChatWsStatus): string {
+  if (nativeDomWarning && (status === 'error' || status === 'closed' || status === 'off'))
+    return '页面兜底疑似失效，B站页面结构可能变了'
   if (status === 'connecting') return '实时事件源连接中'
   if (status === 'live') return '实时事件源正常'
-  if (status === 'error') return '页面兜底运行中'
-  if (status === 'closed') return '页面兜底运行中'
+  if (status === 'error') return '直连异常，使用页面兜底，可能漏消息'
+  if (status === 'closed') return '直连已断开，使用页面兜底，可能漏消息'
   return '实时事件源关闭'
 }
 
 function updateWsStatus(status: CustomChatWsStatus): void {
+  currentWsStatus = status
   if (!wsStatusEl) return
   wsStatusEl.textContent = wsStatusLabel(status)
-  wsStatusEl.dataset.status = status === 'error' || status === 'closed' ? 'fallback' : status
+  wsStatusEl.dataset.status =
+    nativeDomWarning && (status === 'error' || status === 'closed' || status === 'off')
+      ? 'dom-warning'
+      : status === 'error' || status === 'closed'
+        ? 'fallback'
+        : status
 }
 
 function updateMatchCount(): void {
@@ -1249,39 +1417,62 @@ function updateUnread(): void {
 
 function isNearBottom(): boolean {
   if (!listEl) return true
-  return listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight < 80
+  return virtualContentHeight() - listEl.scrollTop - listEl.clientHeight < 80
 }
 
-function scrollToBottom(): void {
+function scrollToBottom(behavior: ScrollBehavior = 'auto'): void {
   if (!listEl) return
-  listEl.scrollTop = listEl.scrollHeight
+  const top = Math.max(0, virtualContentHeight() - listEl.clientHeight)
+  listEl.scrollTo({ top, behavior })
+  if (behavior === 'auto') renderVirtualWindow()
 }
 
 function pruneMessages(): void {
   while (messages.length > MAX_MESSAGES) {
     const removed = messages.shift()
-    if (removed) messageKeys.delete(messageKey(removed))
-  }
-  while (listEl && listEl.children.length > MAX_MESSAGES) {
-    listEl?.firstElementChild?.remove()
+    if (removed) {
+      const key = messageKey(removed)
+      messageKeys.delete(key)
+      rowHeights.delete(key)
+    }
   }
   updatePerfDebug()
 }
 
-function renderMessage(message: CustomChatEvent, countUnread = true, updateCount = true, manageFlow = true): boolean {
-  if (!listEl) return false
-  const shouldStickToBottom = !paused && isNearBottom()
-  if (!messageMatchesSearch(message)) {
-    if (updateCount) updateMatchCount()
-    return false
-  }
+function estimatedRowHeight(message: CustomChatEvent): number {
+  const card = cardType(message)
+  if (card === 'gift' && !message.amount) return COMPACT_CARD_ROW_HEIGHT
+  if (card) return CARD_ROW_HEIGHT
+  return DEFAULT_ROW_HEIGHT + Math.max(0, Math.ceil(message.text.length / 34) - 1) * 18
+}
 
+function rowHeight(message: CustomChatEvent): number {
+  return rowHeights.get(messageKey(message)) ?? estimatedRowHeight(message)
+}
+
+function virtualContentHeight(end = visibleMessages.length): number {
+  let height = 0
+  for (let index = 0; index < end; index++) height += rowHeight(visibleMessages[index])
+  return height
+}
+
+function setSpacerHeight(spacer: HTMLElement | null, height: number): void {
+  if (!spacer) return
+  spacer.style.height = `${Math.max(0, Math.round(height))}px`
+}
+
+function refreshVisibleMessages(): void {
+  visibleMessages = visibleRenderMessages(messages, messageMatchesSearch)
+}
+
+function createMessageRow(message: CustomChatEvent, animate = false, virtualIndex = 0): HTMLElement {
   const row = document.createElement('div')
-  row.className = countUnread ? 'lc-chat-message lc-chat-peek' : 'lc-chat-message'
+  row.className = animate ? 'lc-chat-message lc-chat-peek' : 'lc-chat-message'
   row.dataset.uid = message.uid ?? ''
   row.dataset.kind = message.kind
   row.dataset.source = message.source
   row.dataset.user = displayName(message)
+  row.dataset.virtualIndex = String(virtualIndex)
   row.tabIndex = 0
   const guard = guardLevel(message)
   const card = cardType(message)
@@ -1400,37 +1591,128 @@ function renderMessage(message: CustomChatEvent, countUnread = true, updateCount
   body.append(meta, text)
 
   row.append(avatarEl, body, actions)
-  listEl.append(row)
+  return row
+}
 
-  if (manageFlow) {
-    pruneMessages()
-    if (!shouldStickToBottom && countUnread) {
-      unread++
-      updateUnread()
-    } else {
-      scrollToBottom()
-    }
-    if (updateCount) updateMatchCount()
+function virtualRange(): { start: number; end: number; top: number; bottom: number; total: number } {
+  const total = virtualContentHeight()
+  if (!listEl || visibleMessages.length === 0) return { start: 0, end: 0, top: 0, bottom: 0, total }
+  const viewportTop = listEl.scrollTop
+  const viewportBottom = viewportTop + Math.max(listEl.clientHeight, 1)
+  let start = 0
+  let top = 0
+  while (start < visibleMessages.length && top + rowHeight(visibleMessages[start]) < viewportTop) {
+    top += rowHeight(visibleMessages[start])
+    start++
   }
-  return true
+  start = Math.max(0, start - VIRTUAL_OVERSCAN)
+  top = virtualContentHeight(start)
+  let end = start
+  let bottom = top
+  while (end < visibleMessages.length && bottom < viewportBottom) {
+    bottom += rowHeight(visibleMessages[end])
+    end++
+  }
+  end = Math.min(visibleMessages.length, end + VIRTUAL_OVERSCAN)
+  bottom = virtualContentHeight(end)
+  return { start, end, top, bottom, total }
+}
+
+function measureRenderedRows(): void {
+  if (!virtualItemsEl) return
+  let changed = false
+  for (const row of virtualItemsEl.querySelectorAll<HTMLElement>('.lc-chat-message')) {
+    const index = Number(row.dataset.virtualIndex)
+    const message = visibleMessages[index]
+    if (!message) continue
+    const measured = Math.ceil(row.getBoundingClientRect().height)
+    if (measured <= 0) continue
+    const key = messageKey(message)
+    if (Math.abs((rowHeights.get(key) ?? 0) - measured) > 2) {
+      rowHeights.set(key, measured)
+      changed = true
+    }
+  }
+  if (changed) {
+    const range = virtualRange()
+    setSpacerHeight(virtualTopSpacer, range.top)
+    setSpacerHeight(virtualBottomSpacer, range.total - range.bottom)
+  }
+}
+
+function renderVirtualWindow(animateKeys = new Set<string>()): void {
+  if (!listEl || !virtualItemsEl) return
+  if (visibleMessages.length === 0) {
+    virtualItemsEl.replaceChildren()
+    setSpacerHeight(virtualTopSpacer, 0)
+    setSpacerHeight(virtualBottomSpacer, 0)
+    updateEmptyState()
+    updatePerfDebug()
+    return
+  }
+
+  emptyEl?.remove()
+  const activeKey =
+    document.activeElement instanceof HTMLElement
+      ? document.activeElement.closest<HTMLElement>('.lc-chat-message')?.dataset.key
+      : undefined
+  const range = virtualRange()
+  const rows: HTMLElement[] = []
+  for (let index = range.start; index < range.end; index++) {
+    const message = visibleMessages[index]
+    const key = messageKey(message)
+    const row = createMessageRow(message, animateKeys.has(key), index)
+    row.dataset.key = key
+    rows.push(row)
+  }
+  virtualItemsEl.replaceChildren(...rows)
+  setSpacerHeight(virtualTopSpacer, range.top)
+  setSpacerHeight(virtualBottomSpacer, range.total - range.bottom)
+  if (activeKey) {
+    for (const row of virtualItemsEl.querySelectorAll<HTMLElement>('.lc-chat-message')) {
+      if (row.dataset.key === activeKey) {
+        row.focus()
+        break
+      }
+    }
+  }
+  measureRenderedRows()
+  updateEmptyState()
+  updatePerfDebug()
+}
+
+function scrollToVirtualIndex(index: number): void {
+  if (!listEl || visibleMessages.length === 0) return
+  const clamped = Math.max(0, Math.min(visibleMessages.length - 1, index))
+  const top = virtualContentHeight(clamped)
+  listEl.scrollTo({ top: Math.max(0, top - 10), behavior: 'auto' })
+  renderVirtualWindow()
+  virtualItemsEl?.querySelector<HTMLElement>(`.lc-chat-message[data-virtual-index="${clamped}"]`)?.focus()
 }
 
 function clearMessages(): void {
   messages.length = 0
   messageKeys.clear()
   renderQueue.length = 0
+  visibleMessages = []
+  rowHeights.clear()
   unread = 0
-  listEl?.replaceChildren()
+  hasClearedMessages = true
+  virtualItemsEl?.replaceChildren()
+  setSpacerHeight(virtualTopSpacer, 0)
+  setSpacerHeight(virtualBottomSpacer, 0)
   updateUnread()
   updateMatchCount()
+  updateEmptyState()
 }
 
 function rerenderMessages(): void {
-  if (!listEl) return
-  listEl.replaceChildren()
-  for (const message of messages) renderMessage(message, false, false, false)
+  if (!listEl || !virtualItemsEl) return
   pruneMessages()
+  refreshVisibleMessages()
+  renderVirtualWindow()
   updateMatchCount()
+  updateEmptyState()
   if (!paused) scrollToBottom()
 }
 
@@ -1441,23 +1723,12 @@ function scheduleRerenderMessages(): void {
   rerenderFrame = window.requestAnimationFrame(() => {
     rerenderFrame = null
     if (!listEl || token !== rerenderToken) return
-    listEl.replaceChildren()
-    const visible = visibleRenderMessages(messages, messageMatchesSearch)
-    let index = 0
-    const renderChunk = (): void => {
-      if (!listEl || token !== rerenderToken) return
-      const end = Math.min(index + CUSTOM_CHAT_MAX_RENDER_BATCH, visible.length)
-      for (; index < end; index++) renderMessage(visible[index], false, false, false)
-      if (index < visible.length) {
-        rerenderFrame = window.requestAnimationFrame(renderChunk)
-        return
-      }
-      rerenderFrame = null
-      updateMatchCount()
-      updatePerfDebug()
-      if (!paused) scrollToBottom()
-    }
-    renderChunk()
+    refreshVisibleMessages()
+    renderVirtualWindow()
+    updateMatchCount()
+    updatePerfDebug()
+    updateEmptyState()
+    if (!paused) scrollToBottom()
   })
 }
 
@@ -1468,26 +1739,33 @@ function flushRenderQueue(): void {
   lastBatchSize = batch.length
   const shouldStickToBottom = !paused && isNearBottom()
   const animate = shouldAnimateRenderBatch(batch.length)
-  let appended = 0
+  const animateKeys = new Set<string>()
+  let matched = 0
   for (const event of batch) {
     if (!messageKeys.has(messageKey(event))) continue
-    if (renderMessage(event, animate, false, false)) appended++
+    if (!messageMatchesSearch(event)) continue
+    matched++
+    if (animate) animateKeys.add(messageKey(event))
   }
+  refreshVisibleMessages()
+  renderVirtualWindow(animateKeys)
   if (renderQueue.length > 0) renderFrame = window.requestAnimationFrame(flushRenderQueue)
-  if (appended === 0) {
+  if (matched === 0) {
     updateMatchCount()
     updatePerfDebug()
+    updateEmptyState()
     return
   }
   pruneMessages()
   if (!shouldStickToBottom) {
-    unread += appended
+    unread += matched
     updateUnread()
   } else {
     scrollToBottom()
   }
   updateMatchCount()
   updatePerfDebug()
+  updateEmptyState()
 }
 
 function scheduleRender(event: CustomChatEvent): void {
@@ -1610,7 +1888,7 @@ function createRoot(): HTMLElement {
     paused = !paused
     if (!paused) {
       unread = 0
-      scrollToBottom()
+      scrollToBottom('smooth')
     }
     updateUnread()
   })
@@ -1622,7 +1900,7 @@ function createRoot(): HTMLElement {
   matchCountEl.style.display = 'none'
   wsStatusEl = document.createElement('span')
   wsStatusEl.className = 'lc-chat-ws-status'
-  updateWsStatus('off')
+  updateWsStatus(currentWsStatus)
   perfEl = document.createElement('div')
   perfEl.className = 'lc-chat-perf'
   updatePerfDebug()
@@ -1690,10 +1968,22 @@ function createRoot(): HTMLElement {
 
   listEl = document.createElement('div')
   listEl.className = 'lc-chat-list'
+  listEl.tabIndex = 0
+  listEl.setAttribute('aria-label', '直播聊天消息')
+  virtualTopSpacer = document.createElement('div')
+  virtualTopSpacer.className = 'lc-chat-virtual-spacer'
+  virtualItemsEl = document.createElement('div')
+  virtualItemsEl.className = 'lc-chat-virtual-items'
+  virtualBottomSpacer = document.createElement('div')
+  virtualBottomSpacer.className = 'lc-chat-virtual-spacer'
+  emptyEl = document.createElement('div')
+  emptyEl.className = 'lc-chat-empty'
+  listEl.append(virtualTopSpacer, virtualItemsEl, virtualBottomSpacer)
   addRootEventListener(
     listEl,
     'scroll',
     () => {
+      renderVirtualWindow()
       if (isNearBottom() && unread > 0) {
         unread = 0
         updateUnread()
@@ -1701,6 +1991,21 @@ function createRoot(): HTMLElement {
     },
     { passive: true }
   )
+  addRootEventListener(listEl, 'keydown', e => {
+    if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) return
+    if (visibleMessages.length === 0) return
+    e.preventDefault()
+    const active =
+      document.activeElement instanceof HTMLElement ? document.activeElement.closest('.lc-chat-message') : null
+    const index = active instanceof HTMLElement ? Number(active.dataset.virtualIndex) : -1
+    const nextIndex =
+      e.key === 'Home'
+        ? 0
+        : e.key === 'End'
+          ? visibleMessages.length - 1
+          : Math.max(0, Math.min(visibleMessages.length - 1, index + (e.key === 'ArrowUp' ? -1 : 1)))
+    scrollToVirtualIndex(nextIndex)
+  })
 
   const composer = document.createElement('div')
   composer.className = 'lc-chat-composer'
@@ -1739,6 +2044,7 @@ function createRoot(): HTMLElement {
   composer.append(inputWrap, sendRow)
   panel.append(toolbar, menu, debugEl, listEl, composer)
   updateUnread()
+  updateEmptyState()
   return panel
 }
 
@@ -1776,6 +2082,9 @@ function mount(container: HTMLElement): void {
 function observeNativeEvents(container: HTMLElement): void {
   nativeEventObserver?.disconnect()
   pendingNativeNodes.clear()
+  nativeHealthSamples.length = 0
+  nativeDomWarning = false
+  updateWsStatus(currentWsStatus)
   if (nativeScanFrame !== null) {
     window.cancelAnimationFrame(nativeScanFrame)
     nativeScanFrame = null
@@ -1789,13 +2098,17 @@ function observeNativeEvents(container: HTMLElement): void {
     if (seenNativeNodes.has(node)) return
     seenNativeNodes.add(node)
     const event = parseNativeEvent(node)
+    let parsed = false
     if (event) emitCustomChatEvent(event)
+    if (event) parsed = true
     for (const child of node.querySelectorAll<HTMLElement>(NATIVE_EVENT_SELECTOR)) {
       if (seenNativeNodes.has(child) || child.classList.contains('danmaku-item')) continue
       seenNativeNodes.add(child)
       const childEvent = parseNativeEvent(child)
       if (childEvent) emitCustomChatEvent(childEvent)
+      if (childEvent) parsed = true
     }
+    recordNativeHealth(parsed)
   }
   const flushScan = (): void => {
     nativeScanFrame = null
@@ -1852,6 +2165,7 @@ function addEvent(event: CustomChatEvent): void {
   const key = messageKey(event)
   if (messageKeys.has(key)) return
   if (!rememberEvent(event)) return
+  hasClearedMessages = false
   recordEventStats(event)
   messages.push(event)
   messageKeys.add(key)
@@ -1921,6 +2235,9 @@ export function stopCustomChatDom(): void {
   userStyleEl?.remove()
   userStyleEl = null
   listEl = null
+  virtualTopSpacer = null
+  virtualItemsEl = null
+  virtualBottomSpacer = null
   pauseBtn = null
   unreadEl = null
   textarea = null
@@ -1928,12 +2245,16 @@ export function stopCustomChatDom(): void {
   searchInput = null
   matchCountEl = null
   wsStatusEl = null
+  emptyEl = null
   perfEl = null
   debugEl = null
   messages.length = 0
   messageKeys.clear()
   renderQueue.length = 0
+  visibleMessages = []
+  rowHeights.clear()
   eventTicks.length = 0
+  nativeHealthSamples.length = 0
   rerenderToken++
   sourceCounts.dom = 0
   sourceCounts.ws = 0
@@ -1951,5 +2272,8 @@ export function stopCustomChatDom(): void {
   paused = false
   sending = false
   searchQuery = ''
+  hasClearedMessages = false
+  currentWsStatus = 'off'
+  nativeDomWarning = false
   recentEventKeys.clear()
 }

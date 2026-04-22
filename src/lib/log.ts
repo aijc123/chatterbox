@@ -11,6 +11,38 @@ export const maxLogLines = gmSignal('maxLogLines', 1000)
 /** Rolling log buffer surfaced by the LogPanel. */
 export const logLines = signal<string[]>([])
 
+export interface UserNotice {
+  id: number
+  tone: 'warning' | 'error'
+  message: string
+}
+
+/** Latest user-facing warning/error surfaced outside the collapsed log panel. */
+export const userNotice = signal<UserNotice | null>(null)
+
+let noticeTimer: ReturnType<typeof setTimeout> | null = null
+
+function showUserNotice(message: string, tone: UserNotice['tone']): void {
+  userNotice.value = {
+    id: Date.now(),
+    tone,
+    message,
+  }
+  if (noticeTimer) clearTimeout(noticeTimer)
+  noticeTimer = setTimeout(() => {
+    userNotice.value = null
+    noticeTimer = null
+  }, 5000)
+}
+
+function maybeSurfaceLogMessage(message: string): void {
+  if (/^(❌|🔴)/.test(message) || /失败|出错|错误|没发出去|未找到登录信息/.test(message)) {
+    showUserNotice(message, 'error')
+  } else if (/^⚠️/.test(message)) {
+    showUserNotice(message, 'warning')
+  }
+}
+
 /**
  * Appends an entry to the shared log.
  *
@@ -37,4 +69,10 @@ export function appendLog(arg: string | SendDanmakuResult, label?: string, displ
   const lines = logLines.value
   const next = lines.length >= max ? [...lines.slice(lines.length - max + 1), message] : [...lines, message]
   logLines.value = next
+
+  if (typeof arg === 'string') {
+    maybeSurfaceLogMessage(arg)
+  } else if (!arg.success && !arg.cancelled) {
+    showUserNotice(`${label}: ${display}，原因：${formatDanmakuError(arg.error)}`, 'error')
+  }
 }

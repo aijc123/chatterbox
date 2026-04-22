@@ -36,11 +36,11 @@ export function SttTab() {
   const flushTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isFlushing = useRef(false)
 
-  const resetState = () => {
+  const resetState = (nextStatusText = '未启动', nextStatusColor = '#666') => {
     state.value = 'stopped'
     sttRunning.value = false
-    statusText.value = '未启动'
-    statusColor.value = '#666'
+    statusText.value = nextStatusText
+    statusColor.value = nextStatusColor
     clientRef.current = null
     sendBuffer.current = ''
     isFlushing.current = false
@@ -204,9 +204,7 @@ export function SttTab() {
           onError: (_status, message) => {
             console.error('Soniox error:', message)
             appendLog(`🔴 Soniox 错误：${message}`)
-            statusText.value = `错误: ${message}`
-            statusColor.value = '#f44'
-            if (state.value !== 'stopping' && state.value !== 'stopped') resetState()
+            if (state.value !== 'stopping' && state.value !== 'stopped') resetState(`错误: ${message}`, '#f44')
           },
         }
         if (translationEnabled) {
@@ -218,16 +216,14 @@ export function SttTab() {
         const message = err instanceof Error ? err.message : String(err)
         if (err instanceof Error && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')) {
           appendLog('❌ 麦克风权限被拒绝，请在浏览器设置中允许使用麦克风')
-          statusText.value = '麦克风权限被拒绝'
+          resetState('麦克风权限被拒绝，请允许浏览器使用麦克风', '#f44')
         } else if (err instanceof Error && err.name === 'NotFoundError') {
           appendLog('❌ 未找到麦克风设备')
-          statusText.value = '未找到麦克风'
+          resetState('未找到麦克风设备', '#f44')
         } else {
           appendLog(`🔴 启动同传失败：${message}`)
-          statusText.value = `启动失败: ${message}`
+          resetState(`启动失败: ${message}`, '#f44')
         }
-        statusColor.value = '#f44'
-        resetState()
       }
     } else if (state.value === 'running') {
       state.value = 'stopping'
@@ -287,12 +283,20 @@ export function SttTab() {
             {apiKeyVisible.value ? '隐藏' : '显示'}
           </button>
         </div>
-        <div className='cb-note' style={{ marginBlock: '.5em', color: '#666', fontSize: '0.9em' }}>
-          前往{' '}
-          <a href='https://soniox.com/' target='_blank' style={{ color: '#288bb8' }} rel='noopener'>
-            Soniox
-          </a>{' '}
-          注册账号并获取 API Key
+        <div
+          className='cb-row'
+          style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.25em' }}
+        >
+          <a
+            href='https://soniox.com/'
+            target='_blank'
+            className='cb-primary'
+            style={{ display: 'inline-flex', alignItems: 'center', minHeight: '26px', padding: '3px 9px' }}
+            rel='noopener'
+          >
+            获取 Soniox API Key
+          </a>
+          <span className='cb-note'>注册后把 API Key 粘贴到上方。</span>
         </div>
       </div>
 

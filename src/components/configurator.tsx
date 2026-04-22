@@ -23,7 +23,8 @@ export function Configurator() {
         display: visible ? 'block' : 'none',
         maxHeight: '50vh',
         overflowY: 'auto',
-        width: '320px',
+        width: '360px',
+        maxWidth: 'calc(100vw - 16px)',
       }}
     >
       <Tabs />

@@ -65,6 +65,14 @@ function modeButtonStyle(active: boolean) {
   }
 }
 
+function SettingHint({ children }: { children: string }) {
+  return (
+    <div className='cb-note' style={{ marginTop: '-.25em' }}>
+      {children}
+    </div>
+  )
+}
+
 export function AutoBlendControls() {
   const isOn = autoBlendEnabled.value
   const currentPreset = autoBlendPreset.value
@@ -187,6 +195,7 @@ export function AutoBlendControls() {
             />
             <span>条</span>
           </div>
+          <SettingHint>在指定秒数内，同一句弹幕达到条数才触发；阈值越低越积极。</SettingHint>
 
           <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '.25em' }}>
             <span>节奏：</span>
@@ -212,6 +221,7 @@ export function AutoBlendControls() {
             />
             <span>秒</span>
           </div>
+          <SettingHint>冷却是每次发送后的停顿；补跟是没有突发时重新检查热门弹幕的间隔。</SettingHint>
 
           <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '.25em' }}>
             <span>突发等待</span>
@@ -227,6 +237,7 @@ export function AutoBlendControls() {
             />
             <span>毫秒</span>
           </div>
+          <SettingHint>检测到刷屏后先等一小会儿，把同一波里的其它高频弹幕一起纳入判断。</SettingHint>
 
           <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '.25em' }}>
             <span>限频保护：</span>
@@ -253,6 +264,7 @@ export function AutoBlendControls() {
             />
             <span>次后停车</span>
           </div>
+          <SettingHint>限制连续失败或风控信号；超过次数会自动停止跟车，避免继续刷失败。</SettingHint>
 
           <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '.25em' }}>
             <span>每次发：</span>
@@ -268,6 +280,7 @@ export function AutoBlendControls() {
             />
             <span>遍</span>
           </div>
+          <SettingHint>同一句被选中后重复发送的次数；建议配合发送间隔和冷却一起调。</SettingHint>
         </div>
 
         <div style={{ margin: '.5em 0', display: 'grid', gap: '.35em' }}>
