@@ -34,7 +34,7 @@ async function fetchRemoteKeywords(): Promise<RemoteKeywords> {
 }
 
 export function SettingsTab() {
-  const syncStatus = useSignal('还没下载')
+  const syncStatus = useSignal('未同步')
   const syncStatusColor = useSignal('#666')
   const syncing = useSignal(false)
   const testingRemote = useSignal(false)
@@ -52,7 +52,7 @@ export function SettingsTab() {
     const rk = remoteKeywords.value
     const ls = remoteKeywordsLastSync.value
     if (!rk || !ls) {
-      syncStatus.value = '还没下载'
+      syncStatus.value = '未同步'
       syncStatusColor.value = '#666'
       return
     }
@@ -69,13 +69,13 @@ export function SettingsTab() {
       hour: '2-digit',
       minute: '2-digit',
     })
-    syncStatus.value = `${timeStr} 已更新，当前可用 ${globalCount + roomCount} 条替换`
+    syncStatus.value = `最后同步: ${timeStr}，当前房间共 ${globalCount + roomCount} 条规则（全局 ${globalCount} + 当前房间 ${roomCount}）`
     syncStatusColor.value = '#36a185'
   }
 
   const syncRemote = async () => {
     syncing.value = true
-    syncStatus.value = '正在下载…'
+    syncStatus.value = '正在同步…'
     syncStatusColor.value = '#666'
     try {
       const data = await fetchRemoteKeywords()
@@ -85,7 +85,7 @@ export function SettingsTab() {
       updateRemoteStatus()
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      syncStatus.value = `下载失败: ${msg}`
+      syncStatus.value = `同步失败: ${msg}`
       syncStatusColor.value = '#f44'
       appendLog(`❌ 云端替换规则同步失败: ${msg}`)
     } finally {
@@ -141,7 +141,12 @@ export function SettingsTab() {
   }
 
   const testRemote = async () => {
-    if (!confirm('会在当前直播间试发这些替换词。直播中不建议测试，可能打扰主播。继续吗？')) return
+    if (
+      !confirm(
+        '即将测试当前直播间的云端替换词，请避免在当前直播间正在直播时进行测试，否则可能会给主播造成困扰，是否继续？'
+      )
+    )
+      return
     testingRemote.value = true
     try {
       const roomId = await ensureRoomId()
@@ -163,15 +168,15 @@ export function SettingsTab() {
           : []
       const total = globalKw.length + roomKw.length
       if (total === 0) {
-        appendLog('⚠️ 还没有下载大家维护的替换词，请先点“立即更新”')
+        appendLog('⚠️ 没有云端替换词可供测试，请先同步云端规则')
         return
       }
-      appendLog(`🔵 开始试发大家维护的替换词，共 ${total} 个`)
+      appendLog(`🔵 开始测试云端替换词 ${total} 个（全局 ${globalKw.length} + 房间 ${roomKw.length}）`)
       let tested = 0
       let totalBlocked = 0
 
       if (globalKw.length > 0) {
-        appendLog(`\n📡 试发通用替换词 (${globalKw.length} 个)`)
+        appendLog(`\n📡 测试云端全局替换词 (${globalKw.length} 个)`)
         let blockedCount = 0
         for (const { from, to } of globalKw) {
           tested++
@@ -182,11 +187,11 @@ export function SettingsTab() {
           totalBlocked += b
           if (tested < total) await new Promise(r => setTimeout(r, 2000))
         }
-        appendLog(`📡 通用替换词试完了：${blockedCount}/${globalKw.length} 个原话会被吞`)
+        appendLog(`📡 全局替换词测试完成：${blockedCount}/${globalKw.length} 个原词被屏蔽`)
       }
 
       if (roomKw.length > 0) {
-        appendLog(`\n🏠 试发当前房间专用替换词 (${roomKw.length} 个)`)
+        appendLog(`\n🏠 测试云端房间专属替换词 (${roomKw.length} 个)`)
         let blockedCount = 0
         for (const { from, to } of roomKw) {
           tested++
@@ -197,10 +202,10 @@ export function SettingsTab() {
           totalBlocked += b
           if (tested < total) await new Promise(r => setTimeout(r, 2000))
         }
-        appendLog(`🏠 当前房间专用替换词试完了：${blockedCount}/${roomKw.length} 个原话会被吞`)
+        appendLog(`🏠 房间专属替换词测试完成：${blockedCount}/${roomKw.length} 个原词被屏蔽`)
       }
 
-      appendLog(`\n🔵 试发完成！共试了 ${total} 个词，其中 ${totalBlocked} 个原话会被吞`)
+      appendLog(`\n🔵 云端测试完成！共测试 ${total} 个词，其中 ${totalBlocked} 个原词被屏蔽`)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       appendLog(`🔴 测试出错：${msg}`)
@@ -210,7 +215,8 @@ export function SettingsTab() {
   }
 
   const testLocal = async () => {
-    if (!confirm('会在当前直播间试发你自己加的替换词。直播中不建议测试，可能打扰主播。继续吗？')) return
+    if (!confirm('即将测试本地替换词，请避免在当前直播间正在直播时进行测试，否则可能会给主播造成困扰，是否继续？'))
+      return
     testingLocal.value = true
     try {
       const roomId = await ensureRoomId()
@@ -224,15 +230,15 @@ export function SettingsTab() {
       const roomRules = rid !== null ? (localRoomRules.value[String(rid)] ?? []).filter(r => r.from) : []
       const total = globalRules.length + roomRules.length
       if (total === 0) {
-        appendLog('⚠️ 你还没有自己加替换词，先在设置页加一组')
+        appendLog('⚠️ 没有本地替换词可供测试，请先添加本地替换规则')
         return
       }
-      appendLog(`🔵 开始试发你自己加的替换词，共 ${total} 个`)
+      appendLog(`🔵 开始测试本地替换词 ${total} 个（全局 ${globalRules.length} + 当前房间 ${roomRules.length}）`)
       let tested = 0
       let totalBlocked = 0
 
       if (globalRules.length > 0) {
-        appendLog(`\n📋 试发通用替换词 (${globalRules.length} 个)`)
+        appendLog(`\n📋 测试本地全局替换词 (${globalRules.length} 个)`)
         let blockedCount = 0
         for (const rule of globalRules) {
           tested++
@@ -243,11 +249,11 @@ export function SettingsTab() {
           totalBlocked += b
           if (tested < total) await new Promise(r => setTimeout(r, 2000))
         }
-        appendLog(`📋 通用替换词试完了：${blockedCount}/${globalRules.length} 个原话会被吞`)
+        appendLog(`📋 本地全局替换词测试完成：${blockedCount}/${globalRules.length} 个原词被屏蔽`)
       }
 
       if (roomRules.length > 0) {
-        appendLog(`\n🏠 试发当前房间替换词 (${roomRules.length} 个)`)
+        appendLog(`\n🏠 测试本地房间替换词 (${roomRules.length} 个)`)
         let blockedCount = 0
         for (const rule of roomRules) {
           tested++
@@ -258,10 +264,10 @@ export function SettingsTab() {
           totalBlocked += b
           if (tested < total) await new Promise(r => setTimeout(r, 2000))
         }
-        appendLog(`🏠 当前房间替换词试完了：${blockedCount}/${roomRules.length} 个原话会被吞`)
+        appendLog(`🏠 本地房间替换词测试完成：${blockedCount}/${roomRules.length} 个原词被屏蔽`)
       }
 
-      appendLog(`\n🔵 试发完成！共试了 ${total} 个词，其中 ${totalBlocked} 个原话会被吞`)
+      appendLog(`\n🔵 本地测试完成！共测试 ${total} 个词，其中 ${totalBlocked} 个原词被屏蔽`)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       appendLog(`🔴 测试出错：${msg}`)
@@ -272,7 +278,7 @@ export function SettingsTab() {
 
   const addGlobalRule = () => {
     if (!globalReplaceFrom.value) {
-      appendLog('⚠️ “原话”不能为空')
+      appendLog('⚠️ 替换前的内容不能为空')
       return
     }
     localGlobalRules.value = [...localGlobalRules.value, { from: globalReplaceFrom.value, to: globalReplaceTo.value }]
@@ -291,11 +297,11 @@ export function SettingsTab() {
   const addRoomRule = () => {
     const rid = editingRoomId.value
     if (!rid) {
-      appendLog('⚠️ 先选一个直播间')
+      appendLog('⚠️ 请先选择一个直播间')
       return
     }
     if (!roomReplaceFrom.value) {
-      appendLog('⚠️ “原话”不能为空')
+      appendLog('⚠️ 替换前的内容不能为空')
       return
     }
     const all = { ...localRoomRules.value }
@@ -387,28 +393,28 @@ export function SettingsTab() {
         style={{ margin: '.5em 0', paddingBottom: '1em', borderBottom: '1px solid var(--Ga2, #eee)' }}
       >
         <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.5em' }}>
-          大家一起维护的替换词{' '}
+          云端规则替换{' '}
           <a
             href='https://github.com/laplace-live/public/blob/master/artifacts/livesrtream-keywords.json'
             target='_blank'
             style={{ color: '#288bb8', textDecoration: 'none' }}
             rel='noopener'
           >
-            我也来补词
+            我要贡献规则
           </a>
         </div>
         <div className='cb-note' style={{ marginBlock: '.5em', color: '#666' }}>
-          自动下载大家整理好的替换词，遇到容易被吞的弹幕会先换个说法。
+          每10分钟会自动同步云端替换规则
         </div>
         <div
           className='cb-row'
           style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.5em' }}
         >
           <button type='button' disabled={syncing.value} onClick={() => void syncRemote()}>
-            {syncing.value ? '下载中…' : '立即更新'}
+            {syncing.value ? '同步中…' : '同步'}
           </button>
           <button type='button' disabled={testingRemote.value} onClick={() => void testRemote()}>
-            {testingRemote.value ? '试发中…' : '试试这些词能不能发'}
+            {testingRemote.value ? '测试中…' : '测试云端词库'}
           </button>
           <span style={{ color: syncStatusColor.value }}>{syncStatus.value}</span>
         </div>
@@ -423,19 +429,19 @@ export function SettingsTab() {
           style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.5em' }}
         >
           <div className='cb-heading' style={{ fontWeight: 'bold' }}>
-            自己加的通用替换
+            本地全局规则
           </div>
           <button type='button' disabled={testingLocal.value} onClick={() => void testLocal()}>
-            {testingLocal.value ? '试发中…' : '试试自己加的词'}
+            {testingLocal.value ? '测试中…' : '测试本地词库'}
           </button>
         </div>
         <div className='cb-note' style={{ marginBlock: '.5em', color: '#666' }}>
-          这里加的词，每个直播间都会用。你自己加的会优先于大家维护的。
+          适用于所有直播间，优先级高于云端规则
         </div>
         <div style={{ marginBottom: '.5em', maxHeight: '160px', overflowY: 'auto' }}>
           {globalRules.length === 0 ? (
             <div className='cb-empty' style={{ color: '#999' }}>
-              还没有自己加的通用替换。下面填一组就行。
+              暂无全局替换规则，请在下方添加
             </div>
           ) : (
             globalRules.map((rule, i) => (
@@ -471,7 +477,7 @@ export function SettingsTab() {
         </div>
         <div className='cb-row' style={{ display: 'flex', gap: '.25em', alignItems: 'center', flexWrap: 'wrap' }}>
           <input
-            placeholder='原话'
+            placeholder='替换前'
             style={{ flex: 1, minWidth: '80px' }}
             value={globalReplaceFrom.value}
             onInput={e => {
@@ -486,7 +492,7 @@ export function SettingsTab() {
           />
           <span>→</span>
           <input
-            placeholder='换成'
+            placeholder='替换后'
             style={{ flex: 1, minWidth: '80px' }}
             value={globalReplaceTo.value}
             onInput={e => {
@@ -500,7 +506,7 @@ export function SettingsTab() {
             }}
           />
           <button type='button' onClick={addGlobalRule}>
-            加上
+            添加
           </button>
         </div>
       </div>
@@ -510,10 +516,10 @@ export function SettingsTab() {
         style={{ margin: '.5em 0', paddingBottom: '1em', borderBottom: '1px solid var(--Ga2, #eee)' }}
       >
         <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.5em' }}>
-          只给某个直播间用
+          本地直播间规则
         </div>
         <div className='cb-note' style={{ marginBlock: '.5em', color: '#666' }}>
-          有些房间规矩不一样，可以只给这个房间单独加替换。
+          仅在对应直播间生效；优先级高于全局规则
         </div>
         <div
           className='cb-row'
@@ -527,7 +533,7 @@ export function SettingsTab() {
             style={{ minWidth: '120px' }}
           >
             <option value='' disabled>
-              选一个直播间
+              选择直播间
             </option>
             {knownRoomIds.map(rid => (
               <option key={rid} value={rid}>
@@ -552,12 +558,12 @@ export function SettingsTab() {
               }}
             />
             <button type='button' onClick={addRoom}>
-              加房间
+              添加房间
             </button>
           </div>
           {editingRoomId.value && editingRoomId.value !== currentRoomStr && (
             <button type='button' onClick={() => deleteRoom(editingRoomId.value)} style={{ color: 'red' }}>
-              删这个房间
+              删除此房间
             </button>
           )}
         </div>
@@ -567,7 +573,7 @@ export function SettingsTab() {
             <div style={{ marginBottom: '.5em', maxHeight: '160px', overflowY: 'auto' }}>
               {editingRules.length === 0 ? (
                 <div className='cb-empty' style={{ color: '#999' }}>
-                  这个房间还没单独加词。下面填一组就行。
+                  暂无此房间的替换规则，请在下方添加
                 </div>
               ) : (
                 editingRules.map((rule, i) => (
@@ -603,7 +609,7 @@ export function SettingsTab() {
             </div>
             <div className='cb-row' style={{ display: 'flex', gap: '.25em', alignItems: 'center', flexWrap: 'wrap' }}>
               <input
-                placeholder='原话'
+                placeholder='替换前'
                 style={{ flex: 1, minWidth: '80px' }}
                 value={roomReplaceFrom.value}
                 onInput={e => {
@@ -618,7 +624,7 @@ export function SettingsTab() {
               />
               <span>→</span>
               <input
-                placeholder='换成'
+                placeholder='替换后'
                 style={{ flex: 1, minWidth: '80px' }}
                 value={roomReplaceTo.value}
                 onInput={e => {
@@ -632,13 +638,13 @@ export function SettingsTab() {
                 }}
               />
               <button type='button' onClick={addRoomRule}>
-                加上
+                添加
               </button>
             </div>
           </>
         ) : (
           <div className='cb-empty' style={{ color: '#999' }}>
-            先选一个直播间，或者输入房间号新增。
+            请选择或添加一个直播间
           </div>
         )}
       </div>
@@ -648,7 +654,7 @@ export function SettingsTab() {
         style={{ margin: '.5em 0', paddingBottom: '1em', borderBottom: '1px solid var(--Ga2, #eee)' }}
       >
         <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.5em' }}>
-          表情快捷复制
+          表情（复制后可在独轮车或常规发送中直接发送）
         </div>
         <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
           <EmoteIds />
@@ -660,7 +666,7 @@ export function SettingsTab() {
         style={{ margin: '.5em 0', paddingBottom: '1em', borderBottom: '1px solid var(--Ga2, #eee)' }}
       >
         <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.5em' }}>
-          顺手设置
+          其他设置
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '.5em' }}>
           <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
@@ -672,7 +678,7 @@ export function SettingsTab() {
                 danmakuDirectMode.value = e.currentTarget.checked
               }}
             />
-            <label htmlFor='danmakuDirectMode'>在别人弹幕后面放“偷”和“+1”按钮</label>
+            <label htmlFor='danmakuDirectMode'>+1模式（在聊天消息旁显示偷弹幕和+1按钮）</label>
           </span>
           <span
             className='cb-switch-row'
@@ -688,7 +694,7 @@ export function SettingsTab() {
               }}
             />
             <label htmlFor='danmakuDirectConfirm' style={{ color: danmakuDirectMode.value ? undefined : '#999' }}>
-              点“+1”前先问一下，防止手滑
+              +1弹幕发送前需确认（防误触）
             </label>
           </span>
           <span
@@ -705,7 +711,7 @@ export function SettingsTab() {
               }}
             />
             <label htmlFor='danmakuDirectAlwaysShow' style={{ color: danmakuDirectMode.value ? undefined : '#999' }}>
-              每条弹幕旁边都显示这两个按钮
+              总是显示偷/+1按钮
             </label>
           </span>
           <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
@@ -717,7 +723,7 @@ export function SettingsTab() {
                 forceScrollDanmaku.value = e.currentTarget.checked
               }}
             />
-            <label htmlFor='forceScrollDanmaku'>打开插件时，自动把弹幕调成滚动弹幕</label>
+            <label htmlFor='forceScrollDanmaku'>脚本载入时强制配置弹幕位置为滚动方向</label>
           </span>
           <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
             <input
@@ -728,7 +734,7 @@ export function SettingsTab() {
                 unlockForbidLive.value = e.currentTarget.checked
               }}
             />
-            <label htmlFor='unlockForbidLive'>被拉黑的直播间也尽量显示页面（刷新后生效）</label>
+            <label htmlFor='unlockForbidLive'>拉黑直播间解锁（刷新生效，仅布局解锁）</label>
           </span>
           <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
             <input
@@ -739,18 +745,18 @@ export function SettingsTab() {
                 optimizeLayout.value = e.currentTarget.checked
               }}
             />
-            <label htmlFor='optimizeLayout'>让插件面板更适合长时间挂着</label>
+            <label htmlFor='optimizeLayout'>优化布局</label>
           </span>
         </div>
       </div>
 
       <div className='cb-section cb-stack' style={{ margin: '.5em 0', paddingBottom: '1em' }}>
         <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.5em' }}>
-          日志保留多少
+          日志设置
         </div>
         <div className='cb-row' style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap' }}>
           <label htmlFor='maxLogLines' style={{ color: '#666' }}>
-            最多保留
+            最大日志行数:
           </label>
           <input
             id='maxLogLines'
@@ -766,7 +772,7 @@ export function SettingsTab() {
               maxLogLines.value = v
             }}
           />
-          <span style={{ color: '#999', fontSize: '0.9em' }}>行，太多会占地方</span>
+          <span style={{ color: '#999', fontSize: '0.9em' }}>(1-1000)</span>
         </div>
       </div>
     </>
