@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.8.0
+// @version      2.8.1
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、粉丝牌禁言巡检、常规发送、同传、烂梗库和弹幕替换规则。
 // @license      AGPL-3.0
@@ -5102,6 +5102,7 @@ ws;
 #${ROOT_ID} {
   height: 100%;
   min-height: 340px;
+  flex: 1 1 auto;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   color: #f2f4f8;
@@ -5413,13 +5414,14 @@ ws;
 #${ROOT_ID} .lc-chat-ws-status[data-status="error"] {
   color: #ff7a59;
 }
-html.lc-custom-chat-hide-native .chat-history-panel,
-html.lc-custom-chat-hide-native .chat-history-list,
 html.lc-custom-chat-hide-native .chat-items,
 html.lc-custom-chat-hide-native .chat-control-panel,
 html.lc-custom-chat-hide-native .chat-input-panel,
 html.lc-custom-chat-hide-native .control-panel-ctnr,
 html.lc-custom-chat-hide-native .chat-input-ctnr {
+  display: none !important;
+}
+html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${ROOT_ID}) {
   display: none !important;
 }
 `;
@@ -5547,10 +5549,12 @@ html.lc-custom-chat-hide-native .chat-input-ctnr {
     listEl.scrollTop = listEl.scrollHeight;
   }
   function pruneMessages() {
+    let removed = false;
     while (messages.length > MAX_MESSAGES) {
       messages.shift();
+      removed = true;
     }
-    rerenderMessages();
+    if (removed) rerenderMessages();
   }
   function renderMessage(message, countUnread = true) {
     if (!listEl) return;
@@ -5768,11 +5772,11 @@ html.lc-custom-chat-hide-native .chat-input-ctnr {
   function mount$1(container) {
     ensureStyles();
     root?.remove();
-    const parent = container.parentElement;
-    if (!parent) return;
+    const host = container.closest(".chat-history-panel") ?? container.parentElement;
+    if (!host) return;
     root = createRoot();
     root.dataset.theme = customChatTheme.value;
-    parent.insertBefore(root, container);
+    host.appendChild(root);
     rerenderMessages();
   }
   function addDomMessage(ev) {

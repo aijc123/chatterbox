@@ -39,6 +39,7 @@ const STYLE = `
 #${ROOT_ID} {
   height: 100%;
   min-height: 340px;
+  flex: 1 1 auto;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   color: #f2f4f8;
@@ -350,13 +351,14 @@ const STYLE = `
 #${ROOT_ID} .lc-chat-ws-status[data-status="error"] {
   color: #ff7a59;
 }
-html.lc-custom-chat-hide-native .chat-history-panel,
-html.lc-custom-chat-hide-native .chat-history-list,
 html.lc-custom-chat-hide-native .chat-items,
 html.lc-custom-chat-hide-native .chat-control-panel,
 html.lc-custom-chat-hide-native .chat-input-panel,
 html.lc-custom-chat-hide-native .control-panel-ctnr,
 html.lc-custom-chat-hide-native .chat-input-ctnr {
+  display: none !important;
+}
+html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${ROOT_ID}) {
   display: none !important;
 }
 `
@@ -501,10 +503,12 @@ function scrollToBottom(): void {
 }
 
 function pruneMessages(): void {
+  let removed = false
   while (messages.length > MAX_MESSAGES) {
     messages.shift()
+    removed = true
   }
-  rerenderMessages()
+  if (removed) rerenderMessages()
 }
 
 function renderMessage(message: CustomChatEvent, countUnread = true): void {
@@ -756,11 +760,11 @@ function ensureStyles(): void {
 function mount(container: HTMLElement): void {
   ensureStyles()
   root?.remove()
-  const parent = container.parentElement
-  if (!parent) return
+  const host = container.closest<HTMLElement>('.chat-history-panel') ?? container.parentElement
+  if (!host) return
   root = createRoot()
   root.dataset.theme = customChatTheme.value
-  parent.insertBefore(root, container)
+  host.appendChild(root)
   rerenderMessages()
 }
 

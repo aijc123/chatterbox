@@ -1,5 +1,10 @@
 # Greasy Fork Release Notes
 
+## 2.8.1
+
+- 修复自定义评论区空白：不再隐藏承载自定义 Chat 的 `.chat-history-panel` 父容器。
+- 修复消息裁剪导致的重复重绘风险，避免评论区渲染后卡住或显示不出来。
+
 ## 2.8.0
 
 - Chatterbox Chat 强化右侧评论区接管布局，补充更多原生评论容器隐藏选择器。
