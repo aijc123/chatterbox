@@ -1,7 +1,14 @@
 import { useSignal } from '@preact/signals'
 import { useEffect, useRef } from 'preact/hooks'
 
-import { ensureRoomId, getCsrfToken, sendDanmaku } from '../lib/api'
+import {
+  checkMedalRoomRestriction,
+  ensureRoomId,
+  fetchMedalRooms,
+  getCsrfToken,
+  type MedalRestrictionCheck,
+  sendDanmaku,
+} from '../lib/api'
 import { BASE_URL } from '../lib/const'
 import { appendLog, maxLogLines } from '../lib/log'
 import { buildReplacementMap } from '../lib/replacement'
@@ -39,6 +46,9 @@ export function SettingsTab() {
   const syncing = useSignal(false)
   const testingRemote = useSignal(false)
   const testingLocal = useSignal(false)
+  const checkingMedalRooms = useSignal(false)
+  const medalCheckStatus = useSignal('未检查')
+  const medalCheckResults = useSignal<MedalRestrictionCheck[]>([])
 
   const globalReplaceFrom = useSignal('')
   const globalReplaceTo = useSignal('')
@@ -273,6 +283,57 @@ export function SettingsTab() {
       appendLog(`🔴 测试出错：${msg}`)
     } finally {
       testingLocal.value = false
+    }
+  }
+
+  const checkMedalRooms = async () => {
+    if (
+      !confirm(
+        '即将检查所有粉丝牌对应直播间是否有禁言/封禁信号。检查不会发送弹幕，但会访问 B 站直播间接口。是否继续？'
+      )
+    )
+      return
+    checkingMedalRooms.value = true
+    medalCheckResults.value = []
+    medalCheckStatus.value = '正在获取粉丝牌…'
+    try {
+      const rooms = await fetchMedalRooms()
+      if (rooms.length === 0) {
+        medalCheckStatus.value = '没有找到粉丝牌直播间'
+        appendLog('禁言巡检：没有找到粉丝牌直播间')
+        return
+      }
+
+      appendLog(`禁言巡检：找到 ${rooms.length} 个粉丝牌直播间，开始检查`)
+      const results: MedalRestrictionCheck[] = []
+      for (let i = 0; i < rooms.length; i++) {
+        const room = rooms[i]
+        medalCheckStatus.value = `检查中 ${i + 1}/${rooms.length}：${room.anchorName}（${room.medalName}）`
+        const result = await checkMedalRoomRestriction(room)
+        results.push(result)
+        medalCheckResults.value = [...results]
+        const label = `${room.anchorName} / ${room.medalName} / ${room.roomId}`
+        if (result.status === 'restricted') {
+          const detail = result.signals.map(signal => `${signal.message}，时长：${signal.duration}`).join('；')
+          appendLog(`禁言巡检：发现限制 - ${label}：${detail}`)
+        } else if (result.status === 'unknown') {
+          appendLog(`禁言巡检：无法确认 - ${label}：${result.note ?? '接口未返回明确结果'}`)
+        } else {
+          appendLog(`禁言巡检：正常 - ${label}`)
+        }
+        if (i < rooms.length - 1) await new Promise(r => setTimeout(r, 500))
+      }
+
+      const restricted = results.filter(result => result.status === 'restricted').length
+      const unknown = results.filter(result => result.status === 'unknown').length
+      medalCheckStatus.value = `完成：${rooms.length} 个房间，${restricted} 个发现限制，${unknown} 个无法确认`
+      appendLog(`禁言巡检完成：${rooms.length} 个房间，${restricted} 个发现限制，${unknown} 个无法确认`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      medalCheckStatus.value = `检查失败：${msg}`
+      appendLog(`禁言巡检失败：${msg}`)
+    } finally {
+      checkingMedalRooms.value = false
     }
   }
 
@@ -659,6 +720,63 @@ export function SettingsTab() {
         <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
           <EmoteIds />
         </div>
+      </div>
+
+      <div
+        className='cb-section cb-stack'
+        style={{ margin: '.5em 0', paddingBottom: '1em', borderBottom: '1px solid var(--Ga2, #eee)' }}
+      >
+        <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.5em' }}>
+          粉丝牌禁言巡检
+        </div>
+        <div className='cb-note' style={{ marginBlock: '.5em', color: '#666' }}>
+          一键检查所有粉丝牌直播间。此功能只读取 B 站接口，不会发送弹幕；若接口没有返回时长，会显示“接口未返回时长”。
+        </div>
+        <div
+          className='cb-row'
+          style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.5em' }}
+        >
+          <button type='button' disabled={checkingMedalRooms.value} onClick={() => void checkMedalRooms()}>
+            {checkingMedalRooms.value ? '检查中…' : '检查粉丝牌禁言'}
+          </button>
+          <span style={{ color: medalCheckStatus.value.includes('发现限制') ? '#a15c00' : '#666' }}>
+            {medalCheckStatus.value}
+          </span>
+        </div>
+        {medalCheckResults.value.length > 0 && (
+          <div style={{ maxHeight: '180px', overflowY: 'auto', display: 'grid', gap: '.35em' }}>
+            {medalCheckResults.value.map(result => {
+              const color =
+                result.status === 'restricted' ? '#a15c00' : result.status === 'unknown' ? '#666' : '#0a7f55'
+              const title =
+                result.status === 'restricted' ? '发现限制' : result.status === 'unknown' ? '无法确认' : '未发现限制'
+              return (
+                <div
+                  key={result.room.roomId}
+                  className='cb-panel'
+                  style={{ display: 'grid', gap: '.25em', borderColor: result.status === 'restricted' ? '#f0b35a' : undefined }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '.5em' }}>
+                    <strong style={{ wordBreak: 'break-all' }}>
+                      {result.room.anchorName} / {result.room.medalName}
+                    </strong>
+                    <span style={{ color, whiteSpace: 'nowrap' }}>{title}</span>
+                  </div>
+                  <div className='cb-note'>房间号：{result.room.roomId}</div>
+                  {result.signals.length > 0 ? (
+                    result.signals.map((signal, index) => (
+                      <div key={index} style={{ color, wordBreak: 'break-all', lineHeight: 1.5 }}>
+                        {signal.message}；时长：{signal.duration}；来源：{signal.source}
+                      </div>
+                    ))
+                  ) : (
+                    <div className='cb-note'>{result.note ?? '接口未发现禁言/封禁信号'}</div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       <div

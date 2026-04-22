@@ -27,6 +27,15 @@ export const BASE_URL = {
   /** Get emoticons for a room. GET, params: platform, room_id. */
   BILIBILI_GET_EMOTICONS: 'https://api.live.bilibili.com/xlive/web-ucenter/v2/emoticon/GetEmoticons',
 
+  /** All fan medals for a user. GET, param: target_id. */
+  BILIBILI_MEDAL_WALL: 'https://api.live.bilibili.com/xlive/web-ucenter/user/MedalWall',
+
+  /** Current viewer info in a live room. GET, param: room_id. */
+  BILIBILI_ROOM_USER_INFO: 'https://api.live.bilibili.com/xlive/web-room/v1/index/getInfoByUser',
+
+  /** Room silent list. Usually only available to anchors/admins. */
+  BILIBILI_SILENT_USER_LIST: 'https://api.live.bilibili.com/xlive/web-ucenter/v1/banned/GetSilentUserList',
+
   LAPLACE_CHAT_AUDIT: 'https://edge-workers.laplace.cn/laplace/chat-audit',
 
   REMOTE_KEYWORDS: 'https://workers.vrp.moe/gh-raw/laplace-live/public/master/artifacts/livesrtream-keywords.json',

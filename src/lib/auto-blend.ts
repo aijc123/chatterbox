@@ -8,6 +8,7 @@ import {
 import { subscribeDanmaku } from './danmaku-stream'
 import { appendLog } from './log'
 import { clearMemeSession, recordMemeCandidate } from './meme-contributor'
+import { describeRestrictionDuration, isAccountRestrictedError, isMutedError, isRateLimitError } from './moderation'
 import { applyReplacements } from './replacement'
 import { enqueueDanmaku, SendPriority } from './send-queue'
 import {
@@ -78,96 +79,6 @@ const RATE_LIMIT_BACKOFF_MS = 2 * 60 * 1000
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000
 const RATE_LIMIT_STOP_THRESHOLD = 3
 
-function isRateLimitError(error: string | undefined): boolean {
-  if (!error) return false
-  return error.includes('频率') || error.includes('过快') || error.toLowerCase().includes('rate')
-}
-
-function isMutedError(error: string | undefined): boolean {
-  if (!error) return false
-  return error.includes('禁言') || error.includes('被封') || error.toLowerCase().includes('muted')
-}
-
-function isAccountRestrictedError(error: string | undefined): boolean {
-  if (!error) return false
-  const lower = error.toLowerCase()
-  return (
-    error.includes('账号') ||
-    error.includes('账户') ||
-    error.includes('风控') ||
-    error.includes('封号') ||
-    error.includes('封禁') ||
-    lower.includes('account') ||
-    lower.includes('risk')
-  )
-}
-
-function formatDuration(seconds: number): string {
-  const rounded = Math.max(1, Math.ceil(seconds))
-  if (rounded < 60) return `${rounded} 秒`
-  const minutes = Math.ceil(rounded / 60)
-  if (minutes < 60) return `${minutes} 分钟`
-  const hours = Math.ceil(minutes / 60)
-  if (hours < 24) return `${hours} 小时`
-  return `${Math.ceil(hours / 24)} 天`
-}
-
-function durationFromString(text: string): string | null {
-  const unitMatch = text.match(/(\d+)\s*(秒|分钟|分|小时|天)/)
-  if (unitMatch) {
-    const value = Number(unitMatch[1])
-    const unit = unitMatch[2]
-    if (unit === '秒') return formatDuration(value)
-    if (unit === '分' || unit === '分钟') return formatDuration(value * 60)
-    if (unit === '小时') return formatDuration(value * 60 * 60)
-    if (unit === '天') return formatDuration(value * 24 * 60 * 60)
-  }
-
-  const dateMatch = text.match(/(20\d{2}[-/]\d{1,2}[-/]\d{1,2}(?:\s+\d{1,2}:\d{1,2}(?::\d{1,2})?)?)/)
-  if (!dateMatch) return null
-  const end = new Date(dateMatch[1].replace(/\//g, '-')).getTime()
-  if (!Number.isFinite(end) || end <= Date.now()) return null
-  return `${formatDuration((end - Date.now()) / 1000)}（到 ${dateMatch[1]}）`
-}
-
-function durationFromData(data: unknown): string | null {
-  if (typeof data === 'string') return durationFromString(data)
-  if (typeof data !== 'object' || data === null) return null
-
-  for (const [key, value] of Object.entries(data)) {
-    const lowerKey = key.toLowerCase()
-    if (typeof value === 'string') {
-      const parsed = durationFromString(value)
-      if (parsed) return parsed
-    } else if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
-      if (
-        lowerKey.includes('remain') ||
-        lowerKey.includes('left') ||
-        lowerKey.includes('duration') ||
-        lowerKey.includes('second') ||
-        lowerKey.includes('ttl') ||
-        key.includes('剩余') ||
-        key.includes('时长')
-      ) {
-        return formatDuration(value)
-      }
-      if (lowerKey.includes('end') || lowerKey.includes('expire') || lowerKey.includes('until') || key.includes('解除')) {
-        const ms = value > 10_000_000_000 ? value : value * 1000
-        if (ms > Date.now()) return `${formatDuration((ms - Date.now()) / 1000)}（到 ${new Date(ms).toLocaleString()}）`
-      }
-    } else {
-      const nested = durationFromData(value)
-      if (nested) return nested
-    }
-  }
-
-  return null
-}
-
-function describeRestrictionDuration(result: SendDanmakuResult): string {
-  return durationFromString(result.error ?? '') ?? durationFromData(result.errorData) ?? '接口未返回时长'
-}
-
 function clearPendingAutoBlend(reason: string): void {
   if (burstSettleTimer) {
     clearTimeout(burstSettleTimer)
@@ -189,7 +100,7 @@ function stopAutoBlendAfterModeration(reason: string): void {
 function handleSendFailure(result: SendDanmakuResult): boolean {
   const now = Date.now()
   const error = result.error
-  const duration = describeRestrictionDuration(result)
+  const duration = describeRestrictionDuration(result.error, result.errorData)
 
   if (isMutedError(error)) {
     stopAutoBlendAfterModeration(`自动跟车：检测到你在本房间被禁言，已自动关闭。禁言时长：${duration}。`)

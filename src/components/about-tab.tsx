@@ -26,6 +26,13 @@ interface ExternalService {
 
 const EXTERNAL_SERVICES: ExternalService[] = [
   {
+    name: 'Bilibili 直播接口',
+    host: 'api.live.bilibili.com',
+    trigger: '发送弹幕、获取房间信息、读取粉丝牌、检查禁言状态时',
+    description:
+      '脚本会使用你的 B 站登录态访问直播间相关接口，用于发送弹幕、获取房间号、读取表情包和粉丝牌直播间，并在你手动触发巡检时检查禁言/封禁信号。',
+  },
+  {
     name: 'AI 弹幕审核',
     host: 'edge-workers.laplace.cn',
     trigger: '启用「AI 规避」功能时',
@@ -44,7 +51,7 @@ const EXTERNAL_SERVICES: ExternalService[] = [
     host: 'workers.vrp.moe',
     url: 'https://subspace.institute/docs/laplace-chatterbox/memes',
     trigger: '打开独轮车页面中的烂梗列表时',
-    description: '从 LAPLACE Live! 服务获取烂梗列表。复制烂梗时会向服务报告使用次数。',
+    description: '从原项目沿用的社区服务获取烂梗列表。复制烂梗时会向服务报告使用次数。',
   },
   {
     name: 'Soniox 语音识别',
@@ -66,21 +73,32 @@ export function AboutTab() {
     <>
       <div className='cb-section cb-stack' style={SECTION_STYLE}>
         <div className='cb-heading' style={HEADING_STYLE}>
-          LAPLACE Chatterbox 弹幕助手
+          B站独轮车 + 自动跟车
         </div>
         <div className='cb-note' style={{ display: 'flex', flexDirection: 'column', gap: '.25em', color: '#666' }}>
           <span>版本: {VERSION}</span>
           <span>
             作者:{' '}
-            <a href='https://laplace.live' target='_blank' rel='noopener' style={LINK_STYLE}>
-              LAPLACE Live!
+            <a href='https://github.com/aijc123' target='_blank' rel='noopener' style={LINK_STYLE}>
+              Eric Ai
             </a>
           </span>
           <span>许可证: AGPL-3.0</span>
           <span>
             源代码:{' '}
-            <a href='https://github.com/laplace-live/chatterbox' target='_blank' rel='noopener' style={LINK_STYLE}>
+            <a
+              href='https://github.com/aijc123/bilibili-live-wheel-auto-follow'
+              target='_blank'
+              rel='noopener'
+              style={LINK_STYLE}
+            >
               GitHub
+            </a>
+          </span>
+          <span>
+            原项目:{' '}
+            <a href='https://github.com/laplace-live/chatterbox' target='_blank' rel='noopener' style={LINK_STYLE}>
+              LAPLACE Chatterbox
             </a>
           </span>
         </div>

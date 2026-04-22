@@ -1,6 +1,7 @@
 import type { BilibiliGetEmoticonsResponse } from '../types'
 
 import { BASE_URL } from './const'
+import { describeRestrictionDuration, scanRestrictionSignals, type RestrictionSignal } from './moderation'
 import { buildReplacementMap } from './replacement'
 import {
   availableDanmakuColors,
@@ -132,6 +133,145 @@ export interface SendDanmakuResult {
    * as a benign skip rather than a failure.
    */
   cancelled?: boolean
+}
+
+export interface MedalRoom {
+  roomId: number
+  medalName: string
+  anchorName: string
+  anchorUid: number | null
+}
+
+export interface MedalRestrictionCheck {
+  room: MedalRoom
+  status: 'restricted' | 'ok' | 'unknown'
+  signals: RestrictionSignal[]
+  checkedAt: number
+  note?: string
+}
+
+function toNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && /^\d+$/.test(value)) return Number(value)
+  return null
+}
+
+function firstString(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return '未知'
+}
+
+function findMedalEntries(data: unknown): unknown[] {
+  if (typeof data !== 'object' || data === null) return []
+  const root = data as Record<string, unknown>
+  const candidates = [root.list, root.data]
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) return candidate
+    if (typeof candidate === 'object' && candidate !== null) {
+      const nested = candidate as Record<string, unknown>
+      if (Array.isArray(nested.list)) return nested.list
+    }
+  }
+  return []
+}
+
+function medalEntryToRoom(entry: unknown): MedalRoom | null {
+  if (typeof entry !== 'object' || entry === null) return null
+  const obj = entry as Record<string, unknown>
+  const medal = typeof obj.medal_info === 'object' && obj.medal_info !== null ? (obj.medal_info as Record<string, unknown>) : {}
+  const anchor = typeof obj.anchor_info === 'object' && obj.anchor_info !== null ? (obj.anchor_info as Record<string, unknown>) : {}
+  const roomId = toNumber(medal.roomid) ?? toNumber(medal.room_id) ?? toNumber(obj.roomid) ?? toNumber(obj.room_id)
+  if (roomId === null || roomId <= 0) return null
+  return {
+    roomId,
+    medalName: firstString(medal.medal_name, medal.name, obj.medal_name, obj.name),
+    anchorName: firstString(anchor.uname, anchor.name, medal.anchor_uname, obj.anchor_uname, obj.uname),
+    anchorUid: toNumber(medal.target_id) ?? toNumber(anchor.uid) ?? toNumber(obj.target_id),
+  }
+}
+
+export async function fetchMedalRooms(): Promise<MedalRoom[]> {
+  const uid = getDedeUid()
+  if (!uid) throw new Error('未找到登录 UID，请先登录 Bilibili')
+  const resp = await fetch(`${BASE_URL.BILIBILI_MEDAL_WALL}?target_id=${encodeURIComponent(uid)}`, {
+    method: 'GET',
+    credentials: 'include',
+  })
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`)
+  const json: { code?: number; message?: string; msg?: string; data?: unknown } = await resp.json()
+  if (json.code !== 0) throw new Error(json.message ?? json.msg ?? `code ${json.code}`)
+  const rooms = findMedalEntries(json.data).map(medalEntryToRoom).filter((room): room is MedalRoom => room !== null)
+  const deduped = new Map<number, MedalRoom>()
+  for (const room of rooms) deduped.set(room.roomId, room)
+  return [...deduped.values()]
+}
+
+async function fetchRoomUserInfoSignals(roomId: number): Promise<RestrictionSignal[]> {
+  const resp = await fetch(`${BASE_URL.BILIBILI_ROOM_USER_INFO}?room_id=${roomId}&from=0`, {
+    method: 'GET',
+    credentials: 'include',
+  })
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`)
+  const json: { code?: number; message?: string; msg?: string; data?: unknown } = await resp.json()
+  if (json.code !== 0) {
+    return [
+      {
+        kind: 'unknown',
+        message: json.message ?? json.msg ?? `code ${json.code}`,
+        duration: describeRestrictionDuration(json.message ?? json.msg, json.data),
+        source: 'getInfoByUser',
+      },
+    ]
+  }
+  return scanRestrictionSignals(json.data, 'getInfoByUser')
+}
+
+async function fetchSilentListSignals(roomId: number): Promise<RestrictionSignal[]> {
+  const uid = getDedeUid()
+  if (!uid) return []
+  const url = `${BASE_URL.BILIBILI_SILENT_USER_LIST}?room_id=${roomId}&ps=50&pn=1`
+  const resp = await fetch(url, { method: 'GET', credentials: 'include' })
+  if (!resp.ok) return []
+  const json: { code?: number; data?: unknown } = await resp.json()
+  if (json.code !== 0) return []
+  const text = JSON.stringify(json.data)
+  if (!text.includes(uid)) return []
+  return [
+    {
+      kind: 'muted',
+      message: '当前账号出现在房间禁言列表中',
+      duration: describeRestrictionDuration(undefined, json.data),
+      source: 'GetSilentUserList',
+    },
+  ]
+}
+
+export async function checkMedalRoomRestriction(room: MedalRoom): Promise<MedalRestrictionCheck> {
+  const checkedAt = Date.now()
+  try {
+    const [roomInfoSignals, silentListSignals] = await Promise.all([
+      fetchRoomUserInfoSignals(room.roomId),
+      fetchSilentListSignals(room.roomId),
+    ])
+    const signals = [...roomInfoSignals, ...silentListSignals].filter(signal => signal.kind !== 'unknown')
+    return {
+      room,
+      status: signals.length > 0 ? 'restricted' : 'ok',
+      signals,
+      checkedAt,
+      note: signals.length > 0 ? undefined : '接口未发现禁言/封禁信号',
+    }
+  } catch (err) {
+    return {
+      room,
+      status: 'unknown',
+      signals: [],
+      checkedAt,
+      note: err instanceof Error ? err.message : String(err),
+    }
+  }
 }
 
 /**
