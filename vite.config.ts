@@ -9,13 +9,13 @@ export default defineConfig({
     monkey({
       entry: 'src/main.tsx',
       userscript: {
-        name: 'LAPLACE 弹幕助手 - 哔哩哔哩直播间独轮车、弹幕发送',
-        namespace: 'https://greasyfork.org/users/1524935',
+        name: 'B站独轮车 + 自动跟车',
+        namespace: 'https://github.com/aijc123/chatterbox',
         description:
-          '这是 bilibili 直播间简易版独轮车，基于 quiet/thusiant cmd 版本 https://greasyfork.org/scripts/421507 继续维护而来',
-        author: 'laplace-live',
+          '给 B 站直播间用的民间弹幕助手：支持独轮车循环发送、自动跟车、常规发送、同传、烂梗库和弹幕替换规则。',
+        author: 'aijc123',
         license: 'AGPL-3.0',
-        icon: 'https://laplace.live/favicon.ico',
+        icon: 'https://www.bilibili.com/favicon.ico',
         match: ['*://live.bilibili.com/*'],
         'run-at': 'document-start',
       },

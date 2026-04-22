@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
-const DIST_USER_SCRIPT = join(ROOT, 'dist', 'laplace-chatterbox.user.js')
+const DIST_USER_SCRIPT = join(ROOT, 'dist', 'bilibili-live-wheel-auto-follow.user.js')
 const SCREENSHOT_PATH = join(ROOT, 'auto-blend-ui-bilibili.png')
 const DEBUG_PORT = 9333
 const LIVE_URL = 'https://live.bilibili.com/'
