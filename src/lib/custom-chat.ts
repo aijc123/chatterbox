@@ -664,6 +664,8 @@ let sending = false
 let searchQuery = ''
 const messages: CustomChatEvent[] = []
 const recentEventKeys = new Map<string, number>()
+const renderQueue: CustomChatEvent[] = []
+let renderFrame: number | null = null
 
 function eventToSendableMessage(ev: DanmakuEvent): string {
   if (!ev.isReply) return ev.text
@@ -1016,24 +1018,24 @@ function scrollToBottom(): void {
 }
 
 function pruneMessages(): void {
-  let removed = false
   while (messages.length > MAX_MESSAGES) {
     messages.shift()
-    removed = true
   }
-  if (removed) rerenderMessages()
+  while (listEl && listEl.children.length > MAX_MESSAGES) {
+    listEl?.firstElementChild?.remove()
+  }
 }
 
-function renderMessage(message: CustomChatEvent, countUnread = true): void {
-  if (!listEl) return
+function renderMessage(message: CustomChatEvent, countUnread = true, updateCount = true, manageFlow = true): boolean {
+  if (!listEl) return false
   const shouldStickToBottom = !paused && isNearBottom()
   if (!messageMatchesSearch(message)) {
-    updateMatchCount()
-    return
+    if (updateCount) updateMatchCount()
+    return false
   }
 
   const row = document.createElement('div')
-  row.className = 'lc-chat-message lc-chat-peek'
+  row.className = countUnread ? 'lc-chat-message lc-chat-peek' : 'lc-chat-message'
   row.dataset.uid = message.uid ?? ''
   row.dataset.kind = message.kind
   row.dataset.source = message.source
@@ -1134,19 +1136,23 @@ function renderMessage(message: CustomChatEvent, countUnread = true): void {
   row.append(avatarEl, body, actions)
   listEl.append(row)
 
-  window.setTimeout(() => row.classList.remove('lc-chat-peek'), 2600)
-  pruneMessages()
-  if (!shouldStickToBottom && countUnread) {
-    unread++
-    updateUnread()
-  } else {
-    scrollToBottom()
+  if (countUnread) window.setTimeout(() => row.classList.remove('lc-chat-peek'), 2600)
+  if (manageFlow) {
+    pruneMessages()
+    if (!shouldStickToBottom && countUnread) {
+      unread++
+      updateUnread()
+    } else {
+      scrollToBottom()
+    }
+    if (updateCount) updateMatchCount()
   }
-  updateMatchCount()
+  return true
 }
 
 function clearMessages(): void {
   messages.length = 0
+  renderQueue.length = 0
   unread = 0
   listEl?.replaceChildren()
   updateUnread()
@@ -1156,9 +1162,40 @@ function clearMessages(): void {
 function rerenderMessages(): void {
   if (!listEl) return
   listEl.replaceChildren()
-  for (const message of messages) renderMessage(message, false)
+  for (const message of messages) renderMessage(message, false, false, false)
+  pruneMessages()
   updateMatchCount()
   if (!paused) scrollToBottom()
+}
+
+function flushRenderQueue(): void {
+  renderFrame = null
+  if (!listEl || renderQueue.length === 0) return
+  const batch = renderQueue.splice(0)
+  const shouldStickToBottom = !paused && isNearBottom()
+  const animate = batch.length <= 12
+  let appended = 0
+  for (const event of batch) {
+    if (renderMessage(event, animate, false, false)) appended++
+  }
+  if (appended === 0) {
+    updateMatchCount()
+    return
+  }
+  pruneMessages()
+  if (!shouldStickToBottom) {
+    unread += appended
+    updateUnread()
+  } else {
+    scrollToBottom()
+  }
+  updateMatchCount()
+}
+
+function scheduleRender(event: CustomChatEvent): void {
+  renderQueue.push(event)
+  if (renderFrame !== null) return
+  renderFrame = window.requestAnimationFrame(flushRenderQueue)
 }
 
 async function sendFromComposer(): Promise<void> {
@@ -1401,7 +1438,7 @@ function addEvent(event: CustomChatEvent): void {
   if (messages.some(message => message.id === event.id && message.source === event.source)) return
   if (!rememberEvent(event)) return
   messages.push(event)
-  renderMessage(event)
+  scheduleRender(event)
 }
 
 export function startCustomChat(): void {
@@ -1458,6 +1495,11 @@ export function stopCustomChat(): void {
   matchCountEl = null
   wsStatusEl = null
   messages.length = 0
+  renderQueue.length = 0
+  if (renderFrame !== null) {
+    window.cancelAnimationFrame(renderFrame)
+    renderFrame = null
+  }
   unread = 0
   paused = false
   sending = false
