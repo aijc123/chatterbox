@@ -6,7 +6,9 @@
 - **自动跟车**：看到直播间里很多人在刷同一句话时，自动跟上一句。
 
 项目基于 [LAPLACE Chatterbox](https://github.com/laplace-live/chatterbox) fork 修改，保留原项目的同传、烂梗库、弹幕替换、AI 规避等能力，并在自动跟车和小面板 UI 上做了自己的调整。
-
+## 安装
+前往greasyfork安装
+https://greasyfork.org/zh-CN/scripts/574939-b%E7%AB%99%E7%8B%AC%E8%BD%AE%E8%BD%A6-%E8%87%AA%E5%8A%A8%E8%B7%9F%E8%BD%A6
 ## 功能
 
 ### 独轮车
