@@ -5,7 +5,7 @@ import { startCustomChat, stopCustomChat } from '../lib/custom-chat'
 import { startDanmakuDirect, stopDanmakuDirect } from '../lib/danmaku-direct'
 import { startLiveWsSource, stopLiveWsSource } from '../lib/live-ws-source'
 import { loop } from '../lib/loop'
-import { autoBlendEnabled, customChatEnabled, customChatUseWs, danmakuDirectMode, optimizeLayout } from '../lib/store'
+import { autoBlendEnabled, customChatUseWs, danmakuDirectMode, optimizeLayout } from '../lib/store'
 import { Configurator } from './configurator'
 import { ToggleButton } from './toggle-button'
 import { AlertDialog } from './ui/alert-dialog'
@@ -617,22 +617,18 @@ export function App() {
   }, [autoBlendEnabled.value])
 
   useEffect(() => {
-    if (customChatEnabled.value) {
-      startCustomChat()
-    } else {
-      stopCustomChat()
-    }
+    startCustomChat()
     return () => stopCustomChat()
-  }, [customChatEnabled.value])
+  }, [])
 
   useEffect(() => {
-    if (customChatEnabled.value && customChatUseWs.value) {
+    if (customChatUseWs.value) {
       startLiveWsSource()
     } else {
       stopLiveWsSource()
     }
     return () => stopLiveWsSource()
-  }, [customChatEnabled.value, customChatUseWs.value])
+  }, [customChatUseWs.value])
 
   useEffect(() => {
     const el = document.querySelector<HTMLElement>('.app-body')

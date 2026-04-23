@@ -5,6 +5,7 @@ import {
   autoBlendBurstSettleMs,
   autoBlendCandidateText,
   autoBlendCooldownSec,
+  autoBlendDryRun,
   autoBlendEnabled,
   autoBlendIncludeReply,
   autoBlendLastActionText,
@@ -284,6 +285,19 @@ export function AutoBlendControls() {
         </div>
 
         <div style={{ margin: '.5em 0', display: 'grid', gap: '.35em' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
+            <input
+              id='autoBlendDryRun'
+              type='checkbox'
+              checked={autoBlendDryRun.value}
+              onInput={e => {
+                markCustom()
+                autoBlendDryRun.value = e.currentTarget.checked
+              }}
+            />
+            <label for='autoBlendDryRun'>试运行（只观察，不发送）</label>
+          </span>
+
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
             <input
               id='autoBlendRequireDistinctUsers'

@@ -17,7 +17,6 @@ import { buildReplacementMap } from '../lib/replacement'
 import {
   cachedRoomId,
   customChatCss,
-  customChatEnabled,
   customChatHideNative,
   customChatPerfDebug,
   customChatTheme,
@@ -1114,8 +1113,8 @@ export function SettingsTab() {
       <details className='cb-settings-accordion'>
         <summary className='cb-module-summary'>
           <span className='cb-accordion-title'>Chatterbox Chat</span>
-          <span className='cb-module-state' data-active={customChatEnabled.value ? 'true' : 'false'}>
-            {customChatEnabled.value ? 'ON' : 'OFF'}
+          <span className='cb-module-state' data-active={customChatHideNative.value ? 'true' : 'false'}>
+            {customChatHideNative.value ? '接管' : '并排'}
           </span>
         </summary>
         <div
@@ -1128,59 +1127,33 @@ export function SettingsTab() {
           <div className='cb-setting-block cb-setting-primary'>
             <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
               <input
-                id='customChatEnabled'
-                type='checkbox'
-                checked={customChatEnabled.value}
-                onInput={e => {
-                  customChatEnabled.value = e.currentTarget.checked
-                }}
-              />
-              <label htmlFor='customChatEnabled'>接管 B 站评论区（Chatterbox Chat）</label>
-            </span>
-            <span
-              className='cb-switch-row cb-setting-child'
-              data-enabled={customChatEnabled.value ? 'true' : 'false'}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em', paddingLeft: '1.5em' }}
-            >
-              <input
                 id='customChatHideNative'
                 type='checkbox'
                 checked={customChatHideNative.value}
-                disabled={!customChatEnabled.value}
                 onInput={e => {
                   customChatHideNative.value = e.currentTarget.checked
                 }}
               />
-              <label htmlFor='customChatHideNative' style={{ color: customChatEnabled.value ? undefined : '#999' }}>
-                隐藏 B 站原评论列表和原发送框
-              </label>
+              <label htmlFor='customChatHideNative'>接管 B 站评论区（隐藏原评论列表和原发送框）</label>
             </span>
           </div>
-          <div
-            className='cb-setting-block cb-dependent-group'
-            data-enabled={customChatEnabled.value ? 'true' : 'false'}
-            data-reason='需先开启 Chatterbox Chat'
-          >
+          <div className='cb-setting-block cb-dependent-group' data-enabled='true'>
             <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
               <input
                 id='customChatUseWs'
                 type='checkbox'
                 checked={customChatUseWs.value}
-                disabled={!customChatEnabled.value}
                 onInput={e => {
                   customChatUseWs.value = e.currentTarget.checked
                 }}
               />
-              <label htmlFor='customChatUseWs' style={{ color: customChatEnabled.value ? undefined : '#999' }}>
-                直连 WebSocket 获取礼物、醒目留言、进场等事件（DOM 兜底）
-              </label>
+              <label htmlFor='customChatUseWs'>直连 WebSocket 获取礼物、醒目留言、进场等事件（DOM 兜底）</label>
             </span>
             <div className='cb-row cb-setting-row'>
               <label htmlFor='customChatTheme'>评论区主题</label>
               <select
                 id='customChatTheme'
                 value={customChatTheme.value}
-                disabled={!customChatEnabled.value}
                 onChange={e => {
                   customChatTheme.value = e.currentTarget.value as typeof customChatTheme.value
                 }}
@@ -1196,7 +1169,6 @@ export function SettingsTab() {
                 <div className='cb-row'>
                   <button
                     type='button'
-                    disabled={!customChatEnabled.value}
                     onClick={() => {
                       customChatCss.value = MILK_GREEN_IMESSAGE_CSS
                     }}
@@ -1205,7 +1177,7 @@ export function SettingsTab() {
                   </button>
                   <button
                     type='button'
-                    disabled={!customChatEnabled.value || !customChatCss.value.trim()}
+                    disabled={!customChatCss.value.trim()}
                     onClick={() => {
                       customChatCss.value = ''
                     }}
@@ -1215,7 +1187,6 @@ export function SettingsTab() {
                 </div>
                 <textarea
                   value={customChatCss.value}
-                  disabled={!customChatEnabled.value}
                   onInput={e => {
                     customChatCss.value = e.currentTarget.value
                   }}
@@ -1234,14 +1205,11 @@ export function SettingsTab() {
                 id='customChatPerfDebug'
                 type='checkbox'
                 checked={customChatPerfDebug.value}
-                disabled={!customChatEnabled.value}
                 onInput={e => {
                   customChatPerfDebug.value = e.currentTarget.checked
                 }}
               />
-              <label htmlFor='customChatPerfDebug' style={{ color: customChatEnabled.value ? undefined : '#999' }}>
-                显示 Chatterbox 性能调试信息
-              </label>
+              <label htmlFor='customChatPerfDebug'>显示 Chatterbox 性能调试信息</label>
             </span>
           </div>
         </div>

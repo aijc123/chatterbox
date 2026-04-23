@@ -28,6 +28,8 @@ const DEFAULT_DANMAKU_COLORS = [
   '0xff9800',
 ]
 
+const SEND_DANMAKU_TIMEOUT_MS = 12000
+
 /**
  * Reads a single cookie value by name from `document.cookie`.
  */
@@ -400,11 +402,19 @@ export async function sendDanmaku(message: string, roomId: number, csrfToken: st
     }
 
     const url = `${BASE_URL.BILIBILI_MSG_SEND}?${query}`
-    const resp = await fetch(url, {
-      method: 'POST',
-      credentials: 'include',
-      body: form,
-    })
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), SEND_DANMAKU_TIMEOUT_MS)
+    let resp: Response
+    try {
+      resp = await fetch(url, {
+        method: 'POST',
+        credentials: 'include',
+        body: form,
+        signal: controller.signal,
+      })
+    } finally {
+      clearTimeout(timeout)
+    }
 
     if (!resp.ok) {
       return {
@@ -437,11 +447,16 @@ export async function sendDanmaku(message: string, roomId: number, csrfToken: st
       isEmoticon: emoticon,
     }
   } catch (err) {
+    const aborted = err instanceof DOMException && err.name === 'AbortError'
     return {
       success: false,
       message,
       isEmoticon: emoticon,
-      error: err instanceof Error ? err.message : String(err),
+      error: aborted
+        ? `发送接口 ${Math.round(SEND_DANMAKU_TIMEOUT_MS / 1000)}s 无响应`
+        : err instanceof Error
+          ? err.message
+          : String(err),
     }
   }
 }

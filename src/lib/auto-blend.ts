@@ -6,6 +6,7 @@ import {
   shortAutoBlendText,
 } from './auto-blend-status'
 import { detectTrend, type TrendEvent } from './auto-blend-trend'
+import { subscribeCustomChatEvents } from './custom-chat-events'
 import { subscribeDanmaku } from './danmaku-stream'
 import { classifyRiskEvent, syncGuardRoomRiskEvent } from './guard-room-sync'
 import { appendLog } from './log'
@@ -17,6 +18,7 @@ import {
   autoBlendBurstSettleMs,
   autoBlendCandidateText,
   autoBlendCooldownSec,
+  autoBlendDryRun,
   autoBlendEnabled,
   autoBlendIncludeReply,
   autoBlendLastActionText,
@@ -82,6 +84,7 @@ let moderationStopReason: string | null = null
 // "just started, 2 messages" and prevents all-trending mode from seeing the
 // rest of the same wave.
 const RATE_LIMIT_BACKOFF_MS = 2 * 60 * 1000
+const SEND_ECHO_TIMEOUT_MS = 4000
 
 function getBurstSettleMs(): number {
   return Math.max(0, autoBlendBurstSettleMs.value)
@@ -217,9 +220,38 @@ function updateCandidateText(): void {
 function updateStatusText(): void {
   autoBlendStatusText.value = formatAutoBlendStatus({
     enabled: autoBlendEnabled.value,
+    dryRun: autoBlendDryRun.value,
     isSending,
     cooldownUntil,
     now: Date.now(),
+  })
+}
+
+function waitForSentEcho(
+  text: string,
+  uid: string | null,
+  timeoutMs = SEND_ECHO_TIMEOUT_MS
+): Promise<'ws' | 'dom' | 'local' | null> {
+  const target = text.trim()
+  if (!target) return Promise.resolve(null)
+
+  return new Promise(resolve => {
+    let done = false
+    let unsubscribe = () => {}
+    const finish = (source: 'ws' | 'dom' | 'local' | null) => {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      unsubscribe()
+      resolve(source)
+    }
+    const timer = setTimeout(() => finish(null), timeoutMs)
+    unsubscribe = subscribeCustomChatEvents(event => {
+      if (event.kind !== 'danmaku') return
+      if (event.text.trim() !== target) return
+      if (uid && event.uid && event.uid !== uid) return
+      finish(event.source)
+    })
   })
 }
 
@@ -473,8 +505,15 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
           await setRandomDanmakuColor(roomId, csrfToken)
         }
 
-        const result = await enqueueDanmaku(toSend, roomId, csrfToken, SendPriority.AUTO)
         const display = wasReplaced || toSend !== originalText ? `${originalText} → ${toSend}` : toSend
+
+        if (autoBlendDryRun.value) {
+          autoBlendLastActionText.value = `试运行命中：${shortAutoBlendText(display)}`
+          appendLog(`自动跟车试运行（未发送）：${display}`)
+          continue
+        }
+
+        const result = await enqueueDanmaku(toSend, roomId, csrfToken, SendPriority.AUTO)
 
         if (isMulti) {
           const label = repeatCount > 1 ? `自动跟车 [${i + 1}/${repeatCount}]` : '自动跟车'
@@ -500,6 +539,20 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
             const error = formatDanmakuError(result.error)
             autoBlendLastActionText.value = `没发出去：${shortAutoBlendText(display)}`
             appendLog(`自动跟车没发出去${repeatSuffix}（${info}）：${display}，原因：${error}`)
+          }
+        }
+
+        if (result.success && !result.cancelled) {
+          autoBlendLastActionText.value = `已提交，等待回显：${shortAutoBlendText(display)}`
+          const echoSource = await waitForSentEcho(toSend, myUid)
+          if (echoSource) {
+            const sourceLabel = echoSource === 'ws' ? 'WS' : echoSource === 'dom' ? 'DOM' : '本地'
+            autoBlendLastActionText.value = `已${sourceLabel}回显：${shortAutoBlendText(display)}`
+          } else {
+            autoBlendLastActionText.value = `接口成功但未看到回显：${shortAutoBlendText(display)}`
+            appendLog(
+              `自动跟车接口成功，但 ${Math.round(SEND_ECHO_TIMEOUT_MS / 1000)}s 内没有在聊天区看到回显：${display}`
+            )
           }
         }
 

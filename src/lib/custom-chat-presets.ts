@@ -19,6 +19,22 @@ export const MILK_GREEN_IMESSAGE_CSS = `/* Chatterbox 奶绿 iMessage × Laplace
     --lc-chat-accent: #34c759;
     --lc-chat-shadow: rgba(36, 74, 48, .16);
     --lc-chat-bubble-shadow: 0 1px 1px rgba(36, 74, 48, .05), 0 8px 22px rgba(36, 74, 48, .12);
+    --lc-chat-lite: rgba(116, 159, 131, .16);
+    --lc-chat-lite-text: #58715f;
+    --lc-chat-medal-bg: #f7e7a8;
+    --lc-chat-medal-text: #5c4210;
+    --lc-chat-guard-bg: #c8ddfc;
+    --lc-chat-guard-text: #1d4b86;
+    --lc-chat-admin-bg: #d7ebff;
+    --lc-chat-admin-text: #075d9a;
+    --lc-chat-rank-bg: #ffe4a1;
+    --lc-chat-rank-text: #704400;
+    --lc-chat-ul-bg: #e6dcfa;
+    --lc-chat-ul-text: #543579;
+    --lc-chat-honor-bg: #d8f1df;
+    --lc-chat-honor-text: #1d633c;
+    --lc-chat-price-bg: #ffe0cc;
+    --lc-chat-price-text: #7f3516;
     --lc-event-text: #213d2b;
     --lc-event-bg: #f1fbf5;
     --lc-gift-bg: linear-gradient(135deg, #ffe0cc, #fff3cd);
@@ -85,9 +101,42 @@ export const MILK_GREEN_IMESSAGE_CSS = `/* Chatterbox 奶绿 iMessage × Laplace
 
   #laplace-custom-chat .lc-chat-medal {
     max-width: min(13em, 72%);
-    color: #4b3b08;
-    background: rgba(248, 236, 160, .92);
     text-shadow: none;
+  }
+
+  #laplace-custom-chat .lc-chat-badge[data-badge-type="medal"] {
+    color: var(--lc-chat-medal-text);
+    background: var(--lc-chat-medal-bg);
+  }
+
+  #laplace-custom-chat .lc-chat-badge[data-badge-type="guard"] {
+    color: var(--lc-chat-guard-text);
+    background: var(--lc-chat-guard-bg);
+  }
+
+  #laplace-custom-chat .lc-chat-badge[data-badge-type="admin"] {
+    color: var(--lc-chat-admin-text);
+    background: var(--lc-chat-admin-bg);
+  }
+
+  #laplace-custom-chat .lc-chat-badge[data-badge-type="rank"] {
+    color: var(--lc-chat-rank-text);
+    background: var(--lc-chat-rank-bg);
+  }
+
+  #laplace-custom-chat .lc-chat-badge[data-badge-type="ul"] {
+    color: var(--lc-chat-ul-text);
+    background: var(--lc-chat-ul-bg);
+  }
+
+  #laplace-custom-chat .lc-chat-badge[data-badge-type="honor"] {
+    color: var(--lc-chat-honor-text);
+    background: var(--lc-chat-honor-bg);
+  }
+
+  #laplace-custom-chat .lc-chat-badge[data-badge-type="price"] {
+    color: var(--lc-chat-price-text);
+    background: var(--lc-chat-price-bg);
   }
 
   #laplace-custom-chat .lc-chat-kind,
@@ -170,7 +219,8 @@ export const MILK_GREEN_IMESSAGE_CSS = `/* Chatterbox 奶绿 iMessage × Laplace
   #laplace-custom-chat .lc-chat-message[data-kind="like"] .lc-chat-bubble,
   #laplace-custom-chat .lc-chat-message[data-kind="share"] .lc-chat-bubble,
   #laplace-custom-chat .lc-chat-message[data-kind="enter"] .lc-chat-bubble,
-  #laplace-custom-chat .lc-chat-message[data-kind="notice"] .lc-chat-bubble {
+  #laplace-custom-chat .lc-chat-message[data-kind="notice"] .lc-chat-bubble,
+  #laplace-custom-chat .lc-chat-message[data-priority="lite"] .lc-chat-bubble {
     color: #24523a;
     background: rgba(189, 229, 209, .72);
   }

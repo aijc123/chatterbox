@@ -8,6 +8,7 @@ export interface AutoBlendCandidate {
 
 export interface AutoBlendStatusInput {
   enabled: boolean
+  dryRun?: boolean
   isSending: boolean
   cooldownUntil: number
   now: number
@@ -21,8 +22,15 @@ export function shortAutoBlendText(text: string): string {
   return trimText(text, 18)[0] ?? text
 }
 
-export function formatAutoBlendStatus({ enabled, isSending, cooldownUntil, now }: AutoBlendStatusInput): string {
+export function formatAutoBlendStatus({
+  enabled,
+  dryRun,
+  isSending,
+  cooldownUntil,
+  now,
+}: AutoBlendStatusInput): string {
   if (!enabled) return '已关闭'
+  if (dryRun) return '试运行（不发送）'
   if (isSending) return '正在跟车'
 
   const left = Math.max(0, Math.ceil((cooldownUntil - now) / 1000))

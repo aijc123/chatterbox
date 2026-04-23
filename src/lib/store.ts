@@ -55,7 +55,12 @@ export const autoBlendRateLimitWindowMin = gmSignal('autoBlendRateLimitWindowMin
 export const autoBlendRateLimitStopThreshold = gmSignal('autoBlendRateLimitStopThreshold', 3)
 export const autoBlendPreset = gmSignal<'safe' | 'normal' | 'hot' | 'custom'>('autoBlendPreset', 'normal')
 export const autoBlendAdvancedOpen = gmSignal('autoBlendAdvancedOpen', false)
-export const autoBlendDryRun = gmSignal('autoBlendDryRun', true)
+const autoBlendDryRunMigrationKey = 'autoBlendDryRunVisibleDefaultMigrated'
+if (!GM_getValue(autoBlendDryRunMigrationKey, false)) {
+  if (GM_getValue('autoBlendDryRun', false) === true) GM_setValue('autoBlendDryRun', false)
+  GM_setValue(autoBlendDryRunMigrationKey, true)
+}
+export const autoBlendDryRun = gmSignal('autoBlendDryRun', false)
 export const autoBlendAvoidRisky = gmSignal('autoBlendAvoidRisky', true)
 export const autoBlendBlockedWords = gmSignal('autoBlendBlockedWords', '抽奖\n加群\n私信\n房管\n举报')
 export const autoBlendIncludeReply = gmSignal('autoBlendIncludeReply', false)

@@ -13,7 +13,10 @@ import {
 } from './custom-chat-events'
 import {
   CUSTOM_CHAT_MAX_MESSAGES,
+  customChatBadgeType,
+  customChatPriority,
   shouldAnimateRenderBatch,
+  shouldSuppressCustomChatEvent,
   takeRenderBatch,
   trimRenderQueue,
   visibleRenderMessages,
@@ -44,8 +47,10 @@ const MAX_NATIVE_SCAN_BATCH = 48
 const MAX_NATIVE_INITIAL_SCAN = 80
 const VIRTUAL_OVERSCAN = 7
 const DEFAULT_ROW_HEIGHT = 62
-const CARD_ROW_HEIGHT = 102
-const COMPACT_CARD_ROW_HEIGHT = 78
+const LITE_ROW_HEIGHT = 42
+const CARD_ROW_HEIGHT = 96
+const CRITICAL_CARD_ROW_HEIGHT = 108
+const COMPACT_CARD_ROW_HEIGHT = 70
 const NATIVE_HEALTH_WINDOW = 12000
 const NATIVE_HEALTH_MIN_SCANS = 24
 const NATIVE_HEALTH_MAX_EVENTS = 0
@@ -74,6 +79,22 @@ const STYLE = `
   --lc-chat-accent: #34c759;
   --lc-chat-shadow: rgba(0, 0, 0, .10);
   --lc-chat-bubble-shadow: 0 1px 1px rgba(0, 0, 0, .035), 0 8px 22px rgba(0, 0, 0, .075);
+  --lc-chat-lite: rgba(118, 118, 128, .12);
+  --lc-chat-lite-text: #5f6368;
+  --lc-chat-medal-bg: #fff0b8;
+  --lc-chat-medal-text: #5c4210;
+  --lc-chat-guard-bg: #dceaff;
+  --lc-chat-guard-text: #184a8b;
+  --lc-chat-admin-bg: #d7ecff;
+  --lc-chat-admin-text: #0057a8;
+  --lc-chat-rank-bg: #ffe6a8;
+  --lc-chat-rank-text: #6a4300;
+  --lc-chat-ul-bg: #e8e5ff;
+  --lc-chat-ul-text: #473a8d;
+  --lc-chat-honor-bg: #e8f8ef;
+  --lc-chat-honor-text: #19643a;
+  --lc-chat-price-bg: #ffe2cf;
+  --lc-chat-price-text: #7f3516;
   height: 100%;
   width: 100%;
   min-width: 0;
@@ -115,6 +136,22 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   --lc-chat-accent: #30d158;
   --lc-chat-shadow: rgba(0, 0, 0, .34);
   --lc-chat-bubble-shadow: 0 1px 1px rgba(255, 255, 255, .025), 0 10px 28px rgba(0, 0, 0, .28);
+  --lc-chat-lite: rgba(255, 255, 255, .08);
+  --lc-chat-lite-text: #b8bac4;
+  --lc-chat-medal-bg: rgba(255, 214, 10, .18);
+  --lc-chat-medal-text: #ffe8a3;
+  --lc-chat-guard-bg: rgba(100, 210, 255, .18);
+  --lc-chat-guard-text: #b8e6ff;
+  --lc-chat-admin-bg: rgba(10, 132, 255, .2);
+  --lc-chat-admin-text: #c4e2ff;
+  --lc-chat-rank-bg: rgba(255, 204, 0, .2);
+  --lc-chat-rank-text: #ffe08a;
+  --lc-chat-ul-bg: rgba(191, 90, 242, .2);
+  --lc-chat-ul-text: #e7c6ff;
+  --lc-chat-honor-bg: rgba(48, 209, 88, .18);
+  --lc-chat-honor-text: #b9f6c8;
+  --lc-chat-price-bg: rgba(255, 159, 10, .2);
+  --lc-chat-price-text: #ffd49a;
 }
 #${ROOT_ID}[data-theme="light"] {
   color: var(--lc-chat-text);
@@ -275,6 +312,8 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   min-width: 0;
   overflow-y: auto;
   overflow-x: hidden;
+  overscroll-behavior: contain;
+  overflow-anchor: none;
   padding: 13px 10px 14px;
   scrollbar-width: thin;
   scroll-behavior: auto;
@@ -283,10 +322,12 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
 }
 #${ROOT_ID} .lc-chat-virtual-items {
   min-width: 0;
+  overflow-anchor: none;
 }
 #${ROOT_ID} .lc-chat-virtual-spacer {
   min-width: 1px;
   pointer-events: none;
+  overflow-anchor: none;
 }
 #${ROOT_ID} .lc-chat-empty {
   min-height: 100%;
@@ -331,7 +372,7 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
 #${ROOT_ID} .lc-chat-card-event {
   grid-template-columns: 38px minmax(0, 1fr);
   gap: 4px 10px;
-  padding: 8px 2px;
+  padding: 7px 2px;
 }
 #${ROOT_ID} .lc-chat-card-event .lc-chat-avatar {
   width: 38px;
@@ -344,8 +385,8 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
 #${ROOT_ID} .lc-chat-card-event .lc-chat-bubble {
   width: 100%;
   max-width: 100%;
-  min-height: 66px;
-  padding: 12px 15px;
+  min-height: 62px;
+  padding: 11px 14px;
   border-radius: 18px;
   border-bottom-left-radius: 8px;
   font-size: 14px;
@@ -354,10 +395,10 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
 }
 #${ROOT_ID} .lc-chat-card-compact .lc-chat-bubble {
   min-height: 0;
-  padding: 9px 12px;
+  padding: 8px 11px;
   border-radius: 20px;
   border-bottom-left-radius: 8px;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 650;
 }
 #${ROOT_ID} .lc-chat-card-event .lc-chat-bubble::before {
@@ -400,12 +441,13 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
 }
 #${ROOT_ID} .lc-chat-card-text {
   display: block;
+  line-height: 1.35;
 }
 #${ROOT_ID} .lc-chat-card-fields {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
-  margin-bottom: 7px;
+  margin-bottom: 6px;
 }
 #${ROOT_ID} .lc-chat-card-field {
   display: inline-flex;
@@ -461,7 +503,6 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   background: linear-gradient(135deg, #ff2d55, #ff9f0a);
 }
 #${ROOT_ID} .lc-chat-message[data-kind="guard"],
-#${ROOT_ID} .lc-chat-message[data-kind="enter"],
 #${ROOT_ID} .lc-chat-message[data-kind="follow"],
 #${ROOT_ID} .lc-chat-message[data-kind="like"],
 #${ROOT_ID} .lc-chat-message[data-kind="share"],
@@ -470,6 +511,50 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
 #${ROOT_ID} .lc-chat-message[data-kind="notice"],
 #${ROOT_ID} .lc-chat-message[data-kind="system"] {
   opacity: .86;
+}
+#${ROOT_ID} .lc-chat-message[data-priority="lite"] {
+  grid-template-columns: minmax(0, 1fr);
+  padding: 2px 8px;
+  opacity: .78;
+}
+#${ROOT_ID} .lc-chat-message[data-priority="lite"] .lc-chat-avatar,
+#${ROOT_ID} .lc-chat-message[data-priority="lite"] .lc-chat-meta,
+#${ROOT_ID} .lc-chat-message[data-priority="lite"] .lc-chat-actions {
+  display: none;
+}
+#${ROOT_ID} .lc-chat-message[data-priority="lite"] .lc-chat-body {
+  grid-column: 1 / 2;
+  justify-items: center;
+}
+#${ROOT_ID} .lc-chat-message[data-priority="lite"] .lc-chat-bubble {
+  max-width: 92%;
+  min-width: 0;
+  padding: 4px 9px;
+  border-radius: 999px;
+  color: var(--lc-chat-lite-text);
+  background: var(--lc-chat-lite);
+  border-color: transparent;
+  box-shadow: none;
+  font-size: 11px;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#${ROOT_ID} .lc-chat-message[data-priority="lite"] .lc-chat-bubble::before {
+  display: none;
+}
+#${ROOT_ID} .lc-chat-message[data-priority="identity"] .lc-chat-avatar {
+  box-shadow: 0 0 0 1px var(--lc-chat-guard-bg), 0 2px 7px var(--lc-chat-shadow);
+}
+#${ROOT_ID} .lc-chat-message[data-guard="1"] .lc-chat-avatar {
+  box-shadow: 0 0 0 2px var(--lc-chat-price-bg), 0 2px 8px var(--lc-chat-shadow);
+}
+#${ROOT_ID} .lc-chat-message[data-guard="2"] .lc-chat-avatar {
+  box-shadow: 0 0 0 2px var(--lc-chat-ul-bg), 0 2px 8px var(--lc-chat-shadow);
+}
+#${ROOT_ID} .lc-chat-message[data-guard="3"] .lc-chat-avatar {
+  box-shadow: 0 0 0 2px var(--lc-chat-guard-bg), 0 2px 8px var(--lc-chat-shadow);
 }
 #${ROOT_ID} .lc-chat-meta {
   max-width: 100%;
@@ -522,7 +607,7 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
 #${ROOT_ID} .lc-chat-badge {
   flex: 0 1 auto;
   border-radius: 999px;
-  padding: 1px 5px;
+  padding: 1px 6px;
   background: var(--lc-chat-chip);
   color: var(--lc-chat-chip-text);
   font-size: 10px;
@@ -534,6 +619,39 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
 }
 #${ROOT_ID} .lc-chat-medal {
   max-width: min(12em, 72%);
+}
+#${ROOT_ID} .lc-chat-badge[data-badge-type="medal"] {
+  color: var(--lc-chat-medal-text);
+  background: var(--lc-chat-medal-bg);
+  text-shadow: none;
+}
+#${ROOT_ID} .lc-chat-badge[data-badge-type="guard"] {
+  color: var(--lc-chat-guard-text);
+  background: var(--lc-chat-guard-bg);
+  font-weight: 800;
+  text-shadow: none;
+}
+#${ROOT_ID} .lc-chat-badge[data-badge-type="admin"] {
+  color: var(--lc-chat-admin-text);
+  background: var(--lc-chat-admin-bg);
+}
+#${ROOT_ID} .lc-chat-badge[data-badge-type="rank"] {
+  color: var(--lc-chat-rank-text);
+  background: var(--lc-chat-rank-bg);
+  font-weight: 800;
+}
+#${ROOT_ID} .lc-chat-badge[data-badge-type="ul"] {
+  color: var(--lc-chat-ul-text);
+  background: var(--lc-chat-ul-bg);
+}
+#${ROOT_ID} .lc-chat-badge[data-badge-type="honor"] {
+  color: var(--lc-chat-honor-text);
+  background: var(--lc-chat-honor-bg);
+}
+#${ROOT_ID} .lc-chat-badge[data-badge-type="price"] {
+  color: var(--lc-chat-price-text);
+  background: var(--lc-chat-price-bg);
+  font-weight: 800;
 }
 #${ROOT_ID} .lc-chat-kind {
   color: var(--lc-chat-own-text);
@@ -866,6 +984,7 @@ let styleEl: HTMLStyleElement | null = null
 let userStyleEl: HTMLStyleElement | null = null
 let messageSeq = 0
 let paused = false
+let autoPausedByScroll = false
 let unread = 0
 let sending = false
 let searchQuery = ''
@@ -993,6 +1112,7 @@ function isNoiseEventText(text: string): boolean {
 }
 
 function isReliableEvent(event: CustomChatEvent): boolean {
+  if (shouldSuppressCustomChatEvent(event)) return false
   const text = compactText(event.text)
   if (isNoiseEventText(text)) return false
   if (event.source === 'dom' && displayName(event) === '匿名' && !event.uid && !event.avatarUrl && text.length <= 2)
@@ -1069,7 +1189,6 @@ function cardType(message: CustomChatEvent): 'gift' | 'superchat' | 'guard' | 'r
   if (message.kind === 'guard') return 'guard'
   if (message.kind === 'redpacket') return 'redpacket'
   if (message.kind === 'lottery') return 'lottery'
-  if (guardLevel(message)) return 'guard'
   return null
 }
 
@@ -1374,11 +1493,53 @@ function isNearBottom(): boolean {
   return virtualContentHeight() - listEl.scrollTop - listEl.clientHeight < 80
 }
 
+function syncAutoFollowFromScroll(): void {
+  const nearBottom = isNearBottom()
+  let changed = false
+  if (nearBottom) {
+    if (autoPausedByScroll) {
+      paused = false
+      autoPausedByScroll = false
+      changed = true
+    }
+    if (unread > 0) {
+      unread = 0
+      changed = true
+    }
+  } else if (!paused) {
+    paused = true
+    autoPausedByScroll = true
+    changed = true
+  }
+  if (changed) updateUnread()
+}
+
 function scrollToBottom(behavior: ScrollBehavior = 'auto'): void {
   if (!listEl) return
   const top = Math.max(0, virtualContentHeight() - listEl.clientHeight)
   listEl.scrollTo({ top, behavior })
   if (behavior === 'auto') renderVirtualWindow()
+}
+
+function normalizeWheelDelta(event: WheelEvent): number {
+  const unit =
+    event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 18 : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? 180 : 1
+  const delta = event.deltaY * unit
+  if (!Number.isFinite(delta) || delta === 0) return 0
+  return Math.max(-140, Math.min(140, delta))
+}
+
+function scrollListByWheel(event: WheelEvent): void {
+  if (!listEl || visibleMessages.length === 0) return
+  const delta = normalizeWheelDelta(event)
+  if (delta === 0) return
+  event.preventDefault()
+  const maxTop = Math.max(0, virtualContentHeight() - listEl.clientHeight)
+  const nextTop = Math.max(0, Math.min(maxTop, listEl.scrollTop + delta))
+  if (Math.abs(nextTop - listEl.scrollTop) < 0.5) return
+  listEl.scrollTop = nextTop
+  renderVirtualWindow()
+  syncAutoFollowFromScroll()
 }
 
 function pruneMessages(): void {
@@ -1395,7 +1556,10 @@ function pruneMessages(): void {
 
 function estimatedRowHeight(message: CustomChatEvent): number {
   const card = cardType(message)
+  const priority = customChatPriority(message)
+  if (priority === 'lite') return LITE_ROW_HEIGHT
   if (card === 'gift' && !message.amount) return COMPACT_CARD_ROW_HEIGHT
+  if (priority === 'critical') return CRITICAL_CARD_ROW_HEIGHT
   if (card) return CARD_ROW_HEIGHT
   return DEFAULT_ROW_HEIGHT + Math.max(0, Math.ceil(message.text.length / 34) - 1) * 18
 }
@@ -1421,15 +1585,18 @@ function refreshVisibleMessages(): void {
 
 function createMessageRow(message: CustomChatEvent, animate = false, virtualIndex = 0): HTMLElement {
   const row = document.createElement('div')
+  const priority = customChatPriority(message)
   row.className = animate ? 'lc-chat-message lc-chat-peek' : 'lc-chat-message'
   row.dataset.uid = message.uid ?? ''
   row.dataset.kind = message.kind
   row.dataset.source = message.source
   row.dataset.user = displayName(message)
+  row.dataset.priority = priority
   row.dataset.virtualIndex = String(virtualIndex)
   row.tabIndex = 0
   const guard = guardLevel(message)
   const card = cardType(message)
+  if (priority === 'lite') row.classList.add('lc-chat-lite-event')
   if (card) {
     row.classList.add('lc-chat-card-event')
     row.dataset.card = card
@@ -1472,9 +1639,11 @@ function createMessageRow(message: CustomChatEvent, animate = false, virtualInde
     meta.append(reply)
   }
   for (const badgeText of normalizeBadges(message, shownName)) {
+    const badgeType = customChatBadgeType(badgeText)
     const badge = document.createElement('span')
-    badge.className = 'lc-chat-badge lc-chat-medal'
+    badge.className = `lc-chat-badge lc-chat-medal lc-chat-badge-${badgeType}`
     badge.dataset.badge = badgeText
+    badge.dataset.badgeType = badgeType
     setText(badge, badgeText)
     meta.append(badge)
   }
@@ -1517,7 +1686,7 @@ function createMessageRow(message: CustomChatEvent, animate = false, virtualInde
     content.className = 'lc-chat-card-text'
     setText(content, message.text)
 
-    const fields = cardFields(message, card, guard)
+    const fields = cardFields(message, card, guard).slice(0, 3)
     const fieldsEl = document.createElement('div')
     fieldsEl.className = 'lc-chat-card-fields'
     for (const field of fields) {
@@ -1651,6 +1820,8 @@ function clearMessages(): void {
   visibleMessages = []
   rowHeights.clear()
   unread = 0
+  paused = false
+  autoPausedByScroll = false
   hasClearedMessages = true
   virtualItemsEl?.replaceChildren()
   setSpacerHeight(virtualTopSpacer, 0)
@@ -1806,6 +1977,7 @@ function showEventDebug(
   appendDebugRow(debugEl, 'data-kind', message.kind)
   appendDebugRow(debugEl, 'data-card', card ?? '')
   appendDebugRow(debugEl, 'data-guard', guard ?? '')
+  appendDebugRow(debugEl, 'priority', customChatPriority(message))
   appendDebugRow(debugEl, 'source', message.source)
   appendDebugRow(debugEl, 'uid', message.uid ?? '')
   appendDebugRow(debugEl, 'raw cmd', message.rawCmd ?? '')
@@ -1840,6 +2012,7 @@ function createRoot(): HTMLElement {
 
   pauseBtn = makeButton('lc-chat-pill', '暂停', '暂停自动滚动', () => {
     paused = !paused
+    autoPausedByScroll = false
     if (!paused) {
       unread = 0
       scrollToBottom('smooth')
@@ -1933,15 +2106,13 @@ function createRoot(): HTMLElement {
   emptyEl = document.createElement('div')
   emptyEl.className = 'lc-chat-empty'
   listEl.append(virtualTopSpacer, virtualItemsEl, virtualBottomSpacer)
+  addRootEventListener(listEl, 'wheel', scrollListByWheel, { passive: false })
   addRootEventListener(
     listEl,
     'scroll',
     () => {
       renderVirtualWindow()
-      if (isNearBottom() && unread > 0) {
-        unread = 0
-        updateUnread()
-      }
+      syncAutoFollowFromScroll()
     },
     { passive: true }
   )
@@ -2224,6 +2395,7 @@ export function stopCustomChatDom(): void {
   }
   unread = 0
   paused = false
+  autoPausedByScroll = false
   sending = false
   searchQuery = ''
   hasClearedMessages = false
