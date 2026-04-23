@@ -4,8 +4,8 @@ import { useEffect, useRef } from 'preact/hooks'
 import {
   checkMedalRoomRestriction,
   ensureRoomId,
-  fetchRoomLiveStatus,
   fetchMedalRooms,
+  fetchRoomLiveStatus,
   getCsrfToken,
   type MedalRestrictionCheck,
   sendDanmaku,
@@ -1014,7 +1014,8 @@ export function SettingsTab() {
               老大爷值班台
             </div>
             <div className='cb-note'>
-              会为当前已开播的粉丝牌房间新开标签页，并让每个房间自动进入跟车试运行，同时把现场摘要同步到保安室的 Live Desk。
+              会为当前已开播的粉丝牌房间新开标签页，并让每个房间自动进入跟车试运行，同时把现场摘要同步到保安室的 Live
+              Desk。
             </div>
             <div className='cb-row' style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap' }}>
               <label className='cb-note' style={{ display: 'inline-flex', alignItems: 'center', gap: '.4em' }}>
@@ -1026,7 +1027,9 @@ export function SettingsTab() {
                   value={guardRoomLiveDeskHeartbeatSec.value}
                   onInput={e => {
                     const value = Number(e.currentTarget.value)
-                    guardRoomLiveDeskHeartbeatSec.value = Number.isFinite(value) ? Math.max(10, Math.min(120, value)) : 30
+                    guardRoomLiveDeskHeartbeatSec.value = Number.isFinite(value)
+                      ? Math.max(10, Math.min(120, value))
+                      : 30
                   }}
                   style={{ width: '64px' }}
                 />
@@ -1036,9 +1039,7 @@ export function SettingsTab() {
                 {liveDeskLaunching.value ? '值班台启动中…' : '开始值班（打开已开播粉丝牌房）'}
               </button>
             </div>
-            <div className='cb-note'>
-              当前会话：{guardRoomLiveDeskSessionId.value || '暂无'}
-            </div>
+            <div className='cb-note'>当前会话：{guardRoomLiveDeskSessionId.value || '暂无'}</div>
             {liveDeskStatus.value && <div className='cb-note'>{liveDeskStatus.value}</div>}
           </div>
           <div

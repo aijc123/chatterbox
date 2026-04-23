@@ -11,6 +11,7 @@ import {
   subscribeCustomChatEvents,
   subscribeCustomChatWsStatus,
 } from './custom-chat-events'
+import { formatMilliyuanAmount } from './custom-chat-pricing'
 import {
   CUSTOM_CHAT_MAX_MESSAGES,
   customChatBadgeType,
@@ -26,6 +27,7 @@ import { copyText, repeatDanmaku, sendManualDanmaku, stealDanmaku } from './danm
 import { type DanmakuEvent, subscribeDanmaku } from './danmaku-stream'
 import { hasRecentWsDanmaku } from './live-ws-source'
 import {
+  cachedEmoticonPackages,
   customChatCss,
   customChatHideNative,
   customChatPerfDebug,
@@ -56,6 +58,14 @@ const NATIVE_HEALTH_MIN_SCANS = 24
 const NATIVE_HEALTH_MAX_EVENTS = 0
 const NATIVE_EVENT_SELECTOR =
   '.chat-item, .super-chat-card, .gift-item, [class*="super"], [class*="gift"], [class*="guard"], [class*="privilege"]'
+
+type ChatFollowMode = 'following' | 'frozenByScroll' | 'frozenByButton'
+
+interface FrozenSnapshot {
+  messages: CustomChatEvent[]
+  rowHeights: Map<string, number>
+  scrollTop: number
+}
 
 const STYLE = `
 #${ROOT_ID}, #${ROOT_ID} * {
@@ -700,6 +710,14 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   box-shadow: var(--lc-chat-bubble-shadow);
   isolation: isolate;
 }
+#${ROOT_ID} .lc-chat-emote {
+  display: inline-block;
+  width: 1.7em;
+  height: 1.7em;
+  margin: -.2em .08em;
+  vertical-align: middle;
+  object-fit: contain;
+}
 #${ROOT_ID} .lc-chat-bubble::before {
   content: "";
   position: absolute;
@@ -849,6 +867,13 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+#${ROOT_ID} .lc-chat-unread {
+  max-width: min(100%, 220px);
+  border-color: color-mix(in srgb, var(--lc-chat-own) 28%, transparent);
+}
+#${ROOT_ID} .lc-chat-unread[data-frozen="true"] {
+  background: color-mix(in srgb, var(--lc-chat-chip) 74%, var(--lc-chat-own) 26%);
+}
 #${ROOT_ID} .lc-chat-ws-status {
   display: inline-flex;
   align-items: center;
@@ -971,7 +996,7 @@ let virtualTopSpacer: HTMLElement | null = null
 let virtualItemsEl: HTMLElement | null = null
 let virtualBottomSpacer: HTMLElement | null = null
 let pauseBtn: HTMLButtonElement | null = null
-let unreadEl: HTMLElement | null = null
+let unreadBtn: HTMLButtonElement | null = null
 let searchInput: HTMLInputElement | null = null
 let matchCountEl: HTMLElement | null = null
 let wsStatusEl: HTMLElement | null = null
@@ -983,8 +1008,8 @@ let countEl: HTMLElement | null = null
 let styleEl: HTMLStyleElement | null = null
 let userStyleEl: HTMLStyleElement | null = null
 let messageSeq = 0
-let paused = false
-let autoPausedByScroll = false
+let followMode: ChatFollowMode = 'following'
+let frozenSnapshot: FrozenSnapshot | null = null
 let unread = 0
 let sending = false
 let searchQuery = ''
@@ -1008,14 +1033,122 @@ let rerenderFrame: number | null = null
 let nativeScanFrame: number | null = null
 let rerenderToken = 0
 let rootEventController: AbortController | null = null
+let emoticonCacheSource: typeof cachedEmoticonPackages.value | null = null
+let emoticonCache = new Map<string, { url: string; alt: string }>()
+let emoticonFirstCharCache = new Map<string, string[]>()
 
 function eventToSendableMessage(ev: DanmakuEvent): string {
   if (!ev.isReply) return ev.text
   return ev.uname ? `@${ev.uname} ${ev.text}` : ev.text
 }
 
+function normalizeEmoticonTokens(...values: Array<string | null | undefined>): string[] {
+  const tokens = new Set<string>()
+
+  const add = (value: string | null | undefined): void => {
+    const token = (value ?? '').trim()
+    if (!token) return
+    tokens.add(token)
+
+    const bracketMatch = token.match(/^[[\u3010](.*?)[\]\u3011]$/u)
+    const core = (bracketMatch?.[1] ?? token).trim()
+    if (!core) return
+
+    tokens.add(core)
+    tokens.add(`[${core}]`)
+    tokens.add(`【${core}】`)
+  }
+
+  for (const value of values) add(value)
+  return [...tokens]
+}
+
+function rebuildEmoticonCache(): void {
+  const packages = cachedEmoticonPackages.value
+  if (packages === emoticonCacheSource) return
+  emoticonCacheSource = packages
+  emoticonCache = new Map()
+  emoticonFirstCharCache = new Map()
+
+  for (const pkg of packages) {
+    for (const emoticon of pkg.emoticons) {
+      const entries = normalizeEmoticonTokens(emoticon.emoticon_unique, emoticon.emoji, emoticon.descript)
+      for (const token of entries) {
+        if (!token || emoticonCache.has(token)) continue
+        emoticonCache.set(token, {
+          url: emoticon.url,
+          alt: emoticon.descript || emoticon.emoji || emoticon.emoticon_unique || token,
+        })
+      }
+    }
+  }
+
+  const tokens = [...emoticonCache.keys()].sort((a, b) => b.length - a.length)
+  for (const token of tokens) {
+    const firstChar = token[0]
+    if (!firstChar) continue
+    const list = emoticonFirstCharCache.get(firstChar)
+    if (list) list.push(token)
+    else emoticonFirstCharCache.set(firstChar, [token])
+  }
+}
+
+function matchingEmoticonToken(text: string, start: number): string | null {
+  rebuildEmoticonCache()
+  const candidates = emoticonFirstCharCache.get(text[start] ?? '')
+  if (!candidates) return null
+  for (const token of candidates) {
+    if (text.startsWith(token, start)) return token
+  }
+  return null
+}
+
+function appendTextFragment(parent: HTMLElement, text: string): void {
+  if (!text) {
+    parent.replaceChildren()
+    return
+  }
+  const fragment = document.createDocumentFragment()
+  let cursor = 0
+  let buffer = ''
+
+  while (cursor < text.length) {
+    const token = matchingEmoticonToken(text, cursor)
+    if (!token) {
+      buffer += text[cursor]
+      cursor += 1
+      continue
+    }
+
+    if (buffer) {
+      fragment.append(buffer)
+      buffer = ''
+    }
+
+    const emoticon = emoticonCache.get(token)
+    if (!emoticon?.url) {
+      buffer += token
+      cursor += token.length
+      continue
+    }
+
+    const img = document.createElement('img')
+    img.className = 'lc-chat-emote'
+    img.src = emoticon.url
+    img.alt = emoticon.alt || token
+    img.title = emoticon.alt || token
+    img.loading = 'lazy'
+    img.decoding = 'async'
+    fragment.append(img)
+    cursor += token.length
+  }
+
+  if (buffer) fragment.append(buffer)
+  parent.replaceChildren(fragment)
+}
+
 function setText(el: HTMLElement, text: string): void {
-  el.textContent = text
+  appendTextFragment(el, text)
 }
 
 function getRootEventSignal(): AbortSignal {
@@ -1078,6 +1211,120 @@ function rememberEvent(event: Pick<CustomChatEvent, 'kind' | 'uid' | 'text'>): b
   return true
 }
 
+function messageIndexByEvent(event: Pick<CustomChatEvent, 'kind' | 'uid' | 'text'>): number {
+  const key = eventKey(event)
+  for (let index = messages.length - 1; index >= 0; index--) {
+    if (eventKey(messages[index]) === key) return index
+  }
+  return -1
+}
+
+function chooseBetterName(current: string, incoming: string): string {
+  const currentName = compactText(current)
+  const incomingName = compactText(incoming)
+  if (!incomingName) return current
+  if (!currentName || currentName === '匿名') return incoming
+  if (incomingName === '匿名') return current
+  if (incomingName.length > currentName.length && incomingName.includes(currentName)) return incoming
+  return current
+}
+
+function mergeFields(
+  current: CustomChatField[] | undefined,
+  incoming: CustomChatField[] | undefined
+): CustomChatField[] | undefined {
+  if (!incoming?.length) return current
+  if (!current?.length) return incoming
+  const merged = [...current]
+  const keys = new Set(current.map(field => field.key))
+  for (const field of incoming) {
+    if (keys.has(field.key)) continue
+    merged.push(field)
+  }
+  return merged
+}
+
+function parseBadgeLevel(raw: string): number | null {
+  const text = compactText(raw)
+  const match = text.match(/^(?:UL|LV)\s*(\d{1,3})$/i) ?? text.match(/^用户等级[:：]?\s*(\d{1,3})$/)
+  if (!match) return null
+  const value = Number(match[1])
+  return Number.isFinite(value) && value >= 0 ? value : null
+}
+
+function formatBadgeLevel(level: number): string {
+  return `LV${Math.max(0, Math.trunc(level))}`
+}
+
+function bestMergedBadges(currentBadges: string[], incomingBadges: string[]): string[] {
+  const merged: string[] = []
+  let bestLevel: number | null = null
+  for (const raw of [...currentBadges, ...incomingBadges]) {
+    const level = parseBadgeLevel(raw)
+    if (level !== null) {
+      if (bestLevel === null || level > bestLevel) bestLevel = level
+      continue
+    }
+    if (!merged.includes(raw)) merged.push(raw)
+  }
+  if (bestLevel !== null) merged.push(formatBadgeLevel(bestLevel))
+  return merged
+}
+
+function mergeDuplicateEvent(current: CustomChatEvent, incoming: CustomChatEvent): CustomChatEvent | null {
+  const preferIncomingIdentity = incoming.source === 'ws' && current.source === 'dom'
+  const mergedBadges = bestMergedBadges(current.badges, incoming.badges)
+  const mergedFields = mergeFields(current.fields, incoming.fields)
+  const merged: CustomChatEvent = {
+    ...current,
+    id: preferIncomingIdentity ? incoming.id : current.id,
+    kind: current.kind === incoming.kind ? current.kind : incoming.kind,
+    sendText: incoming.sendText ?? current.sendText,
+    uname: chooseBetterName(current.uname, incoming.uname),
+    uid: current.uid ?? incoming.uid,
+    time: preferIncomingIdentity ? incoming.time : current.time,
+    isReply: current.isReply || incoming.isReply,
+    source: preferIncomingIdentity ? incoming.source : current.source,
+    badges: mergedBadges,
+    avatarUrl: incoming.avatarUrl ?? current.avatarUrl,
+    amount: current.amount ?? incoming.amount,
+    fields: mergedFields,
+    rawCmd: incoming.rawCmd ?? current.rawCmd,
+  }
+
+  const changed =
+    merged.id !== current.id ||
+    merged.kind !== current.kind ||
+    merged.sendText !== current.sendText ||
+    merged.uname !== current.uname ||
+    merged.uid !== current.uid ||
+    merged.time !== current.time ||
+    merged.isReply !== current.isReply ||
+    merged.source !== current.source ||
+    merged.avatarUrl !== current.avatarUrl ||
+    merged.amount !== current.amount ||
+    merged.rawCmd !== current.rawCmd ||
+    merged.badges.length !== current.badges.length ||
+    merged.badges.some((badge, index) => badge !== current.badges[index]) ||
+    (merged.fields?.length ?? 0) !== (current.fields?.length ?? 0)
+
+  return changed ? merged : null
+}
+
+function replaceMessage(index: number, next: CustomChatEvent): void {
+  const previous = messages[index]
+  if (!previous) return
+  const prevKey = messageKey(previous)
+  const nextKey = messageKey(next)
+  messages[index] = next
+  if (prevKey !== nextKey) {
+    messageKeys.delete(prevKey)
+    rowHeights.delete(prevKey)
+    messageKeys.add(nextKey)
+  }
+  scheduleRerenderMessages()
+}
+
 function recordEventStats(event: CustomChatEvent): void {
   const now = Date.now()
   eventTicks.push(now)
@@ -1088,6 +1335,7 @@ function recordEventStats(event: CustomChatEvent): void {
 function updatePerfDebug(): void {
   if (!perfEl || !root) return
   root.dataset.debug = customChatPerfDebug.value ? 'true' : 'false'
+  root.dataset.followMode = followMode
   if (!customChatPerfDebug.value) {
     root.removeAttribute('data-inspecting')
     root.querySelectorAll('.lc-chat-message.lc-chat-selected').forEach(el => {
@@ -1099,7 +1347,7 @@ function updatePerfDebug(): void {
   const totalSources = sourceCounts.dom + sourceCounts.ws + sourceCounts.local || 1
   const pct = (value: number) => Math.round((value / totalSources) * 100)
   const rendered = virtualItemsEl?.querySelectorAll('.lc-chat-message').length ?? 0
-  perfEl.textContent = `消息 ${messages.length}/${MAX_MESSAGES} | 可见 ${visibleMessages.length} | DOM节点 ${rendered} | 事件 ${eventTicks.length}/秒 | 本帧 ${lastBatchSize} | 待渲染 ${renderQueue.length} | DOM待扫 ${pendingNativeNodes.size} | WS ${pct(sourceCounts.ws)}% DOM ${pct(sourceCounts.dom)}% 本地 ${pct(sourceCounts.local)}%`
+  perfEl.textContent = `消息 ${messages.length}/${MAX_MESSAGES} | 可见 ${renderedMessages().length} | DOM节点 ${rendered} | 事件 ${eventTicks.length}/秒 | 本帧 ${lastBatchSize} | 待渲染 ${renderQueue.length} | DOM待扫 ${pendingNativeNodes.size} | WS ${pct(sourceCounts.ws)}% DOM ${pct(sourceCounts.dom)}% 本地 ${pct(sourceCounts.local)}%`
 }
 
 function isNoiseEventText(text: string): boolean {
@@ -1121,10 +1369,14 @@ function isReliableEvent(event: CustomChatEvent): boolean {
 }
 
 function usefulBadgeText(raw: string, uname: string): string | null {
-  const text = compactText(raw)
-    .replace(/^粉丝牌[:：]?/, '')
-    .replace(/^荣耀[:：]?/, '')
-    .replace(/^用户等级[:：]?/, 'UL ')
+  const level = parseBadgeLevel(raw)
+  const text =
+    level === null
+      ? compactText(raw)
+          .replace(/^粉丝牌[:：]?/, '')
+          .replace(/^荣耀[:：]?/, '')
+          .replace(/^用户等级[:：]?/, '')
+      : formatBadgeLevel(level)
   if (!text || text.length > 16) return null
   if (/这是\s*TA\s*的|TA 的|TA的|荣耀|粉丝|复制|举报|回复|关闭|头像/.test(text)) return null
   if (uname && (text === uname || text.startsWith(`${uname} `) || text.startsWith(`${uname}　`))) return null
@@ -1137,6 +1389,20 @@ function isBadDisplayName(value: string): boolean {
 
 function cleanDisplayName(value: string): string {
   return compactText(value).replace(/\s*[：:]\s*$/, '')
+}
+
+function shouldShowUserLevelBadge(message: CustomChatEvent): boolean {
+  return message.kind === 'danmaku'
+}
+
+function normalizedUserLevelBadge(message: CustomChatEvent, name = displayName(message)): string | null {
+  if (!shouldShowUserLevelBadge(message)) return null
+  for (const raw of message.badges) {
+    const text = usefulBadgeText(raw, name)
+    const level = text ? parseBadgeLevel(text) : parseBadgeLevel(raw)
+    if (level !== null) return formatBadgeLevel(level)
+  }
+  return formatBadgeLevel(0)
 }
 
 function displayName(message: CustomChatEvent): string {
@@ -1157,9 +1423,12 @@ function displayName(message: CustomChatEvent): string {
 
 function normalizeBadges(message: CustomChatEvent, name = displayName(message)): string[] {
   const normalized: string[] = []
+  const userLevelBadge = normalizedUserLevelBadge(message, name)
+  const maxOtherBadges = userLevelBadge ? 1 : 2
   for (const raw of message.badges) {
     const text = usefulBadgeText(raw, name)
     if (!text) continue
+    if (parseBadgeLevel(text) !== null) continue
     if (text === name || name.includes(text)) continue
     if (normalized.includes(text)) continue
     const parts = text.split(/\s+/).filter(Boolean)
@@ -1170,8 +1439,9 @@ function normalizeBadges(message: CustomChatEvent, name = displayName(message)):
       }
     }
     normalized.push(text)
-    if (normalized.length >= 2) break
+    if (normalized.length >= maxOtherBadges) break
   }
+  if (userLevelBadge && !normalized.includes(userLevelBadge)) normalized.push(userLevelBadge)
   return normalized
 }
 
@@ -1218,6 +1488,7 @@ function cardMark(type: 'gift' | 'superchat' | 'guard' | 'redpacket' | 'lottery'
 
 function formatAmount(message: CustomChatEvent, card: NonNullable<ReturnType<typeof cardType>>): string {
   if (!message.amount) return ''
+  if (card === 'gift' || card === 'guard') return formatMilliyuanAmount(message.amount)
   if (card === 'gift' || card === 'guard') return `¥${Math.round(message.amount / 1000)}`
   return `¥${message.amount}`
 }
@@ -1416,8 +1687,51 @@ function searchHint(): string {
   return customChatSearchHint(searchQuery)
 }
 
+function isFollowing(): boolean {
+  return followMode === 'following'
+}
+
+function renderedMessages(): CustomChatEvent[] {
+  return frozenSnapshot?.messages ?? visibleMessages
+}
+
+function renderedRowHeights(): Map<string, number> {
+  return frozenSnapshot?.rowHeights ?? rowHeights
+}
+
+function snapshotFromLive(scrollTop = listEl?.scrollTop ?? 0): FrozenSnapshot {
+  return {
+    messages: [...visibleMessages],
+    rowHeights: new Map(rowHeights),
+    scrollTop,
+  }
+}
+
+function syncFrozenSnapshotFromLive(): void {
+  if (isFollowing()) return
+  frozenSnapshot = snapshotFromLive(listEl?.scrollTop ?? frozenSnapshot?.scrollTop ?? 0)
+}
+
+function enterFrozenMode(mode: Exclude<ChatFollowMode, 'following'>): void {
+  if (isFollowing()) {
+    frozenSnapshot = snapshotFromLive()
+  } else if (frozenSnapshot && listEl) {
+    frozenSnapshot.scrollTop = listEl.scrollTop
+  }
+  followMode = mode
+  updateUnread()
+}
+
+function resumeFollowing(behavior: ScrollBehavior = 'smooth'): void {
+  followMode = 'following'
+  frozenSnapshot = null
+  unread = 0
+  updateUnread()
+  scrollToBottom(behavior)
+}
+
 function renderedMessageCount(): number {
-  return visibleMessages.length
+  return renderedMessages().length
 }
 
 function updateEmptyState(): void {
@@ -1480,11 +1794,29 @@ function updateMatchCount(): void {
 }
 
 function updateUnread(): void {
-  if (unreadEl) {
-    unreadEl.textContent = unread > 0 ? `${unread} 新` : ''
-    unreadEl.style.display = unread > 0 ? '' : 'none'
+  if (pauseBtn) {
+    const frozen = !isFollowing()
+    pauseBtn.textContent = frozen ? '恢复跟随' : '暂停'
+    pauseBtn.title = frozen ? '恢复自动跟随并跳到底部' : '暂停自动跟随，停留在当前聊天位置'
+    pauseBtn.setAttribute('aria-pressed', frozen ? 'true' : 'false')
   }
-  if (pauseBtn) pauseBtn.setAttribute('aria-pressed', paused ? 'true' : 'false')
+  if (unreadBtn) {
+    if (isFollowing()) {
+      unreadBtn.textContent = ''
+      unreadBtn.style.display = 'none'
+      unreadBtn.dataset.frozen = 'false'
+    } else {
+      unreadBtn.textContent =
+        unread > 0
+          ? `${unread} 条新消息，点击回到底部`
+          : followMode === 'frozenByButton'
+            ? '已手动暂停跟随'
+            : '正在浏览历史'
+      unreadBtn.title = '恢复自动跟随并跳到底部'
+      unreadBtn.style.display = ''
+      unreadBtn.dataset.frozen = 'true'
+    }
+  }
   updatePerfDebug()
 }
 
@@ -1494,24 +1826,18 @@ function isNearBottom(): boolean {
 }
 
 function syncAutoFollowFromScroll(): void {
+  if (!listEl) return
+  if (frozenSnapshot) frozenSnapshot.scrollTop = listEl.scrollTop
   const nearBottom = isNearBottom()
-  let changed = false
-  if (nearBottom) {
-    if (autoPausedByScroll) {
-      paused = false
-      autoPausedByScroll = false
-      changed = true
-    }
-    if (unread > 0) {
-      unread = 0
-      changed = true
-    }
-  } else if (!paused) {
-    paused = true
-    autoPausedByScroll = true
-    changed = true
+  if (isFollowing()) {
+    if (!nearBottom) enterFrozenMode('frozenByScroll')
+    return
   }
-  if (changed) updateUnread()
+  if (followMode === 'frozenByScroll' && nearBottom) {
+    resumeFollowing()
+    return
+  }
+  updateUnread()
 }
 
 function scrollToBottom(behavior: ScrollBehavior = 'auto'): void {
@@ -1530,7 +1856,7 @@ function normalizeWheelDelta(event: WheelEvent): number {
 }
 
 function scrollListByWheel(event: WheelEvent): void {
-  if (!listEl || visibleMessages.length === 0) return
+  if (!listEl || renderedMessages().length === 0) return
   const delta = normalizeWheelDelta(event)
   if (delta === 0) return
   event.preventDefault()
@@ -1565,12 +1891,13 @@ function estimatedRowHeight(message: CustomChatEvent): number {
 }
 
 function rowHeight(message: CustomChatEvent): number {
-  return rowHeights.get(messageKey(message)) ?? estimatedRowHeight(message)
+  return renderedRowHeights().get(messageKey(message)) ?? estimatedRowHeight(message)
 }
 
-function virtualContentHeight(end = visibleMessages.length): number {
+function virtualContentHeight(end = renderedMessages().length): number {
+  const items = renderedMessages()
   let height = 0
-  for (let index = 0; index < end; index++) height += rowHeight(visibleMessages[index])
+  for (let index = 0; index < end; index++) height += rowHeight(items[index])
   return height
 }
 
@@ -1718,41 +2045,44 @@ function createMessageRow(message: CustomChatEvent, animate = false, virtualInde
 }
 
 function virtualRange(): { start: number; end: number; top: number; bottom: number; total: number } {
+  const items = renderedMessages()
   const total = virtualContentHeight()
-  if (!listEl || visibleMessages.length === 0) return { start: 0, end: 0, top: 0, bottom: 0, total }
+  if (!listEl || items.length === 0) return { start: 0, end: 0, top: 0, bottom: 0, total }
   const viewportTop = listEl.scrollTop
   const viewportBottom = viewportTop + Math.max(listEl.clientHeight, 1)
   let start = 0
   let top = 0
-  while (start < visibleMessages.length && top + rowHeight(visibleMessages[start]) < viewportTop) {
-    top += rowHeight(visibleMessages[start])
+  while (start < items.length && top + rowHeight(items[start]) < viewportTop) {
+    top += rowHeight(items[start])
     start++
   }
   start = Math.max(0, start - VIRTUAL_OVERSCAN)
   top = virtualContentHeight(start)
   let end = start
   let bottom = top
-  while (end < visibleMessages.length && bottom < viewportBottom) {
-    bottom += rowHeight(visibleMessages[end])
+  while (end < items.length && bottom < viewportBottom) {
+    bottom += rowHeight(items[end])
     end++
   }
-  end = Math.min(visibleMessages.length, end + VIRTUAL_OVERSCAN)
+  end = Math.min(items.length, end + VIRTUAL_OVERSCAN)
   bottom = virtualContentHeight(end)
   return { start, end, top, bottom, total }
 }
 
 function measureRenderedRows(): void {
   if (!virtualItemsEl) return
+  const items = renderedMessages()
+  const heights = renderedRowHeights()
   let changed = false
   for (const row of virtualItemsEl.querySelectorAll<HTMLElement>('.lc-chat-message')) {
     const index = Number(row.dataset.virtualIndex)
-    const message = visibleMessages[index]
+    const message = items[index]
     if (!message) continue
     const measured = Math.ceil(row.getBoundingClientRect().height)
     if (measured <= 0) continue
     const key = messageKey(message)
-    if (Math.abs((rowHeights.get(key) ?? 0) - measured) > 2) {
-      rowHeights.set(key, measured)
+    if (Math.abs((heights.get(key) ?? 0) - measured) > 2) {
+      heights.set(key, measured)
       changed = true
     }
   }
@@ -1765,7 +2095,8 @@ function measureRenderedRows(): void {
 
 function renderVirtualWindow(animateKeys = new Set<string>()): void {
   if (!listEl || !virtualItemsEl) return
-  if (visibleMessages.length === 0) {
+  const items = renderedMessages()
+  if (items.length === 0) {
     virtualItemsEl.replaceChildren()
     setSpacerHeight(virtualTopSpacer, 0)
     setSpacerHeight(virtualBottomSpacer, 0)
@@ -1782,7 +2113,7 @@ function renderVirtualWindow(animateKeys = new Set<string>()): void {
   const range = virtualRange()
   const rows: HTMLElement[] = []
   for (let index = range.start; index < range.end; index++) {
-    const message = visibleMessages[index]
+    const message = items[index]
     const key = messageKey(message)
     const row = createMessageRow(message, animateKeys.has(key), index)
     row.dataset.key = key
@@ -1805,8 +2136,9 @@ function renderVirtualWindow(animateKeys = new Set<string>()): void {
 }
 
 function scrollToVirtualIndex(index: number): void {
-  if (!listEl || visibleMessages.length === 0) return
-  const clamped = Math.max(0, Math.min(visibleMessages.length - 1, index))
+  const items = renderedMessages()
+  if (!listEl || items.length === 0) return
+  const clamped = Math.max(0, Math.min(items.length - 1, index))
   const top = virtualContentHeight(clamped)
   listEl.scrollTo({ top: Math.max(0, top - 10), behavior: 'auto' })
   renderVirtualWindow()
@@ -1820,8 +2152,8 @@ function clearMessages(): void {
   visibleMessages = []
   rowHeights.clear()
   unread = 0
-  paused = false
-  autoPausedByScroll = false
+  followMode = 'following'
+  frozenSnapshot = null
   hasClearedMessages = true
   virtualItemsEl?.replaceChildren()
   setSpacerHeight(virtualTopSpacer, 0)
@@ -1831,17 +2163,29 @@ function clearMessages(): void {
   updateEmptyState()
 }
 
-function rerenderMessages(): void {
+function restoreFrozenScrollPosition(): void {
+  if (!listEl || !frozenSnapshot) return
+  const maxTop = Math.max(0, virtualContentHeight() - listEl.clientHeight)
+  const top = Math.max(0, Math.min(maxTop, frozenSnapshot.scrollTop))
+  if (Math.abs(top - listEl.scrollTop) > 0.5) listEl.scrollTop = top
+  frozenSnapshot.scrollTop = top
+}
+
+function rerenderMessages(options: { refreshFrozenSnapshot?: boolean } = {}): void {
   if (!listEl || !virtualItemsEl) return
   pruneMessages()
   refreshVisibleMessages()
+  if (!isFollowing()) {
+    if (options.refreshFrozenSnapshot || !frozenSnapshot) syncFrozenSnapshotFromLive()
+    restoreFrozenScrollPosition()
+  }
   renderVirtualWindow()
   updateMatchCount()
   updateEmptyState()
-  if (!paused) scrollToBottom()
+  if (isFollowing()) scrollToBottom()
 }
 
-function scheduleRerenderMessages(): void {
+function scheduleRerenderMessages(options: { refreshFrozenSnapshot?: boolean } = {}): void {
   rerenderToken++
   const token = rerenderToken
   if (rerenderFrame !== null) window.cancelAnimationFrame(rerenderFrame)
@@ -1849,11 +2193,15 @@ function scheduleRerenderMessages(): void {
     rerenderFrame = null
     if (!listEl || token !== rerenderToken) return
     refreshVisibleMessages()
+    if (!isFollowing()) {
+      if (options.refreshFrozenSnapshot || !frozenSnapshot) syncFrozenSnapshotFromLive()
+      restoreFrozenScrollPosition()
+    }
     renderVirtualWindow()
     updateMatchCount()
     updatePerfDebug()
     updateEmptyState()
-    if (!paused) scrollToBottom()
+    if (isFollowing()) scrollToBottom()
   })
 }
 
@@ -1862,8 +2210,8 @@ function flushRenderQueue(): void {
   if (!listEl || renderQueue.length === 0) return
   const batch = takeRenderBatch(renderQueue)
   lastBatchSize = batch.length
-  const shouldStickToBottom = !paused && isNearBottom()
-  const animate = shouldAnimateRenderBatch(batch.length)
+  const shouldStickToBottom = isFollowing() && isNearBottom()
+  const animate = isFollowing() && shouldAnimateRenderBatch(batch.length)
   const animateKeys = new Set<string>()
   let matched = 0
   for (const event of batch) {
@@ -1873,7 +2221,7 @@ function flushRenderQueue(): void {
     if (animate) animateKeys.add(messageKey(event))
   }
   refreshVisibleMessages()
-  renderVirtualWindow(animateKeys)
+  if (isFollowing()) renderVirtualWindow(animateKeys)
   if (renderQueue.length > 0) renderFrame = window.requestAnimationFrame(flushRenderQueue)
   if (matched === 0) {
     updateMatchCount()
@@ -1883,6 +2231,7 @@ function flushRenderQueue(): void {
   }
   pruneMessages()
   if (!shouldStickToBottom) {
+    if (isFollowing()) enterFrozenMode('frozenByScroll')
     unread += matched
     updateUnread()
   } else {
@@ -2010,18 +2359,17 @@ function createRoot(): HTMLElement {
   const menu = document.createElement('div')
   menu.className = 'lc-chat-menu'
 
-  pauseBtn = makeButton('lc-chat-pill', '暂停', '暂停自动滚动', () => {
-    paused = !paused
-    autoPausedByScroll = false
-    if (!paused) {
-      unread = 0
-      scrollToBottom('smooth')
+  pauseBtn = makeButton('lc-chat-pill', '暂停', '暂停自动跟随', () => {
+    if (isFollowing()) {
+      enterFrozenMode('frozenByButton')
+      return
     }
-    updateUnread()
+    resumeFollowing()
   })
-  unreadEl = document.createElement('span')
-  unreadEl.className = 'lc-chat-hint'
-  unreadEl.style.display = 'none'
+  unreadBtn = makeButton('lc-chat-pill lc-chat-unread', '', '恢复自动跟随并跳到底部', () => {
+    resumeFollowing()
+  })
+  unreadBtn.style.display = 'none'
   matchCountEl = document.createElement('span')
   matchCountEl.className = 'lc-chat-hint'
   matchCountEl.style.display = 'none'
@@ -2040,7 +2388,7 @@ function createRoot(): HTMLElement {
   addRootEventListener(searchInput, 'input', () => {
     searchQuery = searchInput?.value ?? ''
     unread = 0
-    scheduleRerenderMessages()
+    scheduleRerenderMessages({ refreshFrozenSnapshot: true })
     updateUnread()
   })
 
@@ -2059,7 +2407,7 @@ function createRoot(): HTMLElement {
     const btn = makeButton('lc-chat-filter', label, `显示/隐藏${label}`, () => {
       signal.value = !signal.value
       btn.setAttribute('aria-pressed', signal.value ? 'true' : 'false')
-      scheduleRerenderMessages()
+      scheduleRerenderMessages({ refreshFrozenSnapshot: true })
     })
     btn.setAttribute('aria-pressed', signal.value ? 'true' : 'false')
     filterbar.append(btn)
@@ -2071,7 +2419,7 @@ function createRoot(): HTMLElement {
 
   const controlRow = document.createElement('div')
   controlRow.className = 'lc-chat-menu-row'
-  controlRow.append(pauseBtn, unreadEl, clearBtn)
+  controlRow.append(pauseBtn, unreadBtn, clearBtn)
 
   const statusRow = document.createElement('div')
   statusRow.className = 'lc-chat-menu-row'
@@ -2118,7 +2466,8 @@ function createRoot(): HTMLElement {
   )
   addRootEventListener(listEl, 'keydown', e => {
     if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) return
-    if (visibleMessages.length === 0) return
+    const items = renderedMessages()
+    if (items.length === 0) return
     e.preventDefault()
     const active =
       document.activeElement instanceof HTMLElement ? document.activeElement.closest('.lc-chat-message') : null
@@ -2127,8 +2476,8 @@ function createRoot(): HTMLElement {
       e.key === 'Home'
         ? 0
         : e.key === 'End'
-          ? visibleMessages.length - 1
-          : Math.max(0, Math.min(visibleMessages.length - 1, index + (e.key === 'ArrowUp' ? -1 : 1)))
+          ? items.length - 1
+          : Math.max(0, Math.min(items.length - 1, index + (e.key === 'ArrowUp' ? -1 : 1)))
     scrollToVirtualIndex(nextIndex)
   })
 
@@ -2287,6 +2636,12 @@ function addDomMessage(ev: DanmakuEvent): void {
 
 function addEvent(event: CustomChatEvent): void {
   if (!isReliableEvent(event)) return
+  const duplicateIndex = messageIndexByEvent(event)
+  if (duplicateIndex >= 0) {
+    const merged = mergeDuplicateEvent(messages[duplicateIndex], event)
+    if (merged) replaceMessage(duplicateIndex, merged)
+    return
+  }
   const key = messageKey(event)
   if (messageKeys.has(key)) return
   if (!rememberEvent(event)) return
@@ -2364,7 +2719,7 @@ export function stopCustomChatDom(): void {
   virtualItemsEl = null
   virtualBottomSpacer = null
   pauseBtn = null
-  unreadEl = null
+  unreadBtn = null
   textarea = null
   countEl = null
   searchInput = null
@@ -2394,8 +2749,8 @@ export function stopCustomChatDom(): void {
     rerenderFrame = null
   }
   unread = 0
-  paused = false
-  autoPausedByScroll = false
+  followMode = 'following'
+  frozenSnapshot = null
   sending = false
   searchQuery = ''
   hasClearedMessages = false

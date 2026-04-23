@@ -6,8 +6,12 @@ import {
   shortAutoBlendText,
 } from './auto-blend-status'
 import { detectTrend, type TrendEvent } from './auto-blend-trend'
-import { subscribeCustomChatEvents } from './custom-chat-events'
-import { subscribeDanmaku } from './danmaku-stream'
+import {
+  type CustomChatEvent,
+  findRecentCustomChatDanmakuSource,
+  subscribeCustomChatEvents,
+} from './custom-chat-events'
+import { type DanmakuEvent, subscribeDanmaku } from './danmaku-stream'
 import { classifyRiskEvent, syncGuardRoomRiskEvent } from './guard-room-sync'
 import { appendLog } from './log'
 import { clearMemeSession, recordMemeCandidate } from './meme-contributor'
@@ -78,6 +82,7 @@ let isSending = false
 let rateLimitHitCount = 0
 let firstRateLimitHitAt = 0
 let moderationStopReason: string | null = null
+const recentDomDanmaku: Array<{ text: string; uid: string | null; observedAt: number }> = []
 
 // Let a freshly-started wave breathe briefly before following it. With a
 // threshold of 2, firing on the exact second message makes every log look like
@@ -85,6 +90,8 @@ let moderationStopReason: string | null = null
 // rest of the same wave.
 const RATE_LIMIT_BACKOFF_MS = 2 * 60 * 1000
 const SEND_ECHO_TIMEOUT_MS = 4000
+const RECENT_DOM_DANMAKU_HISTORY_MS = 15_000
+const RECENT_DOM_DANMAKU_HISTORY_MAX = 240
 
 function getBurstSettleMs(): number {
   return Math.max(0, autoBlendBurstSettleMs.value)
@@ -227,31 +234,82 @@ function updateStatusText(): void {
   })
 }
 
+function pruneRecentDomDanmaku(now = Date.now()): void {
+  while (recentDomDanmaku.length > 0 && now - recentDomDanmaku[0].observedAt > RECENT_DOM_DANMAKU_HISTORY_MS) {
+    recentDomDanmaku.shift()
+  }
+  while (recentDomDanmaku.length > RECENT_DOM_DANMAKU_HISTORY_MAX) {
+    recentDomDanmaku.shift()
+  }
+}
+
+function rememberRecentDomDanmaku(text: string, uid: string | null, observedAt: number): void {
+  if (!text) return
+  pruneRecentDomDanmaku(observedAt)
+  recentDomDanmaku.push({ text, uid, observedAt })
+}
+
+function findRecentDomDanmakuSource(text: string, uid: string | null, sinceTs: number): 'dom' | null {
+  const target = text.trim()
+  if (!target) return null
+  pruneRecentDomDanmaku()
+  for (let i = recentDomDanmaku.length - 1; i >= 0; i--) {
+    const event = recentDomDanmaku[i]
+    if (event.observedAt < sinceTs) break
+    if (event.text !== target) continue
+    if (uid && event.uid && event.uid !== uid) continue
+    return 'dom'
+  }
+  return null
+}
+
+function matchesCustomChatEchoEvent(event: CustomChatEvent, target: string, uid: string | null): boolean {
+  return event.kind === 'danmaku' && event.text.trim() === target && (!uid || !event.uid || event.uid === uid)
+}
+
+function matchesDomEchoEvent(event: DanmakuEvent, target: string, uid: string | null): boolean {
+  return event.text.trim() === target && (!uid || !event.uid || event.uid === uid)
+}
+
 function waitForSentEcho(
   text: string,
   uid: string | null,
+  sinceTs: number,
   timeoutMs = SEND_ECHO_TIMEOUT_MS
 ): Promise<'ws' | 'dom' | 'local' | null> {
   const target = text.trim()
   if (!target) return Promise.resolve(null)
+  const recentCustomSource = findRecentCustomChatDanmakuSource(target, uid, sinceTs)
+  if (recentCustomSource) return Promise.resolve(recentCustomSource)
+  const recentDomSource = findRecentDomDanmakuSource(target, uid, sinceTs)
+  if (recentDomSource) return Promise.resolve(recentDomSource)
 
   return new Promise(resolve => {
     let done = false
-    let unsubscribe = () => {}
+    let unsubscribeEvents = () => {}
+    let unsubscribeDom = () => {}
     const finish = (source: 'ws' | 'dom' | 'local' | null) => {
       if (done) return
       done = true
       clearTimeout(timer)
-      unsubscribe()
+      unsubscribeEvents()
+      unsubscribeDom()
       resolve(source)
     }
     const timer = setTimeout(() => finish(null), timeoutMs)
-    unsubscribe = subscribeCustomChatEvents(event => {
-      if (event.kind !== 'danmaku') return
-      if (event.text.trim() !== target) return
-      if (uid && event.uid && event.uid !== uid) return
+    unsubscribeEvents = subscribeCustomChatEvents(event => {
+      if (!matchesCustomChatEchoEvent(event, target, uid)) return
       finish(event.source)
     })
+    unsubscribeDom = subscribeDanmaku({
+      onMessage: event => {
+        if (!matchesDomEchoEvent(event, target, uid)) return
+        finish('dom')
+      },
+    })
+    const lateSource =
+      findRecentCustomChatDanmakuSource(target, uid, sinceTs) ?? findRecentDomDanmakuSource(target, uid, sinceTs)
+    if (lateSource) finish(lateSource)
   })
 }
 
@@ -332,6 +390,7 @@ function recordDanmaku(rawText: string, uid: string | null, isReply: boolean): v
 
   const text = rawText.trim()
   if (!text) return
+  rememberRecentDomDanmaku(text, uid, now)
   if (isReply && !autoBlendIncludeReply.value) return
 
   // Always exclude self to prevent positive feedback loops.
@@ -544,7 +603,7 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
 
         if (result.success && !result.cancelled) {
           autoBlendLastActionText.value = `已提交，等待回显：${shortAutoBlendText(display)}`
-          const echoSource = await waitForSentEcho(toSend, myUid)
+          const echoSource = await waitForSentEcho(toSend, myUid, result.startedAt ?? Date.now())
           if (echoSource) {
             const sourceLabel = echoSource === 'ws' ? 'WS' : echoSource === 'dom' ? 'DOM' : '本地'
             autoBlendLastActionText.value = `已${sourceLabel}回显：${shortAutoBlendText(display)}`
@@ -594,6 +653,7 @@ export function startAutoBlend(): void {
   rateLimitHitCount = 0
   firstRateLimitHitAt = 0
   moderationStopReason = null
+  recentDomDanmaku.length = 0
   autoBlendStatusText.value = '观察中'
   autoBlendCandidateText.value = '暂无'
   autoBlendLastActionText.value = '暂无'
@@ -634,6 +694,7 @@ export function stopAutoBlend(): void {
     unsubscribe = null
   }
   trendMap.clear()
+  recentDomDanmaku.length = 0
   clearMemeSession()
   cooldownUntil = 0
   autoBlendStatusText.value = '已关闭'

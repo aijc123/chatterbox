@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.8.22
+// @version      2.8.23
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -1164,7 +1164,6 @@
   const logPanelFocusRequest = y$1(0);
   const autoSendPanelOpen = gmSignal("autoSendPanelOpen", true);
   const autoBlendPanelOpen = gmSignal("autoBlendPanelOpen", true);
-  const normalSendPanelOpen = gmSignal("normalSendPanelOpen", true);
   const memesPanelOpen = gmSignal("memesPanelOpen", true);
   const dialogOpen = gmSignal("dialogOpen", false);
   const autoBlendWindowSec = gmSignal("autoBlendWindowSec", 20);
@@ -1808,6 +1807,18 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
       return null;
     }
   }
+  async function fetchRoomLiveStatus(roomId) {
+    const response = await fetch(`${BASE_URL.BILIBILI_ROOM_INIT}?id=${roomId}`, {
+      method: "GET",
+      credentials: "include"
+    });
+    if (!response.ok) return "unknown";
+    const json = await response.json();
+    if (json.code !== 0) return "unknown";
+    if (json.data?.live_status === 1) return "live";
+    if (typeof json.data?.live_status === "number") return "offline";
+    return "unknown";
+  }
   function toNumber(value) {
     if (typeof value === "number" && Number.isFinite(value)) return value;
     if (typeof value === "string" && /^\d+$/.test(value)) return Number(value);
@@ -1983,6 +1994,7 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
   }
   async function sendDanmaku(message, roomId, csrfToken) {
     const emoticon = isEmoticonUnique(message);
+    const startedAt = Date.now();
     const form = new FormData();
     form.append("bubble", "2");
     form.append("msg", message);
@@ -2032,6 +2044,7 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
           success: false,
           message,
           isEmoticon: emoticon,
+          startedAt,
           error: `HTTP ${resp.status}`
         };
       }
@@ -2041,6 +2054,7 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
           success: false,
           message,
           isEmoticon: emoticon,
+          startedAt,
           error: json.message ?? json.msg ?? `code ${json.code}`,
           errorCode: json.code,
           errorData: json.data
@@ -2049,7 +2063,8 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
       return {
         success: true,
         message,
-        isEmoticon: emoticon
+        isEmoticon: emoticon,
+        startedAt
       };
     } catch (err) {
       const aborted = err instanceof DOMException && err.name === "AbortError";
@@ -2057,6 +2072,7 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
         success: false,
         message,
         isEmoticon: emoticon,
+        startedAt,
         error: aborted ? `发送接口 ${Math.round(SEND_DANMAKU_TIMEOUT_MS / 1e3)}s 无响应` : err instanceof Error ? err.message : String(err)
       };
     }
@@ -2145,9 +2161,47 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
   const handlers = new Set();
   const wsStatusHandlers = new Set();
   let currentWsStatus$1 = "off";
+  const recentDanmakuHistory = [];
+  const RECENT_DANMAKU_HISTORY_MS = 15e3;
+  const RECENT_DANMAKU_HISTORY_MAX = 240;
   function subscribeCustomChatEvents(handler) {
     handlers.add(handler);
     return () => handlers.delete(handler);
+  }
+  function pruneRecentDanmakuHistory(now = Date.now()) {
+    while (recentDanmakuHistory.length > 0 && now - recentDanmakuHistory[0].observedAt > RECENT_DANMAKU_HISTORY_MS) {
+      recentDanmakuHistory.shift();
+    }
+    while (recentDanmakuHistory.length > RECENT_DANMAKU_HISTORY_MAX) {
+      recentDanmakuHistory.shift();
+    }
+  }
+  function rememberRecentDanmaku(event) {
+    if (event.kind !== "danmaku") return;
+    if (event.source !== "dom" && event.source !== "ws" && event.source !== "local") return;
+    const text = event.text.trim();
+    if (!text) return;
+    const now = Date.now();
+    pruneRecentDanmakuHistory(now);
+    recentDanmakuHistory.push({
+      text,
+      uid: event.uid,
+      source: event.source,
+      observedAt: now
+    });
+  }
+  function findRecentCustomChatDanmakuSource(text, uid, sinceTs) {
+    const target = text.trim();
+    if (!target) return null;
+    pruneRecentDanmakuHistory();
+    for (let i2 = recentDanmakuHistory.length - 1; i2 >= 0; i2--) {
+      const event = recentDanmakuHistory[i2];
+      if (event.observedAt < sinceTs) break;
+      if (event.text !== target) continue;
+      if (uid && event.uid && event.uid !== uid) continue;
+      return event.source;
+    }
+    return null;
   }
   function normalizeEventKind(event) {
     const signal = `${event.kind} ${event.text} ${event.badges.join(" ")} ${event.rawCmd ?? ""}`;
@@ -2178,6 +2232,7 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
   }
   function emitCustomChatEvent(event) {
     const normalized = normalizeCustomChatEvent(event);
+    rememberRecentDanmaku(normalized);
     for (const handler of handlers) {
       handler(normalized);
     }
@@ -2410,6 +2465,9 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
       maybeDetach();
     };
   }
+  const guardRoomLiveDeskSessionId = gmSignal("guardRoomLiveDeskSessionId", "");
+  const guardRoomLiveDeskHeartbeatSec = gmSignal("guardRoomLiveDeskHeartbeatSec", 30);
+  const guardRoomCurrentRiskLevel = y$1("pass");
   function normalizeGuardRoomEndpoint$1(endpoint) {
     return endpoint.trim().replace(/\/+$/, "");
   }
@@ -2437,6 +2495,7 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
     const endpoint = normalizeGuardRoomEndpoint$1(guardRoomEndpoint.value);
     const syncKey = guardRoomSyncKey.value.trim();
     if (!endpoint || !syncKey) return;
+    guardRoomCurrentRiskLevel.value = input.level;
     const payload = {
       eventId: `risk-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       scriptVersion: VERSION,
@@ -2453,6 +2512,46 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
       },
       body: JSON.stringify(payload)
     }).catch(() => void 0);
+  }
+  async function createGuardRoomLiveDeskSession(name = "老大爷值班台") {
+    const endpoint = normalizeGuardRoomEndpoint$1(guardRoomEndpoint.value);
+    const syncKey = guardRoomSyncKey.value.trim();
+    if (!endpoint || !syncKey) return null;
+    const response = await fetch(`${endpoint}/api/live-desk/sessions`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-sync-key": syncKey
+      },
+      body: JSON.stringify({ name })
+    }).catch(() => null);
+    if (!response?.ok) return null;
+    return await response.json();
+  }
+  async function syncGuardRoomLiveDeskHeartbeat(input) {
+    const endpoint = normalizeGuardRoomEndpoint$1(guardRoomEndpoint.value);
+    const syncKey = guardRoomSyncKey.value.trim();
+    if (!endpoint || !syncKey) return;
+    await fetch(`${endpoint}/api/live-desk/heartbeats`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-sync-key": syncKey
+      },
+      body: JSON.stringify({
+        ...input,
+        scriptVersion: VERSION,
+        candidateText: input.candidateText?.slice(0, 120)
+      })
+    }).catch(() => void 0);
+  }
+  function buildGuardRoomLiveDeskUrl(roomId, sessionId) {
+    const url = new URL(`https://live.bilibili.com/${roomId}`);
+    url.searchParams.set("guard_room_source", "guard-room");
+    url.searchParams.set("guard_room_mode", "dry-run");
+    url.searchParams.set("guard_room_autostart", "1");
+    url.searchParams.set("guard_room_session", sessionId);
+    return url.toString();
   }
   const MAX_PER_HOUR = 5;
   const MAX_CANDIDATES = 15;
@@ -2504,16 +2603,16 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
     if (recentCount >= MAX_PER_HOUR) return;
     const candidates = [...memeContributorCandidates.value, text];
     memeContributorCandidates.value = candidates.length > MAX_CANDIDATES ? candidates.slice(-MAX_CANDIDATES) : candidates;
-    const seen = [...memeContributorSeenTexts.value, text];
-    memeContributorSeenTexts.value = seen.length > MAX_SEEN ? seen.slice(-MAX_SEEN) : seen;
+    const seen2 = [...memeContributorSeenTexts.value, text];
+    memeContributorSeenTexts.value = seen2.length > MAX_SEEN ? seen2.slice(-MAX_SEEN) : seen2;
     nominationTimestamps.push(now);
     appendLog(`[贡献者] 检测到高质量烂梗 "${text}"，已加入待贡献池`);
   }
   function ignoreMemeCandidate(text) {
     memeContributorCandidates.value = memeContributorCandidates.value.filter((c2) => c2 !== text);
     if (!memeContributorSeenTexts.value.includes(text)) {
-      const seen = [...memeContributorSeenTexts.value, text];
-      memeContributorSeenTexts.value = seen.length > MAX_SEEN ? seen.slice(-MAX_SEEN) : seen;
+      const seen2 = [...memeContributorSeenTexts.value, text];
+      memeContributorSeenTexts.value = seen2.length > MAX_SEEN ? seen2.slice(-MAX_SEEN) : seen2;
     }
   }
   function clearMemeSession() {
@@ -2592,7 +2691,7 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
   }
   const trendMap = new Map();
   let cooldownUntil = 0;
-  let unsubscribe$1 = null;
+  let unsubscribe$2 = null;
   let cleanupTimer = null;
   let burstSettleTimer = null;
   let pendingBurstText = null;
@@ -2603,8 +2702,11 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
   let rateLimitHitCount = 0;
   let firstRateLimitHitAt = 0;
   let moderationStopReason = null;
+  const recentDomDanmaku = [];
   const RATE_LIMIT_BACKOFF_MS = 2 * 60 * 1e3;
   const SEND_ECHO_TIMEOUT_MS = 4e3;
+  const RECENT_DOM_DANMAKU_HISTORY_MS = 15e3;
+  const RECENT_DOM_DANMAKU_HISTORY_MAX = 240;
   function getBurstSettleMs() {
     return Math.max(0, autoBlendBurstSettleMs.value);
   }
@@ -2730,27 +2832,72 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
       now: Date.now()
     });
   }
-  function waitForSentEcho(text, uid, timeoutMs = SEND_ECHO_TIMEOUT_MS) {
+  function pruneRecentDomDanmaku(now = Date.now()) {
+    while (recentDomDanmaku.length > 0 && now - recentDomDanmaku[0].observedAt > RECENT_DOM_DANMAKU_HISTORY_MS) {
+      recentDomDanmaku.shift();
+    }
+    while (recentDomDanmaku.length > RECENT_DOM_DANMAKU_HISTORY_MAX) {
+      recentDomDanmaku.shift();
+    }
+  }
+  function rememberRecentDomDanmaku(text, uid, observedAt) {
+    if (!text) return;
+    pruneRecentDomDanmaku(observedAt);
+    recentDomDanmaku.push({ text, uid, observedAt });
+  }
+  function findRecentDomDanmakuSource(text, uid, sinceTs) {
+    const target = text.trim();
+    if (!target) return null;
+    pruneRecentDomDanmaku();
+    for (let i2 = recentDomDanmaku.length - 1; i2 >= 0; i2--) {
+      const event = recentDomDanmaku[i2];
+      if (event.observedAt < sinceTs) break;
+      if (event.text !== target) continue;
+      if (uid && event.uid && event.uid !== uid) continue;
+      return "dom";
+    }
+    return null;
+  }
+  function matchesCustomChatEchoEvent(event, target, uid) {
+    return event.kind === "danmaku" && event.text.trim() === target && (!uid || !event.uid || event.uid === uid);
+  }
+  function matchesDomEchoEvent(event, target, uid) {
+    return event.text.trim() === target && (!uid || !event.uid || event.uid === uid);
+  }
+  function waitForSentEcho(text, uid, sinceTs, timeoutMs = SEND_ECHO_TIMEOUT_MS) {
     const target = text.trim();
     if (!target) return Promise.resolve(null);
+    const recentCustomSource = findRecentCustomChatDanmakuSource(target, uid, sinceTs);
+    if (recentCustomSource) return Promise.resolve(recentCustomSource);
+    const recentDomSource = findRecentDomDanmakuSource(target, uid, sinceTs);
+    if (recentDomSource) return Promise.resolve(recentDomSource);
     return new Promise((resolve) => {
       let done = false;
-      let unsubscribe2 = () => {
+      let unsubscribeEvents2 = () => {
+      };
+      let unsubscribeDom2 = () => {
       };
       const finish = (source) => {
         if (done) return;
         done = true;
-        clearTimeout(timer);
-        unsubscribe2();
+        clearTimeout(timer2);
+        unsubscribeEvents2();
+        unsubscribeDom2();
         resolve(source);
       };
-      const timer = setTimeout(() => finish(null), timeoutMs);
-      unsubscribe2 = subscribeCustomChatEvents((event) => {
-        if (event.kind !== "danmaku") return;
-        if (event.text.trim() !== target) return;
-        if (uid && event.uid && event.uid !== uid) return;
+      const timer2 = setTimeout(() => finish(null), timeoutMs);
+      unsubscribeEvents2 = subscribeCustomChatEvents((event) => {
+        if (!matchesCustomChatEchoEvent(event, target, uid)) return;
         finish(event.source);
       });
+      unsubscribeDom2 = subscribeDanmaku({
+        onMessage: (event) => {
+          if (!matchesDomEchoEvent(event, target, uid)) return;
+          finish("dom");
+        }
+      });
+      const lateSource = findRecentCustomChatDanmakuSource(target, uid, sinceTs) ?? findRecentDomDanmakuSource(target, uid, sinceTs);
+      if (lateSource) finish(lateSource);
     });
   }
   function pruneExpired(now) {
@@ -2815,6 +2962,7 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
     updateStatusText();
     const text = rawText.trim();
     if (!text) return;
+    rememberRecentDomDanmaku(text, uid, now);
     if (isReply && !autoBlendIncludeReply.value) return;
     if (uid && myUid && uid === myUid) return;
     pruneExpired(now);
@@ -2963,7 +3111,7 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
           }
           if (result.success && !result.cancelled) {
             autoBlendLastActionText.value = `已提交，等待回显：${shortAutoBlendText(display)}`;
-            const echoSource = await waitForSentEcho(toSend, myUid);
+            const echoSource = await waitForSentEcho(toSend, myUid, result.startedAt ?? Date.now());
             if (echoSource) {
               const sourceLabel = echoSource === "ws" ? "WS" : echoSource === "dom" ? "DOM" : "本地";
               autoBlendLastActionText.value = `已${sourceLabel}回显：${shortAutoBlendText(display)}`;
@@ -3001,15 +3149,16 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
     }
   }
   function startAutoBlend() {
-    if (unsubscribe$1) return;
+    if (unsubscribe$2) return;
     myUid = getDedeUid() ?? null;
     rateLimitHitCount = 0;
     firstRateLimitHitAt = 0;
     moderationStopReason = null;
+    recentDomDanmaku.length = 0;
     autoBlendStatusText.value = "观察中";
     autoBlendCandidateText.value = "暂无";
     autoBlendLastActionText.value = "暂无";
-    unsubscribe$1 = subscribeDanmaku({
+    unsubscribe$2 = subscribeDanmaku({
       onMessage: (ev) => recordDanmaku(ev.text, ev.uid, ev.isReply)
     });
     if (cleanupTimer === null) {
@@ -3037,17 +3186,29 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
       burstSettleTimer = null;
     }
     pendingBurstText = null;
-    if (unsubscribe$1) {
-      unsubscribe$1();
-      unsubscribe$1 = null;
+    if (unsubscribe$2) {
+      unsubscribe$2();
+      unsubscribe$2 = null;
     }
     trendMap.clear();
+    recentDomDanmaku.length = 0;
     clearMemeSession();
     cooldownUntil = 0;
     autoBlendStatusText.value = "已关闭";
     autoBlendCandidateText.value = "暂无";
     autoBlendLastActionText.value = moderationStopReason ?? "暂无";
     moderationStopReason = null;
+  }
+  function formatMilliyuanAmount(amount, symbol = "¥") {
+    if (!amount || !Number.isFinite(amount) || amount <= 0) return "";
+    const yuan = amount / 1e3;
+    if (yuan < 1) return `${symbol}${(Math.round(yuan * 10) / 10).toFixed(1)}`;
+    const rounded = Math.round(yuan * 10) / 10;
+    return Number.isInteger(rounded) ? `${symbol}${rounded}` : `${symbol}${rounded.toFixed(1)}`;
+  }
+  function formatMilliyuanBadgeAmount(amount) {
+    const formatted = formatMilliyuanAmount(amount, "");
+    return formatted ? `${formatted}元` : "";
   }
   const CUSTOM_CHAT_MAX_MESSAGES = 220;
   const CUSTOM_CHAT_MAX_RENDER_BATCH = 36;
@@ -3066,11 +3227,11 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
     if (!value) return "other";
     if (/GUARD|privilege|guard/i.test(value) || /[\u603b\u63d0\u8230][\u7763\u957f]|\u8230\u961f/.test(value))
       return "guard";
-    if (/^\s*UL\s*\d+/i.test(value)) return "ul";
+    if (/^\s*(?:UL|LV)\s*\d+/i.test(value)) return "ul";
     if (/[\u623f\u7ba1]/.test(value) || /admin|moderator/i.test(value)) return "admin";
     if (/[\u699c]\s*[123]|top\s*[123]|rank\s*[123]/i.test(value)) return "rank";
     if (/[\u8363\u8000]/.test(value) || /honou?r/i.test(value)) return "honor";
-    if (/SC\s*\d+|^\d+\s*[\u5143]|[¥￥$]\s*\d+/i.test(value)) return "price";
+    if (/SC\s*\d+|^\d+(?:\.\d+)?\s*[\u5143]|[¥$]\s*\d+(?:\.\d+)?/i.test(value)) return "price";
     if (/[^\s]\s+\d{1,3}$/.test(value)) return "medal";
     return "other";
   }
@@ -5303,8 +5464,7 @@ ws;
     return fields.filter((field) => !!field?.value);
   }
   function yuanFromGiftPrice(price) {
-    const value = asNumber(price);
-    return value > 0 ? `¥${Math.round(value / 1e3)}` : "";
+    return formatMilliyuanAmount(asNumber(price));
   }
   function avatarUrl$1(uid) {
     return uid ? `${BASE_URL.BILIBILI_AVATAR}/${uid}?size=96` : void 0;
@@ -5394,10 +5554,11 @@ ws;
       const badge = info[3];
       const level = info[4];
       const uid = String(user[0]);
+      const userLevel = Number(level?.[0] ?? 0);
       rememberWsDanmaku(text, uid);
       const badges = [];
       if (badge?.[0]) badges.push(`${badge[1]} ${badge[0]}`);
-      if (level?.[0]) badges.push(`UL ${level[0]}`);
+      badges.push(`LV${Number.isFinite(userLevel) && userLevel > 0 ? userLevel : 0}`);
       if (user[2] === 1) badges.push("房管");
       emit({
         id: data.msg_id ?? `dm-${uid}-${Date.now()}-${Math.random()}`,
@@ -5427,7 +5588,7 @@ ws;
         time: chatEventTime(),
         isReply: false,
         source: "ws",
-        badges: gift.price > 0 ? [`${Math.round(gift.price / 1e3)}元`] : [],
+        badges: gift.price > 0 ? [formatMilliyuanBadgeAmount(gift.price)] : [],
         avatarUrl: avatarUrl$1(uid),
         amount: gift.price,
         fields: nonEmptyFields([
@@ -6302,6 +6463,14 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   box-shadow: var(--lc-chat-bubble-shadow);
   isolation: isolate;
 }
+#${ROOT_ID} .lc-chat-emote {
+  display: inline-block;
+  width: 1.7em;
+  height: 1.7em;
+  margin: -.2em .08em;
+  vertical-align: middle;
+  object-fit: contain;
+}
 #${ROOT_ID} .lc-chat-bubble::before {
   content: "";
   position: absolute;
@@ -6451,6 +6620,13 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+#${ROOT_ID} .lc-chat-unread {
+  max-width: min(100%, 220px);
+  border-color: color-mix(in srgb, var(--lc-chat-own) 28%, transparent);
+}
+#${ROOT_ID} .lc-chat-unread[data-frozen="true"] {
+  background: color-mix(in srgb, var(--lc-chat-chip) 74%, var(--lc-chat-own) 26%);
+}
 #${ROOT_ID} .lc-chat-ws-status {
   display: inline-flex;
   align-items: center;
@@ -6572,7 +6748,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   let virtualItemsEl = null;
   let virtualBottomSpacer = null;
   let pauseBtn = null;
-  let unreadEl = null;
+  let unreadBtn = null;
   let searchInput = null;
   let matchCountEl = null;
   let wsStatusEl = null;
@@ -6584,8 +6760,8 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   let styleEl$1 = null;
   let userStyleEl = null;
   let messageSeq = 0;
-  let paused = false;
-  let autoPausedByScroll = false;
+  let followMode = "following";
+  let frozenSnapshot = null;
   let unread = 0;
   let sending = false;
   let searchQuery = "";
@@ -6609,12 +6785,105 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   let nativeScanFrame = null;
   let rerenderToken = 0;
   let rootEventController = null;
+  let emoticonCacheSource = null;
+  let emoticonCache = new Map();
+  let emoticonFirstCharCache = new Map();
   function eventToSendableMessage$1(ev) {
     if (!ev.isReply) return ev.text;
     return ev.uname ? `@${ev.uname} ${ev.text}` : ev.text;
   }
+  function normalizeEmoticonTokens(...values) {
+    const tokens = new Set();
+    const add = (value) => {
+      const token = (value ?? "").trim();
+      if (!token) return;
+      tokens.add(token);
+      const bracketMatch = token.match(/^[[\u3010](.*?)[\]\u3011]$/u);
+      const core = (bracketMatch?.[1] ?? token).trim();
+      if (!core) return;
+      tokens.add(core);
+      tokens.add(`[${core}]`);
+      tokens.add(`【${core}】`);
+    };
+    for (const value of values) add(value);
+    return [...tokens];
+  }
+  function rebuildEmoticonCache() {
+    const packages = cachedEmoticonPackages.value;
+    if (packages === emoticonCacheSource) return;
+    emoticonCacheSource = packages;
+    emoticonCache = new Map();
+    emoticonFirstCharCache = new Map();
+    for (const pkg of packages) {
+      for (const emoticon of pkg.emoticons) {
+        const entries = normalizeEmoticonTokens(emoticon.emoticon_unique, emoticon.emoji, emoticon.descript);
+        for (const token of entries) {
+          if (!token || emoticonCache.has(token)) continue;
+          emoticonCache.set(token, {
+            url: emoticon.url,
+            alt: emoticon.descript || emoticon.emoji || emoticon.emoticon_unique || token
+          });
+        }
+      }
+    }
+    const tokens = [...emoticonCache.keys()].sort((a2, b2) => b2.length - a2.length);
+    for (const token of tokens) {
+      const firstChar = token[0];
+      if (!firstChar) continue;
+      const list = emoticonFirstCharCache.get(firstChar);
+      if (list) list.push(token);
+      else emoticonFirstCharCache.set(firstChar, [token]);
+    }
+  }
+  function matchingEmoticonToken(text, start) {
+    rebuildEmoticonCache();
+    const candidates = emoticonFirstCharCache.get(text[start] ?? "");
+    if (!candidates) return null;
+    for (const token of candidates) {
+      if (text.startsWith(token, start)) return token;
+    }
+    return null;
+  }
+  function appendTextFragment(parent, text) {
+    if (!text) {
+      parent.replaceChildren();
+      return;
+    }
+    const fragment = document.createDocumentFragment();
+    let cursor = 0;
+    let buffer = "";
+    while (cursor < text.length) {
+      const token = matchingEmoticonToken(text, cursor);
+      if (!token) {
+        buffer += text[cursor];
+        cursor += 1;
+        continue;
+      }
+      if (buffer) {
+        fragment.append(buffer);
+        buffer = "";
+      }
+      const emoticon = emoticonCache.get(token);
+      if (!emoticon?.url) {
+        buffer += token;
+        cursor += token.length;
+        continue;
+      }
+      const img = document.createElement("img");
+      img.className = "lc-chat-emote";
+      img.src = emoticon.url;
+      img.alt = emoticon.alt || token;
+      img.title = emoticon.alt || token;
+      img.loading = "lazy";
+      img.decoding = "async";
+      fragment.append(img);
+      cursor += token.length;
+    }
+    if (buffer) fragment.append(buffer);
+    parent.replaceChildren(fragment);
+  }
   function setText(el, text) {
-    el.textContent = text;
+    appendTextFragment(el, text);
   }
   function getRootEventSignal() {
     rootEventController ??= new AbortController();
@@ -6658,6 +6927,93 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     recentEventKeys.set(key, now);
     return true;
   }
+  function messageIndexByEvent(event) {
+    const key = eventKey(event);
+    for (let index = messages.length - 1; index >= 0; index--) {
+      if (eventKey(messages[index]) === key) return index;
+    }
+    return -1;
+  }
+  function chooseBetterName(current, incoming) {
+    const currentName = compactText(current);
+    const incomingName = compactText(incoming);
+    if (!incomingName) return current;
+    if (!currentName || currentName === "匿名") return incoming;
+    if (incomingName === "匿名") return current;
+    if (incomingName.length > currentName.length && incomingName.includes(currentName)) return incoming;
+    return current;
+  }
+  function mergeFields(current, incoming) {
+    if (!incoming?.length) return current;
+    if (!current?.length) return incoming;
+    const merged = [...current];
+    const keys = new Set(current.map((field) => field.key));
+    for (const field of incoming) {
+      if (keys.has(field.key)) continue;
+      merged.push(field);
+    }
+    return merged;
+  }
+  function parseBadgeLevel(raw) {
+    const text = compactText(raw);
+    const match = text.match(/^(?:UL|LV)\s*(\d{1,3})$/i) ?? text.match(/^用户等级[:：]?\s*(\d{1,3})$/);
+    if (!match) return null;
+    const value = Number(match[1]);
+    return Number.isFinite(value) && value >= 0 ? value : null;
+  }
+  function formatBadgeLevel(level) {
+    return `LV${Math.max(0, Math.trunc(level))}`;
+  }
+  function bestMergedBadges(currentBadges, incomingBadges) {
+    const merged = [];
+    let bestLevel = null;
+    for (const raw of [...currentBadges, ...incomingBadges]) {
+      const level = parseBadgeLevel(raw);
+      if (level !== null) {
+        if (bestLevel === null || level > bestLevel) bestLevel = level;
+        continue;
+      }
+      if (!merged.includes(raw)) merged.push(raw);
+    }
+    if (bestLevel !== null) merged.push(formatBadgeLevel(bestLevel));
+    return merged;
+  }
+  function mergeDuplicateEvent(current, incoming) {
+    const preferIncomingIdentity = incoming.source === "ws" && current.source === "dom";
+    const mergedBadges = bestMergedBadges(current.badges, incoming.badges);
+    const mergedFields = mergeFields(current.fields, incoming.fields);
+    const merged = {
+      ...current,
+      id: preferIncomingIdentity ? incoming.id : current.id,
+      kind: current.kind === incoming.kind ? current.kind : incoming.kind,
+      sendText: incoming.sendText ?? current.sendText,
+      uname: chooseBetterName(current.uname, incoming.uname),
+      uid: current.uid ?? incoming.uid,
+      time: preferIncomingIdentity ? incoming.time : current.time,
+      isReply: current.isReply || incoming.isReply,
+      source: preferIncomingIdentity ? incoming.source : current.source,
+      badges: mergedBadges,
+      avatarUrl: incoming.avatarUrl ?? current.avatarUrl,
+      amount: current.amount ?? incoming.amount,
+      fields: mergedFields,
+      rawCmd: incoming.rawCmd ?? current.rawCmd
+    };
+    const changed = merged.id !== current.id || merged.kind !== current.kind || merged.sendText !== current.sendText || merged.uname !== current.uname || merged.uid !== current.uid || merged.time !== current.time || merged.isReply !== current.isReply || merged.source !== current.source || merged.avatarUrl !== current.avatarUrl || merged.amount !== current.amount || merged.rawCmd !== current.rawCmd || merged.badges.length !== current.badges.length || merged.badges.some((badge, index) => badge !== current.badges[index]) || (merged.fields?.length ?? 0) !== (current.fields?.length ?? 0);
+    return changed ? merged : null;
+  }
+  function replaceMessage(index, next) {
+    const previous = messages[index];
+    if (!previous) return;
+    const prevKey = messageKey(previous);
+    const nextKey = messageKey(next);
+    messages[index] = next;
+    if (prevKey !== nextKey) {
+      messageKeys.delete(prevKey);
+      rowHeights.delete(prevKey);
+      messageKeys.add(nextKey);
+    }
+    scheduleRerenderMessages();
+  }
   function recordEventStats(event) {
     const now = Date.now();
     eventTicks.push(now);
@@ -6667,6 +7023,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   function updatePerfDebug() {
     if (!perfEl || !root) return;
     root.dataset.debug = customChatPerfDebug.value ? "true" : "false";
+    root.dataset.followMode = followMode;
     if (!customChatPerfDebug.value) {
       root.removeAttribute("data-inspecting");
       root.querySelectorAll(".lc-chat-message.lc-chat-selected").forEach((el) => {
@@ -6678,7 +7035,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     const totalSources = sourceCounts.dom + sourceCounts.ws + sourceCounts.local || 1;
     const pct = (value) => Math.round(value / totalSources * 100);
     const rendered = virtualItemsEl?.querySelectorAll(".lc-chat-message").length ?? 0;
-    perfEl.textContent = `消息 ${messages.length}/${MAX_MESSAGES} | 可见 ${visibleMessages.length} | DOM节点 ${rendered} | 事件 ${eventTicks.length}/秒 | 本帧 ${lastBatchSize} | 待渲染 ${renderQueue.length} | DOM待扫 ${pendingNativeNodes.size} | WS ${pct(sourceCounts.ws)}% DOM ${pct(sourceCounts.dom)}% 本地 ${pct(sourceCounts.local)}%`;
+    perfEl.textContent = `消息 ${messages.length}/${MAX_MESSAGES} | 可见 ${renderedMessages().length} | DOM节点 ${rendered} | 事件 ${eventTicks.length}/秒 | 本帧 ${lastBatchSize} | 待渲染 ${renderQueue.length} | DOM待扫 ${pendingNativeNodes.size} | WS ${pct(sourceCounts.ws)}% DOM ${pct(sourceCounts.dom)}% 本地 ${pct(sourceCounts.local)}%`;
   }
   function isNoiseEventText(text) {
     const clean = compactText(text);
@@ -6697,7 +7054,8 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     return true;
   }
   function usefulBadgeText(raw, uname) {
-    const text = compactText(raw).replace(/^粉丝牌[:：]?/, "").replace(/^荣耀[:：]?/, "").replace(/^用户等级[:：]?/, "UL ");
+    const level = parseBadgeLevel(raw);
+    const text = level === null ? compactText(raw).replace(/^粉丝牌[:：]?/, "").replace(/^荣耀[:：]?/, "").replace(/^用户等级[:：]?/, "") : formatBadgeLevel(level);
     if (!text || text.length > 16) return null;
     if (/这是\s*TA\s*的|TA 的|TA的|荣耀|粉丝|复制|举报|回复|关闭|头像/.test(text)) return null;
     if (uname && (text === uname || text.startsWith(`${uname} `) || text.startsWith(`${uname}　`))) return null;
@@ -6708,6 +7066,18 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   }
   function cleanDisplayName(value) {
     return compactText(value).replace(/\s*[：:]\s*$/, "");
+  }
+  function shouldShowUserLevelBadge(message) {
+    return message.kind === "danmaku";
+  }
+  function normalizedUserLevelBadge(message, name = displayName(message)) {
+    if (!shouldShowUserLevelBadge(message)) return null;
+    for (const raw of message.badges) {
+      const text = usefulBadgeText(raw, name);
+      const level = text ? parseBadgeLevel(text) : parseBadgeLevel(raw);
+      if (level !== null) return formatBadgeLevel(level);
+    }
+    return formatBadgeLevel(0);
   }
   function displayName(message) {
     let name = cleanDisplayName(message.uname) || "匿名";
@@ -6726,9 +7096,12 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   }
   function normalizeBadges(message, name = displayName(message)) {
     const normalized = [];
+    const userLevelBadge = normalizedUserLevelBadge(message, name);
+    const maxOtherBadges = userLevelBadge ? 1 : 2;
     for (const raw of message.badges) {
       const text = usefulBadgeText(raw, name);
       if (!text) continue;
+      if (parseBadgeLevel(text) !== null) continue;
       if (text === name || name.includes(text)) continue;
       if (normalized.includes(text)) continue;
       const parts = text.split(/\s+/).filter(Boolean);
@@ -6739,8 +7112,9 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
         }
       }
       normalized.push(text);
-      if (normalized.length >= 2) break;
+      if (normalized.length >= maxOtherBadges) break;
     }
+    if (userLevelBadge && !normalized.includes(userLevelBadge)) normalized.push(userLevelBadge);
     return normalized;
   }
   function guardLevel(message) {
@@ -6778,6 +7152,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   }
   function formatAmount(message, card) {
     if (!message.amount) return "";
+    if (card === "gift" || card === "guard") return formatMilliyuanAmount(message.amount);
     if (card === "gift" || card === "guard") return `¥${Math.round(message.amount / 1e3)}`;
     return `¥${message.amount}`;
   }
@@ -6954,8 +7329,44 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   function searchHint() {
     return customChatSearchHint(searchQuery);
   }
+  function isFollowing() {
+    return followMode === "following";
+  }
+  function renderedMessages() {
+    return frozenSnapshot?.messages ?? visibleMessages;
+  }
+  function renderedRowHeights() {
+    return frozenSnapshot?.rowHeights ?? rowHeights;
+  }
+  function snapshotFromLive(scrollTop = listEl?.scrollTop ?? 0) {
+    return {
+      messages: [...visibleMessages],
+      rowHeights: new Map(rowHeights),
+      scrollTop
+    };
+  }
+  function syncFrozenSnapshotFromLive() {
+    if (isFollowing()) return;
+    frozenSnapshot = snapshotFromLive(listEl?.scrollTop ?? frozenSnapshot?.scrollTop ?? 0);
+  }
+  function enterFrozenMode(mode) {
+    if (isFollowing()) {
+      frozenSnapshot = snapshotFromLive();
+    } else if (frozenSnapshot && listEl) {
+      frozenSnapshot.scrollTop = listEl.scrollTop;
+    }
+    followMode = mode;
+    updateUnread();
+  }
+  function resumeFollowing(behavior = "smooth") {
+    followMode = "following";
+    frozenSnapshot = null;
+    unread = 0;
+    updateUnread();
+    scrollToBottom(behavior);
+  }
   function renderedMessageCount() {
-    return visibleMessages.length;
+    return renderedMessages().length;
   }
   function updateEmptyState() {
     if (!listEl || !emptyEl) return;
@@ -7008,11 +7419,24 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     matchCountEl.style.display = "";
   }
   function updateUnread() {
-    if (unreadEl) {
-      unreadEl.textContent = unread > 0 ? `${unread} 新` : "";
-      unreadEl.style.display = unread > 0 ? "" : "none";
+    if (pauseBtn) {
+      const frozen = !isFollowing();
+      pauseBtn.textContent = frozen ? "恢复跟随" : "暂停";
+      pauseBtn.title = frozen ? "恢复自动跟随并跳到底部" : "暂停自动跟随，停留在当前聊天位置";
+      pauseBtn.setAttribute("aria-pressed", frozen ? "true" : "false");
     }
-    if (pauseBtn) pauseBtn.setAttribute("aria-pressed", paused ? "true" : "false");
+    if (unreadBtn) {
+      if (isFollowing()) {
+        unreadBtn.textContent = "";
+        unreadBtn.style.display = "none";
+        unreadBtn.dataset.frozen = "false";
+      } else {
+        unreadBtn.textContent = unread > 0 ? `${unread} 条新消息，点击回到底部` : followMode === "frozenByButton" ? "已手动暂停跟随" : "正在浏览历史";
+        unreadBtn.title = "恢复自动跟随并跳到底部";
+        unreadBtn.style.display = "";
+        unreadBtn.dataset.frozen = "true";
+      }
+    }
     updatePerfDebug();
   }
   function isNearBottom() {
@@ -7020,24 +7444,18 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     return virtualContentHeight() - listEl.scrollTop - listEl.clientHeight < 80;
   }
   function syncAutoFollowFromScroll() {
+    if (!listEl) return;
+    if (frozenSnapshot) frozenSnapshot.scrollTop = listEl.scrollTop;
     const nearBottom = isNearBottom();
-    let changed = false;
-    if (nearBottom) {
-      if (autoPausedByScroll) {
-        paused = false;
-        autoPausedByScroll = false;
-        changed = true;
-      }
-      if (unread > 0) {
-        unread = 0;
-        changed = true;
-      }
-    } else if (!paused) {
-      paused = true;
-      autoPausedByScroll = true;
-      changed = true;
+    if (isFollowing()) {
+      if (!nearBottom) enterFrozenMode("frozenByScroll");
+      return;
     }
-    if (changed) updateUnread();
+    if (followMode === "frozenByScroll" && nearBottom) {
+      resumeFollowing();
+      return;
+    }
+    updateUnread();
   }
   function scrollToBottom(behavior = "auto") {
     if (!listEl) return;
@@ -7052,7 +7470,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     return Math.max(-140, Math.min(140, delta));
   }
   function scrollListByWheel(event) {
-    if (!listEl || visibleMessages.length === 0) return;
+    if (!listEl || renderedMessages().length === 0) return;
     const delta = normalizeWheelDelta(event);
     if (delta === 0) return;
     event.preventDefault();
@@ -7084,11 +7502,12 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     return DEFAULT_ROW_HEIGHT + Math.max(0, Math.ceil(message.text.length / 34) - 1) * 18;
   }
   function rowHeight(message) {
-    return rowHeights.get(messageKey(message)) ?? estimatedRowHeight(message);
+    return renderedRowHeights().get(messageKey(message)) ?? estimatedRowHeight(message);
   }
-  function virtualContentHeight(end = visibleMessages.length) {
+  function virtualContentHeight(end = renderedMessages().length) {
+    const items = renderedMessages();
     let height = 0;
-    for (let index = 0; index < end; index++) height += rowHeight(visibleMessages[index]);
+    for (let index = 0; index < end; index++) height += rowHeight(items[index]);
     return height;
   }
   function setSpacerHeight(spacer, height) {
@@ -7216,40 +7635,43 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     return row;
   }
   function virtualRange() {
+    const items = renderedMessages();
     const total = virtualContentHeight();
-    if (!listEl || visibleMessages.length === 0) return { start: 0, end: 0, top: 0, bottom: 0, total };
+    if (!listEl || items.length === 0) return { start: 0, end: 0, top: 0, bottom: 0, total };
     const viewportTop = listEl.scrollTop;
     const viewportBottom = viewportTop + Math.max(listEl.clientHeight, 1);
     let start = 0;
     let top = 0;
-    while (start < visibleMessages.length && top + rowHeight(visibleMessages[start]) < viewportTop) {
-      top += rowHeight(visibleMessages[start]);
+    while (start < items.length && top + rowHeight(items[start]) < viewportTop) {
+      top += rowHeight(items[start]);
       start++;
     }
     start = Math.max(0, start - VIRTUAL_OVERSCAN);
     top = virtualContentHeight(start);
     let end = start;
     let bottom = top;
-    while (end < visibleMessages.length && bottom < viewportBottom) {
-      bottom += rowHeight(visibleMessages[end]);
+    while (end < items.length && bottom < viewportBottom) {
+      bottom += rowHeight(items[end]);
       end++;
     }
-    end = Math.min(visibleMessages.length, end + VIRTUAL_OVERSCAN);
+    end = Math.min(items.length, end + VIRTUAL_OVERSCAN);
     bottom = virtualContentHeight(end);
     return { start, end, top, bottom, total };
   }
   function measureRenderedRows() {
     if (!virtualItemsEl) return;
+    const items = renderedMessages();
+    const heights = renderedRowHeights();
     let changed = false;
     for (const row of virtualItemsEl.querySelectorAll(".lc-chat-message")) {
       const index = Number(row.dataset.virtualIndex);
-      const message = visibleMessages[index];
+      const message = items[index];
       if (!message) continue;
       const measured = Math.ceil(row.getBoundingClientRect().height);
       if (measured <= 0) continue;
       const key = messageKey(message);
-      if (Math.abs((rowHeights.get(key) ?? 0) - measured) > 2) {
-        rowHeights.set(key, measured);
+      if (Math.abs((heights.get(key) ?? 0) - measured) > 2) {
+        heights.set(key, measured);
         changed = true;
       }
     }
@@ -7261,7 +7683,8 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   }
   function renderVirtualWindow(animateKeys = new Set()) {
     if (!listEl || !virtualItemsEl) return;
-    if (visibleMessages.length === 0) {
+    const items = renderedMessages();
+    if (items.length === 0) {
       virtualItemsEl.replaceChildren();
       setSpacerHeight(virtualTopSpacer, 0);
       setSpacerHeight(virtualBottomSpacer, 0);
@@ -7274,7 +7697,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     const range = virtualRange();
     const rows = [];
     for (let index = range.start; index < range.end; index++) {
-      const message = visibleMessages[index];
+      const message = items[index];
       const key = messageKey(message);
       const row = createMessageRow(message, animateKeys.has(key), index);
       row.dataset.key = key;
@@ -7296,8 +7719,9 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     updatePerfDebug();
   }
   function scrollToVirtualIndex(index) {
-    if (!listEl || visibleMessages.length === 0) return;
-    const clamped = Math.max(0, Math.min(visibleMessages.length - 1, index));
+    const items = renderedMessages();
+    if (!listEl || items.length === 0) return;
+    const clamped = Math.max(0, Math.min(items.length - 1, index));
     const top = virtualContentHeight(clamped);
     listEl.scrollTo({ top: Math.max(0, top - 10), behavior: "auto" });
     renderVirtualWindow();
@@ -7310,8 +7734,8 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     visibleMessages = [];
     rowHeights.clear();
     unread = 0;
-    paused = false;
-    autoPausedByScroll = false;
+    followMode = "following";
+    frozenSnapshot = null;
     hasClearedMessages = true;
     virtualItemsEl?.replaceChildren();
     setSpacerHeight(virtualTopSpacer, 0);
@@ -7320,16 +7744,27 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     updateMatchCount();
     updateEmptyState();
   }
-  function rerenderMessages() {
+  function restoreFrozenScrollPosition() {
+    if (!listEl || !frozenSnapshot) return;
+    const maxTop = Math.max(0, virtualContentHeight() - listEl.clientHeight);
+    const top = Math.max(0, Math.min(maxTop, frozenSnapshot.scrollTop));
+    if (Math.abs(top - listEl.scrollTop) > 0.5) listEl.scrollTop = top;
+    frozenSnapshot.scrollTop = top;
+  }
+  function rerenderMessages(options = {}) {
     if (!listEl || !virtualItemsEl) return;
     pruneMessages();
     refreshVisibleMessages();
+    if (!isFollowing()) {
+      if (options.refreshFrozenSnapshot || !frozenSnapshot) syncFrozenSnapshotFromLive();
+      restoreFrozenScrollPosition();
+    }
     renderVirtualWindow();
     updateMatchCount();
     updateEmptyState();
-    if (!paused) scrollToBottom();
+    if (isFollowing()) scrollToBottom();
   }
-  function scheduleRerenderMessages() {
+  function scheduleRerenderMessages(options = {}) {
     rerenderToken++;
     const token = rerenderToken;
     if (rerenderFrame !== null) window.cancelAnimationFrame(rerenderFrame);
@@ -7337,11 +7772,15 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
       rerenderFrame = null;
       if (!listEl || token !== rerenderToken) return;
       refreshVisibleMessages();
+      if (!isFollowing()) {
+        if (options.refreshFrozenSnapshot || !frozenSnapshot) syncFrozenSnapshotFromLive();
+        restoreFrozenScrollPosition();
+      }
       renderVirtualWindow();
       updateMatchCount();
       updatePerfDebug();
       updateEmptyState();
-      if (!paused) scrollToBottom();
+      if (isFollowing()) scrollToBottom();
     });
   }
   function flushRenderQueue() {
@@ -7349,8 +7788,8 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     if (!listEl || renderQueue.length === 0) return;
     const batch = takeRenderBatch(renderQueue);
     lastBatchSize = batch.length;
-    const shouldStickToBottom = !paused && isNearBottom();
-    const animate = shouldAnimateRenderBatch(batch.length);
+    const shouldStickToBottom = isFollowing() && isNearBottom();
+    const animate = isFollowing() && shouldAnimateRenderBatch(batch.length);
     const animateKeys = new Set();
     let matched = 0;
     for (const event of batch) {
@@ -7360,7 +7799,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
       if (animate) animateKeys.add(messageKey(event));
     }
     refreshVisibleMessages();
-    renderVirtualWindow(animateKeys);
+    if (isFollowing()) renderVirtualWindow(animateKeys);
     if (renderQueue.length > 0) renderFrame = window.requestAnimationFrame(flushRenderQueue);
     if (matched === 0) {
       updateMatchCount();
@@ -7370,6 +7809,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     }
     pruneMessages();
     if (!shouldStickToBottom) {
+      if (isFollowing()) enterFrozenMode("frozenByScroll");
       unread += matched;
       updateUnread();
     } else {
@@ -7477,18 +7917,17 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     menuBtn.setAttribute("aria-label", "聊天工具");
     const menu = document.createElement("div");
     menu.className = "lc-chat-menu";
-    pauseBtn = makeButton("lc-chat-pill", "暂停", "暂停自动滚动", () => {
-      paused = !paused;
-      autoPausedByScroll = false;
-      if (!paused) {
-        unread = 0;
-        scrollToBottom("smooth");
+    pauseBtn = makeButton("lc-chat-pill", "暂停", "暂停自动跟随", () => {
+      if (isFollowing()) {
+        enterFrozenMode("frozenByButton");
+        return;
       }
-      updateUnread();
+      resumeFollowing();
     });
-    unreadEl = document.createElement("span");
-    unreadEl.className = "lc-chat-hint";
-    unreadEl.style.display = "none";
+    unreadBtn = makeButton("lc-chat-pill lc-chat-unread", "", "恢复自动跟随并跳到底部", () => {
+      resumeFollowing();
+    });
+    unreadBtn.style.display = "none";
     matchCountEl = document.createElement("span");
     matchCountEl.className = "lc-chat-hint";
     matchCountEl.style.display = "none";
@@ -7506,7 +7945,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     addRootEventListener(searchInput, "input", () => {
       searchQuery = searchInput?.value ?? "";
       unread = 0;
-      scheduleRerenderMessages();
+      scheduleRerenderMessages({ refreshFrozenSnapshot: true });
       updateUnread();
     });
     const clearBtn = makeButton("lc-chat-pill", "清屏", "清空自定义评论区", clearMessages);
@@ -7523,7 +7962,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
       const btn = makeButton("lc-chat-filter", label, `显示/隐藏${label}`, () => {
         signal.value = !signal.value;
         btn.setAttribute("aria-pressed", signal.value ? "true" : "false");
-        scheduleRerenderMessages();
+        scheduleRerenderMessages({ refreshFrozenSnapshot: true });
       });
       btn.setAttribute("aria-pressed", signal.value ? "true" : "false");
       filterbar.append(btn);
@@ -7533,7 +7972,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     searchRow.append(searchInput, matchCountEl);
     const controlRow = document.createElement("div");
     controlRow.className = "lc-chat-menu-row";
-    controlRow.append(pauseBtn, unreadEl, clearBtn);
+    controlRow.append(pauseBtn, unreadBtn, clearBtn);
     const statusRow = document.createElement("div");
     statusRow.className = "lc-chat-menu-row";
     const statusLabel = document.createElement("span");
@@ -7575,11 +8014,12 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     );
     addRootEventListener(listEl, "keydown", (e2) => {
       if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(e2.key)) return;
-      if (visibleMessages.length === 0) return;
+      const items = renderedMessages();
+      if (items.length === 0) return;
       e2.preventDefault();
       const active = document.activeElement instanceof HTMLElement ? document.activeElement.closest(".lc-chat-message") : null;
       const index = active instanceof HTMLElement ? Number(active.dataset.virtualIndex) : -1;
-      const nextIndex = e2.key === "Home" ? 0 : e2.key === "End" ? visibleMessages.length - 1 : Math.max(0, Math.min(visibleMessages.length - 1, index + (e2.key === "ArrowUp" ? -1 : 1)));
+      const nextIndex = e2.key === "Home" ? 0 : e2.key === "End" ? items.length - 1 : Math.max(0, Math.min(items.length - 1, index + (e2.key === "ArrowUp" ? -1 : 1)));
       scrollToVirtualIndex(nextIndex);
     });
     const composer = document.createElement("div");
@@ -7724,6 +8164,12 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   }
   function addEvent(event) {
     if (!isReliableEvent(event)) return;
+    const duplicateIndex = messageIndexByEvent(event);
+    if (duplicateIndex >= 0) {
+      const merged = mergeDuplicateEvent(messages[duplicateIndex], event);
+      if (merged) replaceMessage(duplicateIndex, merged);
+      return;
+    }
     const key = messageKey(event);
     if (messageKeys.has(key)) return;
     if (!rememberEvent(event)) return;
@@ -7797,7 +8243,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     virtualItemsEl = null;
     virtualBottomSpacer = null;
     pauseBtn = null;
-    unreadEl = null;
+    unreadBtn = null;
     textarea = null;
     countEl = null;
     searchInput = null;
@@ -7827,8 +8273,8 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
       rerenderFrame = null;
     }
     unread = 0;
-    paused = false;
-    autoPausedByScroll = false;
+    followMode = "following";
+    frozenSnapshot = null;
     sending = false;
     searchQuery = "";
     hasClearedMessages = false;
@@ -7930,7 +8376,7 @@ html.lc-dm-direct-always .${MARKER} {
       void repeatDanmaku(msg, { confirm: danmakuDirectConfirm.value, anchor: { x: e2.clientX, y: e2.clientY } });
     }
   }
-  let unsubscribe = null;
+  let unsubscribe$1 = null;
   let styleEl = null;
   let attachedContainer = null;
   let alwaysShowDispose = null;
@@ -7991,12 +8437,12 @@ html.lc-dm-direct-always .${MARKER} {
     }
   }
   function startDanmakuDirect() {
-    if (unsubscribe) return;
+    if (unsubscribe$1) return;
     alwaysShowDispose = j(() => {
       document.documentElement.classList.toggle("lc-dm-direct-always", danmakuDirectAlwaysShow.value);
     });
     initContextMenuHijack();
-    unsubscribe = subscribeDanmaku({
+    unsubscribe$1 = subscribeDanmaku({
       onAttach: (container) => {
         styleEl = document.createElement("style");
         styleEl.id = STYLE_ID;
@@ -8020,9 +8466,9 @@ html.lc-dm-direct-always .${MARKER} {
       alwaysShowDispose = null;
       document.documentElement.classList.remove("lc-dm-direct-always");
     }
-    if (unsubscribe) {
-      unsubscribe();
-      unsubscribe = null;
+    if (unsubscribe$1) {
+      unsubscribe$1();
+      unsubscribe$1 = null;
     }
     if (attachedContainer) {
       attachedContainer.removeEventListener("click", handleDelegatedClick, true);
@@ -8036,6 +8482,78 @@ html.lc-dm-direct-always .${MARKER} {
       el.remove();
     }
   }
+  let applied = false;
+  function applyGuardRoomHandoff() {
+    if (applied) return;
+    applied = true;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("guard_room_source") !== "guard-room") return;
+    const mode = url.searchParams.get("guard_room_mode");
+    const autostart = url.searchParams.get("guard_room_autostart") === "1";
+    const sessionId = url.searchParams.get("guard_room_session");
+    if (sessionId) {
+      guardRoomLiveDeskSessionId.value = sessionId;
+    }
+    if (mode === "dry-run") {
+      autoBlendDryRun.value = true;
+    }
+    if (autostart) {
+      autoBlendEnabled.value = true;
+      appendLog("直播间保安室：已接管本页，自动跟车进入试运行。");
+    }
+  }
+  const WINDOW_MS = 60 * 1e3;
+  let timer = null;
+  let unsubscribe = null;
+  const seen = [];
+  function trimSeen(now) {
+    while (seen.length > 0 && now - seen[0].ts > WINDOW_MS) seen.shift();
+  }
+  async function uploadSnapshot() {
+    const sessionId = guardRoomLiveDeskSessionId.value.trim();
+    if (!sessionId || !guardRoomEndpoint.value.trim() || !guardRoomSyncKey.value.trim()) return;
+    const roomId = await ensureRoomId();
+    const rooms = await fetchMedalRooms().catch(() => []);
+    const current = rooms.find((item) => item.roomId === roomId);
+    const now = Date.now();
+    trimSeen(now);
+    const uniqueUsers = new Set(seen.map((item) => item.uid).filter(Boolean));
+    const candidateText = autoBlendCandidateText.value !== "暂无" ? autoBlendCandidateText.value : void 0;
+    await syncGuardRoomLiveDeskHeartbeat({
+      sessionId,
+      roomId,
+      anchorName: current?.anchorName ?? `直播间 ${roomId}`,
+      medalName: current?.medalName ?? "粉丝牌",
+      liveStatus: "live",
+      sampledAt: new Date(now).toISOString(),
+      messageCount: seen.length,
+      activeUsersEstimate: uniqueUsers.size,
+      candidateText,
+      riskLevel: guardRoomCurrentRiskLevel.value
+    });
+  }
+  function startLiveDeskSync() {
+    if (timer || unsubscribe) return;
+    unsubscribe = subscribeCustomChatEvents((event) => {
+      if (event.kind !== "danmaku") return;
+      const now = Date.now();
+      seen.push({ ts: now, uid: event.uid });
+      trimSeen(now);
+    });
+    timer = setInterval(() => {
+      void uploadSnapshot();
+    }, Math.max(10, guardRoomLiveDeskHeartbeatSec.value) * 1e3);
+    void uploadSnapshot();
+  }
+  function stopLiveDeskSync() {
+    if (timer) {
+      clearInterval(timer);
+      timer = null;
+    }
+    unsubscribe?.();
+    unsubscribe = null;
+    seen.splice(0, seen.length);
+  }
   let currentAbort = null;
   function cancelLoop() {
     currentAbort?.abort();
@@ -8048,11 +8566,11 @@ html.lc-dm-direct-always .${MARKER} {
         resolve(false);
         return;
       }
-      const timer = setTimeout(() => resolve(true), ms);
+      const timer2 = setTimeout(() => resolve(true), ms);
       signal.addEventListener(
         "abort",
         () => {
-          clearTimeout(timer);
+          clearTimeout(timer2);
           resolve(false);
         },
         { once: true }
@@ -9281,8 +9799,8 @@ u$2(
     };
     y$2(() => {
       void loadMemes();
-      const timer = setInterval(() => void loadMemes({ silent: true }), MEME_RELOAD_INTERVAL);
-      return () => clearInterval(timer);
+      const timer2 = setInterval(() => void loadMemes({ silent: true }), MEME_RELOAD_INTERVAL);
+      return () => clearInterval(timer2);
     }, [sortBy.value]);
     return u$2(S$1, { children: [
 u$2(
@@ -9430,28 +9948,16 @@ u$2(
     ] });
   }
   function NormalSendTab() {
-    const focusChatterboxComposer = () => {
-      const input = document.querySelector("#laplace-custom-chat textarea");
-      input?.focus();
-    };
+    if (customChatEnabled.value) return null;
     const sendMessage = async () => {
       const sent = await sendManualDanmaku(fasongText.value);
       if (sent) {
         fasongText.value = "";
       }
     };
-    const body = u$2("div", { className: "cb-body cb-stack", children: [
-      customChatEnabled.value ? u$2("div", { className: "cb-panel cb-stack", children: [
-u$2("div", { className: "cb-note", children: "发送入口已合并到 Chatterbox Chat 底部，偷弹幕和这里的草稿会同步。" }),
-u$2("div", { className: "cb-row", children: [
-u$2("button", { type: "button", className: "cb-primary", onClick: focusChatterboxComposer, children: "聚焦 Chatterbox 输入框" }),
-u$2("span", { className: "cb-soft", children: [
-            "当前草稿 ",
-            fasongText.value.length,
-            " 字"
-          ] })
-        ] })
-      ] }) : u$2(S$1, { children: [
+    return u$2("div", { className: "cb-section cb-stack", style: { marginBottom: ".5em" }, children: [
+u$2("div", { className: "cb-heading", style: { fontWeight: "bold", marginBottom: 0 }, children: "常规发送" }),
+u$2("div", { className: "cb-body cb-stack", children: [
 u$2("div", { style: { position: "relative" }, children: [
 u$2(
             "textarea",
@@ -9490,42 +9996,23 @@ u$2(
             }
           )
         ] }),
-u$2("div", { className: "cb-row", children: u$2("button", { type: "button", className: "cb-primary", onClick: () => void sendMessage(), children: "发送" }) })
-      ] }),
+u$2("div", { className: "cb-row", children: u$2("button", { type: "button", className: "cb-primary", onClick: () => void sendMessage(), children: "发送" }) }),
 u$2("div", { className: "cb-row", children: u$2("span", { className: "cb-row", children: [
 u$2(
-          "input",
-          {
-            id: "aiEvasion",
-            type: "checkbox",
-            checked: aiEvasion.value,
-            onInput: (e2) => {
-              aiEvasion.value = e2.currentTarget.checked;
+            "input",
+            {
+              id: "aiEvasion",
+              type: "checkbox",
+              checked: aiEvasion.value,
+              onInput: (e2) => {
+                aiEvasion.value = e2.currentTarget.checked;
+              }
             }
-          }
-        ),
+          ),
 u$2("label", { for: "aiEvasion", children: "AI规避（发送失败时自动检测敏感词并重试）" })
-      ] }) })
+        ] }) })
+      ] })
     ] });
-    if (!customChatEnabled.value) {
-      return u$2("div", { className: "cb-section cb-stack", style: { marginBottom: ".5em" }, children: [
-u$2("div", { className: "cb-heading", style: { fontWeight: "bold", marginBottom: 0 }, children: "常规发送" }),
-        body
-      ] });
-    }
-    return u$2(
-      "details",
-      {
-        open: normalSendPanelOpen.value,
-        onToggle: (e2) => {
-          normalSendPanelOpen.value = e2.currentTarget.open;
-        },
-        children: [
-u$2("summary", { style: { cursor: "pointer", userSelect: "none", fontWeight: "bold" }, children: "常规发送" }),
-          body
-        ]
-      }
-    );
   }
   const MILK_GREEN_IMESSAGE_CSS = `/* Chatterbox 奶绿 iMessage × Laplace 气泡 */
 @import url('https://fonts.googleapis.com/css2?family=Jost:wght@400;600;700;800&display=swap');
@@ -10049,6 +10536,8 @@ ${details}`;
     const medalCheckCopyStatus = useSignal("");
     const guardRoomSyncing = useSignal(false);
     const guardRoomSyncStatus = useSignal("");
+    const liveDeskLaunching = useSignal(false);
+    const liveDeskStatus = useSignal("");
     const globalReplaceFrom = useSignal("");
     const globalReplaceTo = useSignal("");
     const roomReplaceFrom = useSignal("");
@@ -10330,6 +10819,42 @@ ${details}`;
         guardRoomSyncing.value = false;
       }
     };
+    const launchLiveDesk = async () => {
+      const syncKey = guardRoomSyncKey.value.trim();
+      if (!syncKey) {
+        liveDeskStatus.value = "先填保安室同步密钥";
+        return;
+      }
+      liveDeskLaunching.value = true;
+      liveDeskStatus.value = "正在拉起值班台…";
+      try {
+        const session = await createGuardRoomLiveDeskSession();
+        if (!session?.id) throw new Error("没有拿到值班会话");
+        guardRoomLiveDeskSessionId.value = session.id;
+        const rooms = await fetchMedalRooms();
+        const liveRooms = [];
+        for (const room of rooms) {
+          const status = await fetchRoomLiveStatus(room.roomId);
+          if (status === "live") liveRooms.push(room);
+        }
+        if (liveRooms.length === 0) {
+          liveDeskStatus.value = "当前没有已开播粉丝牌房";
+          appendLog("直播间保安室：值班台已创建，但当前没有已开播粉丝牌房。");
+          return;
+        }
+        for (const room of liveRooms) {
+          window.open(buildGuardRoomLiveDeskUrl(room.roomId, session.id), "_blank", "noopener,noreferrer");
+        }
+        liveDeskStatus.value = `已打开 ${liveRooms.length} 个值班房间，都会自动进入试运行`;
+        appendLog(`直播间保安室：已打开 ${liveRooms.length} 个已开播粉丝牌房，进入值班试运行。`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        liveDeskStatus.value = `值班台启动失败：${msg}`;
+        appendLog(`直播间保安室：值班台启动失败：${msg}`);
+      } finally {
+        liveDeskLaunching.value = false;
+      }
+    };
     const copyMedalCheckResults = async () => {
       const results = medalCheckResults.value;
       if (results.length === 0) {
@@ -10429,8 +10954,8 @@ ${details}`;
       } else {
         updateRemoteStatus();
       }
-      const timer = setInterval(() => void syncRemote(), SYNC_INTERVAL);
-      return () => clearInterval(timer);
+      const timer2 = setInterval(() => void syncRemote(), SYNC_INTERVAL);
+      return () => clearInterval(timer2);
     }, []);
     y$2(() => {
       if (editingRoomId.value) return;
@@ -10674,6 +11199,36 @@ u$2(
                   ),
                   guardRoomSyncStatus.value && u$2("span", { className: "cb-note", children: guardRoomSyncStatus.value })
                 ] })
+              ] }),
+u$2("div", { className: "cb-panel cb-stack", style: { marginBottom: ".5em" }, children: [
+u$2("div", { className: "cb-heading", style: { marginBottom: 0 }, children: "老大爷值班台" }),
+u$2("div", { className: "cb-note", children: "会为当前已开播的粉丝牌房间新开标签页，并让每个房间自动进入跟车试运行，同时把现场摘要同步到保安室的 Live Desk。" }),
+u$2("div", { className: "cb-row", style: { display: "flex", gap: ".5em", alignItems: "center", flexWrap: "wrap" }, children: [
+u$2("label", { className: "cb-note", style: { display: "inline-flex", alignItems: "center", gap: ".4em" }, children: [
+                    "心跳间隔",
+u$2(
+                      "input",
+                      {
+                        type: "number",
+                        min: "10",
+                        max: "120",
+                        value: guardRoomLiveDeskHeartbeatSec.value,
+                        onInput: (e2) => {
+                          const value = Number(e2.currentTarget.value);
+                          guardRoomLiveDeskHeartbeatSec.value = Number.isFinite(value) ? Math.max(10, Math.min(120, value)) : 30;
+                        },
+                        style: { width: "64px" }
+                      }
+                    ),
+                    "秒"
+                  ] }),
+u$2("button", { type: "button", disabled: liveDeskLaunching.value, onClick: () => void launchLiveDesk(), children: liveDeskLaunching.value ? "值班台启动中…" : "开始值班（打开已开播粉丝牌房）" })
+                ] }),
+u$2("div", { className: "cb-note", children: [
+                  "当前会话：",
+                  guardRoomLiveDeskSessionId.value || "暂无"
+                ] }),
+                liveDeskStatus.value && u$2("div", { className: "cb-note", children: liveDeskStatus.value })
               ] }),
 u$2(
                 "div",
@@ -11816,6 +12371,9 @@ u$2(
   }
   function App() {
     y$2(() => {
+      applyGuardRoomHandoff();
+    }, []);
+    y$2(() => {
       const style = document.createElement("style");
       style.textContent = `
       #laplace-chatterbox-toggle,
@@ -12416,6 +12974,14 @@ u$2(
       }
       return () => stopAutoBlend();
     }, [autoBlendEnabled.value]);
+    y$2(() => {
+      if (guardRoomLiveDeskSessionId.value) {
+        startLiveDeskSync();
+      } else {
+        stopLiveDeskSync();
+      }
+      return () => stopLiveDeskSync();
+    }, [guardRoomLiveDeskSessionId.value]);
     y$2(() => {
       if (customChatEnabled.value) {
         startCustomChat();

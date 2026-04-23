@@ -37,5 +37,6 @@ describe('custom chat render classification', () => {
     expect(customChatBadgeType('UL 22')).toBe('ul')
     expect(customChatBadgeType('牌子 18')).toBe('medal')
     expect(customChatBadgeType('SC 30元')).toBe('price')
+    expect(customChatBadgeType('0.1元')).toBe('price')
   })
 })

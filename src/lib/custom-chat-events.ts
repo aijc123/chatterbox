@@ -40,13 +40,70 @@ export type CustomChatWsStatus = 'off' | 'connecting' | 'live' | 'error' | 'clos
 
 export type CustomChatEventHandler = (event: CustomChatEvent) => void
 
+type RecentDanmakuSource = 'dom' | 'ws' | 'local'
+
 const handlers = new Set<CustomChatEventHandler>()
 const wsStatusHandlers = new Set<(status: CustomChatWsStatus) => void>()
 let currentWsStatus: CustomChatWsStatus = 'off'
+const recentDanmakuHistory: Array<{
+  text: string
+  uid: string | null
+  source: RecentDanmakuSource
+  observedAt: number
+}> = []
+
+const RECENT_DANMAKU_HISTORY_MS = 15_000
+const RECENT_DANMAKU_HISTORY_MAX = 240
 
 export function subscribeCustomChatEvents(handler: CustomChatEventHandler): () => void {
   handlers.add(handler)
   return () => handlers.delete(handler)
+}
+
+function pruneRecentDanmakuHistory(now = Date.now()): void {
+  while (recentDanmakuHistory.length > 0 && now - recentDanmakuHistory[0].observedAt > RECENT_DANMAKU_HISTORY_MS) {
+    recentDanmakuHistory.shift()
+  }
+  while (recentDanmakuHistory.length > RECENT_DANMAKU_HISTORY_MAX) {
+    recentDanmakuHistory.shift()
+  }
+}
+
+function rememberRecentDanmaku(event: CustomChatEvent): void {
+  if (event.kind !== 'danmaku') return
+  if (event.source !== 'dom' && event.source !== 'ws' && event.source !== 'local') return
+  const text = event.text.trim()
+  if (!text) return
+  const now = Date.now()
+  pruneRecentDanmakuHistory(now)
+  recentDanmakuHistory.push({
+    text,
+    uid: event.uid,
+    source: event.source,
+    observedAt: now,
+  })
+}
+
+export function findRecentCustomChatDanmakuSource(
+  text: string,
+  uid: string | null,
+  sinceTs: number
+): RecentDanmakuSource | null {
+  const target = text.trim()
+  if (!target) return null
+  pruneRecentDanmakuHistory()
+  for (let i = recentDanmakuHistory.length - 1; i >= 0; i--) {
+    const event = recentDanmakuHistory[i]
+    if (event.observedAt < sinceTs) break
+    if (event.text !== target) continue
+    if (uid && event.uid && event.uid !== uid) continue
+    return event.source
+  }
+  return null
+}
+
+export function clearRecentCustomChatDanmakuHistory(): void {
+  recentDanmakuHistory.length = 0
 }
 
 function normalizeEventKind(event: CustomChatEvent): CustomChatKind {
@@ -82,6 +139,7 @@ export function normalizeCustomChatEvent(event: CustomChatEvent): CustomChatEven
 
 export function emitCustomChatEvent(event: CustomChatEvent): void {
   const normalized = normalizeCustomChatEvent(event)
+  rememberRecentDanmaku(normalized)
   for (const handler of handlers) {
     handler(normalized)
   }

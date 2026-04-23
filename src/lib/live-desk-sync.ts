@@ -28,10 +28,10 @@ async function uploadSnapshot(): Promise<void> {
 
   const roomId = await ensureRoomId()
   const rooms = await fetchMedalRooms().catch(() => [])
-  const current = rooms.find((item) => item.roomId === roomId)
+  const current = rooms.find(item => item.roomId === roomId)
   const now = Date.now()
   trimSeen(now)
-  const uniqueUsers = new Set(seen.map((item) => item.uid).filter(Boolean))
+  const uniqueUsers = new Set(seen.map(item => item.uid).filter(Boolean))
   const candidateText = autoBlendCandidateText.value !== '暂无' ? autoBlendCandidateText.value : undefined
 
   await syncGuardRoomLiveDeskHeartbeat({
@@ -51,7 +51,7 @@ async function uploadSnapshot(): Promise<void> {
 export function startLiveDeskSync(): void {
   if (timer || unsubscribe) return
 
-  unsubscribe = subscribeCustomChatEvents((event) => {
+  unsubscribe = subscribeCustomChatEvents(event => {
     if (event.kind !== 'danmaku') return
     const now = Date.now()
     seen.push({ ts: now, uid: event.uid })

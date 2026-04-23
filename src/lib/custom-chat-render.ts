@@ -25,11 +25,11 @@ export function customChatBadgeType(raw: string): CustomChatBadgeType {
   if (!value) return 'other'
   if (/GUARD|privilege|guard/i.test(value) || /[\u603b\u63d0\u8230][\u7763\u957f]|\u8230\u961f/.test(value))
     return 'guard'
-  if (/^\s*UL\s*\d+/i.test(value)) return 'ul'
+  if (/^\s*(?:UL|LV)\s*\d+/i.test(value)) return 'ul'
   if (/[\u623f\u7ba1]/.test(value) || /admin|moderator/i.test(value)) return 'admin'
   if (/[\u699c]\s*[123]|top\s*[123]|rank\s*[123]/i.test(value)) return 'rank'
   if (/[\u8363\u8000]/.test(value) || /honou?r/i.test(value)) return 'honor'
-  if (/SC\s*\d+|^\d+\s*[\u5143]|[¥￥$]\s*\d+/i.test(value)) return 'price'
+  if (/SC\s*\d+|^\d+(?:\.\d+)?\s*[\u5143]|[¥$]\s*\d+(?:\.\d+)?/i.test(value)) return 'price'
   if (/[^\s]\s+\d{1,3}$/.test(value)) return 'medal'
   return 'other'
 }

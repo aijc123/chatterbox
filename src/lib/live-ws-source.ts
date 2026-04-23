@@ -9,6 +9,7 @@ import {
   emitCustomChatEvent,
   emitCustomChatWsStatus,
 } from './custom-chat-events'
+import { formatMilliyuanAmount, formatMilliyuanBadgeAmount } from './custom-chat-pricing'
 import { appendLog } from './log'
 import { encodeWbi, ensureWbiKeys } from './wbi'
 
@@ -58,8 +59,7 @@ function nonEmptyFields(fields: Array<CustomChatField | null | undefined>): Cust
 }
 
 function yuanFromGiftPrice(price: unknown): string {
-  const value = asNumber(price)
-  return value > 0 ? `¥${Math.round(value / 1000)}` : ''
+  return formatMilliyuanAmount(asNumber(price))
 }
 
 function avatarUrl(uid: string | null): string | undefined {
@@ -172,10 +172,11 @@ function bindEvents(roomId: number, live: LiveWS): void {
     const badge = info[3]
     const level = info[4]
     const uid = String(user[0])
+    const userLevel = Number(level?.[0] ?? 0)
     rememberWsDanmaku(text, uid)
     const badges: string[] = []
     if (badge?.[0]) badges.push(`${badge[1]} ${badge[0]}`)
-    if (level?.[0]) badges.push(`UL ${level[0]}`)
+    badges.push(`LV${Number.isFinite(userLevel) && userLevel > 0 ? userLevel : 0}`)
     if (user[2] === 1) badges.push('房管')
     emit({
       id: data.msg_id ?? `dm-${uid}-${Date.now()}-${Math.random()}`,
@@ -206,7 +207,7 @@ function bindEvents(roomId: number, live: LiveWS): void {
       time: chatEventTime(),
       isReply: false,
       source: 'ws',
-      badges: gift.price > 0 ? [`${Math.round(gift.price / 1000)}元`] : [],
+      badges: gift.price > 0 ? [formatMilliyuanBadgeAmount(gift.price)] : [],
       avatarUrl: avatarUrl(uid),
       amount: gift.price,
       fields: nonEmptyFields([
