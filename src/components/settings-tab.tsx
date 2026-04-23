@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'preact/hooks'
 import {
   checkMedalRoomRestriction,
   ensureRoomId,
+  fetchRoomLiveStatus,
   fetchMedalRooms,
   getCsrfToken,
   type MedalRestrictionCheck,
@@ -12,6 +13,8 @@ import {
 import { BASE_URL, VERSION } from '../lib/const'
 import { MILK_GREEN_IMESSAGE_CSS } from '../lib/custom-chat-presets'
 import { gmSignal } from '../lib/gm-signal'
+import { guardRoomLiveDeskHeartbeatSec, guardRoomLiveDeskSessionId } from '../lib/guard-room-live-desk-state'
+import { buildGuardRoomLiveDeskUrl, createGuardRoomLiveDeskSession } from '../lib/guard-room-sync'
 import { appendLog, maxLogLines } from '../lib/log'
 import { buildReplacementMap } from '../lib/replacement'
 import {
@@ -289,6 +292,8 @@ export function SettingsTab() {
   const medalCheckCopyStatus = useSignal('')
   const guardRoomSyncing = useSignal(false)
   const guardRoomSyncStatus = useSignal('')
+  const liveDeskLaunching = useSignal(false)
+  const liveDeskStatus = useSignal('')
 
   const globalReplaceFrom = useSignal('')
   const globalReplaceTo = useSignal('')
@@ -609,6 +614,48 @@ export function SettingsTab() {
       appendLog(`直播间保安室：同步失败：${msg}`)
     } finally {
       guardRoomSyncing.value = false
+    }
+  }
+
+  const launchLiveDesk = async () => {
+    const syncKey = guardRoomSyncKey.value.trim()
+    if (!syncKey) {
+      liveDeskStatus.value = '先填保安室同步密钥'
+      return
+    }
+
+    liveDeskLaunching.value = true
+    liveDeskStatus.value = '正在拉起值班台…'
+    try {
+      const session = await createGuardRoomLiveDeskSession()
+      if (!session?.id) throw new Error('没有拿到值班会话')
+      guardRoomLiveDeskSessionId.value = session.id
+
+      const rooms = await fetchMedalRooms()
+      const liveRooms: typeof rooms = []
+      for (const room of rooms) {
+        const status = await fetchRoomLiveStatus(room.roomId)
+        if (status === 'live') liveRooms.push(room)
+      }
+
+      if (liveRooms.length === 0) {
+        liveDeskStatus.value = '当前没有已开播粉丝牌房'
+        appendLog('直播间保安室：值班台已创建，但当前没有已开播粉丝牌房。')
+        return
+      }
+
+      for (const room of liveRooms) {
+        window.open(buildGuardRoomLiveDeskUrl(room.roomId, session.id), '_blank', 'noopener,noreferrer')
+      }
+
+      liveDeskStatus.value = `已打开 ${liveRooms.length} 个值班房间，都会自动进入试运行`
+      appendLog(`直播间保安室：已打开 ${liveRooms.length} 个已开播粉丝牌房，进入值班试运行。`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      liveDeskStatus.value = `值班台启动失败：${msg}`
+      appendLog(`直播间保安室：值班台启动失败：${msg}`)
+    } finally {
+      liveDeskLaunching.value = false
     }
   }
 
@@ -961,6 +1008,38 @@ export function SettingsTab() {
               </button>
               {guardRoomSyncStatus.value && <span className='cb-note'>{guardRoomSyncStatus.value}</span>}
             </div>
+          </div>
+          <div className='cb-panel cb-stack' style={{ marginBottom: '.5em' }}>
+            <div className='cb-heading' style={{ marginBottom: 0 }}>
+              老大爷值班台
+            </div>
+            <div className='cb-note'>
+              会为当前已开播的粉丝牌房间新开标签页，并让每个房间自动进入跟车试运行，同时把现场摘要同步到保安室的 Live Desk。
+            </div>
+            <div className='cb-row' style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap' }}>
+              <label className='cb-note' style={{ display: 'inline-flex', alignItems: 'center', gap: '.4em' }}>
+                心跳间隔
+                <input
+                  type='number'
+                  min='10'
+                  max='120'
+                  value={guardRoomLiveDeskHeartbeatSec.value}
+                  onInput={e => {
+                    const value = Number(e.currentTarget.value)
+                    guardRoomLiveDeskHeartbeatSec.value = Number.isFinite(value) ? Math.max(10, Math.min(120, value)) : 30
+                  }}
+                  style={{ width: '64px' }}
+                />
+                秒
+              </label>
+              <button type='button' disabled={liveDeskLaunching.value} onClick={() => void launchLiveDesk()}>
+                {liveDeskLaunching.value ? '值班台启动中…' : '开始值班（打开已开播粉丝牌房）'}
+              </button>
+            </div>
+            <div className='cb-note'>
+              当前会话：{guardRoomLiveDeskSessionId.value || '暂无'}
+            </div>
+            {liveDeskStatus.value && <div className='cb-note'>{liveDeskStatus.value}</div>}
           </div>
           <div
             className='cb-row'

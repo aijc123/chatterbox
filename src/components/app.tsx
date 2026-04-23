@@ -3,7 +3,10 @@ import { useEffect } from 'preact/hooks'
 import { startAutoBlend, stopAutoBlend } from '../lib/auto-blend'
 import { startCustomChat, stopCustomChat } from '../lib/custom-chat'
 import { startDanmakuDirect, stopDanmakuDirect } from '../lib/danmaku-direct'
+import { applyGuardRoomHandoff } from '../lib/guard-room-handoff'
+import { guardRoomLiveDeskSessionId } from '../lib/guard-room-live-desk-state'
 import { startLiveWsSource, stopLiveWsSource } from '../lib/live-ws-source'
+import { startLiveDeskSync, stopLiveDeskSync } from '../lib/live-desk-sync'
 import { loop } from '../lib/loop'
 import { autoBlendEnabled, customChatEnabled, customChatUseWs, danmakuDirectMode, optimizeLayout } from '../lib/store'
 import { Configurator } from './configurator'
@@ -12,6 +15,10 @@ import { AlertDialog } from './ui/alert-dialog'
 import { UserNotice } from './user-notice'
 
 export function App() {
+  useEffect(() => {
+    applyGuardRoomHandoff()
+  }, [])
+
   useEffect(() => {
     const style = document.createElement('style')
     style.textContent = `
@@ -615,6 +622,15 @@ export function App() {
     }
     return () => stopAutoBlend()
   }, [autoBlendEnabled.value])
+
+  useEffect(() => {
+    if (guardRoomLiveDeskSessionId.value) {
+      startLiveDeskSync()
+    } else {
+      stopLiveDeskSync()
+    }
+    return () => stopLiveDeskSync()
+  }, [guardRoomLiveDeskSessionId.value])
 
   useEffect(() => {
     if (customChatEnabled.value) {

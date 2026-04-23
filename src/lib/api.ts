@@ -127,6 +127,7 @@ export interface SendDanmakuResult {
   success: boolean
   message: string
   isEmoticon: boolean
+  startedAt?: number
   error?: string
   errorCode?: number
   errorData?: unknown
@@ -152,6 +153,19 @@ export interface MedalRoom {
   anchorName: string
   anchorUid: number | null
   source: 'medal-link' | 'medal-room-id' | 'anchor-uid'
+}
+
+export async function fetchRoomLiveStatus(roomId: number): Promise<'live' | 'offline' | 'unknown'> {
+  const response = await fetch(`${BASE_URL.BILIBILI_ROOM_INIT}?id=${roomId}`, {
+    method: 'GET',
+    credentials: 'include',
+  })
+  if (!response.ok) return 'unknown'
+  const json: { code?: number; data?: { live_status?: number } } = await response.json()
+  if (json.code !== 0) return 'unknown'
+  if (json.data?.live_status === 1) return 'live'
+  if (typeof json.data?.live_status === 'number') return 'offline'
+  return 'unknown'
 }
 
 export interface MedalRestrictionCheck {
@@ -366,6 +380,7 @@ export async function checkMedalRoomRestriction(room: MedalRoom): Promise<MedalR
  */
 export async function sendDanmaku(message: string, roomId: number, csrfToken: string): Promise<SendDanmakuResult> {
   const emoticon = isEmoticonUnique(message)
+  const startedAt = Date.now()
 
   const form = new FormData()
   form.append('bubble', '2')
@@ -421,6 +436,7 @@ export async function sendDanmaku(message: string, roomId: number, csrfToken: st
         success: false,
         message,
         isEmoticon: emoticon,
+        startedAt,
         error: `HTTP ${resp.status}`,
       }
     }
@@ -435,6 +451,7 @@ export async function sendDanmaku(message: string, roomId: number, csrfToken: st
         success: false,
         message,
         isEmoticon: emoticon,
+        startedAt,
         error: json.message ?? json.msg ?? `code ${json.code}`,
         errorCode: json.code,
         errorData: json.data,
@@ -445,6 +462,7 @@ export async function sendDanmaku(message: string, roomId: number, csrfToken: st
       success: true,
       message,
       isEmoticon: emoticon,
+      startedAt,
     }
   } catch (err) {
     const aborted = err instanceof DOMException && err.name === 'AbortError'
@@ -452,6 +470,7 @@ export async function sendDanmaku(message: string, roomId: number, csrfToken: st
       success: false,
       message,
       isEmoticon: emoticon,
+      startedAt,
       error: aborted
         ? `发送接口 ${Math.round(SEND_DANMAKU_TIMEOUT_MS / 1000)}s 无响应`
         : err instanceof Error
