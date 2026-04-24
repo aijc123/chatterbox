@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.8.31
+// @version      2.8.32
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -1291,6 +1291,7 @@
   const VERSION = _GM_info.script.version;
   const BASE_URL = {
 BILIBILI_ROOM_INIT: "https://api.live.bilibili.com/room/v1/Room/room_init",
+BILIBILI_ROOM_INIT_ALT: "https://api.live.bilibili.com/room/v1/Room/get_info",
 BILIBILI_ROOM_INFO_BY_UID: "https://api.live.bilibili.com/room/v1/Room/getRoomInfoOld",
 BILIBILI_MSG_SEND: "https://api.live.bilibili.com/msg/send",
 BILIBILI_MSG_CONFIG: "https://api.live.bilibili.com/xlive/web-room/v1/dM/AjaxSetConfig",
@@ -1892,16 +1893,35 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
   async function getRoomId(url = window.location.href) {
     const shortUid = safeExtractRoomNumber(url);
     if (!shortUid) throw new Error("无法从当前页面 URL 解析直播间号");
-    const room = await fetch(`${BASE_URL.BILIBILI_ROOM_INIT}?id=${shortUid}`, {
-      method: "GET",
-      credentials: "include"
-    });
-    if (!room.ok) {
-      throw new Error(`HTTP ${room.status}: ${room.statusText}`);
+    try {
+      const room = await fetch(`${BASE_URL.BILIBILI_ROOM_INIT}?id=${shortUid}`, {
+        method: "GET",
+        credentials: "include"
+      });
+      if (room.ok) {
+        const roomData = await room.json();
+        cachedStreamerUid.value = roomData.data.uid;
+        return roomData.data.room_id;
+      }
+    } catch {
     }
-    const roomData = await room.json();
-    cachedStreamerUid.value = roomData.data.uid;
-    return roomData.data.room_id;
+    try {
+      const room = await fetch(`${BASE_URL.BILIBILI_ROOM_INIT_ALT}?room_id=${shortUid}`, {
+        method: "GET",
+        credentials: "include"
+      });
+      if (room.ok) {
+        const json = await room.json();
+        if (json.code === 0 && json.data?.room_id) {
+          if (json.data.uid) cachedStreamerUid.value = json.data.uid;
+          return json.data.room_id;
+        }
+      }
+    } catch {
+    }
+    const directId = Number(shortUid);
+    if (Number.isFinite(directId) && directId > 0) return directId;
+    throw new Error("无法获取真实直播间 ID");
   }
   let cachedRoomSlug = null;
   async function ensureRoomId() {
@@ -8008,32 +8028,52 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     textarea.value = fasongText.value;
     updateCount();
   }
-  function hideSiblingNativeElements(hide) {
+  function isNativeSendBox(el) {
+    return !!el.querySelector(
+      'input[type="text"], textarea, input:not([type="submit"]):not([type="hidden"]):not([type="radio"]):not([type="checkbox"])'
+    );
+  }
+  function isNativeChatHistory(el) {
+    return el.classList.contains("chat-history-panel") || el.classList.contains("chat-room") || typeof el.className === "string" && el.className.includes("chat-history");
+  }
+  function applyHide(el, shouldHide) {
+    if (shouldHide && !el.dataset.lcHidden) {
+      el.dataset.lcHidden = "true";
+      el.style.display = "none";
+    } else if (!shouldHide && el.dataset.lcHidden) {
+      delete el.dataset.lcHidden;
+      el.style.display = "";
+    }
+  }
+  function hideSiblingNativeElements(hideSendBox, hideNative) {
     const host = root?.parentElement;
     if (!host) return;
     for (const el of Array.from(host.children)) {
-      if (!(el instanceof HTMLElement)) continue;
-      if (el.id === ROOT_ID) continue;
-      if (hide) {
-        if (!el.dataset.lcHidden) {
-          el.dataset.lcHidden = "true";
-          el.style.display = "none";
-        }
-      } else {
-        if (el.dataset.lcHidden) {
-          delete el.dataset.lcHidden;
-          el.style.display = "";
-        }
+      if (!(el instanceof HTMLElement) || el.id === ROOT_ID) continue;
+      const isSendBox = isNativeSendBox(el);
+      const isChatHistory = isNativeChatHistory(el);
+      const shouldHide = hideSendBox && isSendBox || hideNative && (isChatHistory || isSendBox);
+      applyHide(el, shouldHide);
+    }
+    const hostParent = host.parentElement;
+    if (!hostParent) return;
+    for (const el of Array.from(hostParent.children)) {
+      if (!(el instanceof HTMLElement) || el === host) continue;
+      if (isNativeSendBox(el)) {
+        applyHide(el, hideSendBox || hideNative);
+      } else if (!hideSendBox && !hideNative) {
+        applyHide(el, false);
       }
     }
   }
   function updateNativeVisibility() {
     const mounted = !!root?.isConnected && !!root.querySelector(".lc-chat-composer");
     const nativeMounted = mounted && !rootUsesFallbackHost;
+    const shouldHideNative = nativeMounted && customChatHideNative.value;
     document.documentElement.classList.toggle("lc-custom-chat-mounted", nativeMounted);
     document.documentElement.classList.toggle("lc-custom-chat-root-outside-history", nativeMounted && rootOutsideHistory);
-    document.documentElement.classList.toggle("lc-custom-chat-hide-native", nativeMounted && customChatHideNative.value);
-    hideSiblingNativeElements(nativeMounted && customChatHideNative.value);
+    document.documentElement.classList.toggle("lc-custom-chat-hide-native", shouldHideNative);
+    hideSiblingNativeElements(nativeMounted, shouldHideNative);
   }
   function appendDebugRow(parent, key, value) {
     const row = document.createElement("div");
@@ -8463,7 +8503,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
       window.cancelAnimationFrame(nativeScanFrame);
       nativeScanFrame = null;
     }
-    hideSiblingNativeElements(false);
+    hideSiblingNativeElements(false, false);
     document.documentElement.classList.remove("lc-custom-chat-hide-native");
     document.documentElement.classList.remove("lc-custom-chat-mounted");
     document.documentElement.classList.remove("lc-custom-chat-root-outside-history");
@@ -10334,7 +10374,6 @@ u$2(
       ] })
     ] });
   }
-  const open = y$1(true);
   function NormalSendTab() {
     if (customChatEnabled.value) return null;
     const sendMessage = async () => {
@@ -10343,42 +10382,9 @@ u$2(
         fasongText.value = "";
       }
     };
-    return u$2("div", { className: "cb-section cb-stack", style: { marginBottom: ".5em" }, children: [
-u$2(
-        "div",
-        {
-          className: "cb-heading",
-          style: {
-            fontWeight: "bold",
-            marginBottom: 0,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between"
-          },
-          children: [
-u$2("span", { children: "常规发送" }),
-u$2(
-              "button",
-              {
-                type: "button",
-                onClick: () => {
-                  open.value = !open.value;
-                },
-                style: {
-                  background: "none",
-                  border: "none",
-                  cursor: "pointer",
-                  padding: "0 4px",
-                  fontSize: "12px",
-                  color: "inherit"
-                },
-                children: open.value ? "▼" : "▶"
-              }
-            )
-          ]
-        }
-      ),
-      open.value && u$2("div", { className: "cb-body cb-stack", children: [
+    return u$2("details", { open: true, children: [
+u$2("summary", { style: { cursor: "pointer", userSelect: "none", fontWeight: "bold" }, children: u$2("span", { children: "常规发送" }) }),
+u$2("div", { className: "cb-body cb-stack", children: [
 u$2("div", { style: { position: "relative" }, children: [
 u$2(
             "textarea",

@@ -87,18 +87,42 @@ export async function getRoomId(url = window.location.href): Promise<number> {
   const shortUid = safeExtractRoomNumber(url)
   if (!shortUid) throw new Error('无法从当前页面 URL 解析直播间号')
 
-  const room = await fetch(`${BASE_URL.BILIBILI_ROOM_INIT}?id=${shortUid}`, {
-    method: 'GET',
-    credentials: 'include',
-  })
-
-  if (!room.ok) {
-    throw new Error(`HTTP ${room.status}: ${room.statusText}`)
+  // Primary: room_init resolves legacy short-room-IDs to real IDs.
+  try {
+    const room = await fetch(`${BASE_URL.BILIBILI_ROOM_INIT}?id=${shortUid}`, {
+      method: 'GET',
+      credentials: 'include',
+    })
+    if (room.ok) {
+      const roomData: { data: { room_id: number; uid: number } } = await room.json()
+      cachedStreamerUid.value = roomData.data.uid
+      return roomData.data.room_id
+    }
+  } catch {
+    // fall through to alternative
   }
 
-  const roomData: { data: { room_id: number; uid: number } } = await room.json()
-  cachedStreamerUid.value = roomData.data.uid
-  return roomData.data.room_id
+  // Fallback: try get_info with the slug as room_id (works for modern rooms).
+  try {
+    const room = await fetch(`${BASE_URL.BILIBILI_ROOM_INIT_ALT}?room_id=${shortUid}`, {
+      method: 'GET',
+      credentials: 'include',
+    })
+    if (room.ok) {
+      const json: { code?: number; data?: { room_id?: number; uid?: number } } = await room.json()
+      if (json.code === 0 && json.data?.room_id) {
+        if (json.data.uid) cachedStreamerUid.value = json.data.uid
+        return json.data.room_id
+      }
+    }
+  } catch {
+    // fall through to last resort
+  }
+
+  // Last resort: for modern rooms the URL slug is already the real room ID.
+  const directId = Number(shortUid)
+  if (Number.isFinite(directId) && directId > 0) return directId
+  throw new Error('无法获取真实直播间 ID')
 }
 
 // The URL slug (e.g. "12345") used to resolve the currently cached room ID.

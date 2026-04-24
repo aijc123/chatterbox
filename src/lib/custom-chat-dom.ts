@@ -2285,22 +2285,60 @@ function syncComposerFromStore(): void {
   updateCount()
 }
 
-function hideSiblingNativeElements(hide: boolean): void {
+function isNativeSendBox(el: HTMLElement): boolean {
+  return !!el.querySelector(
+    'input[type="text"], textarea, input:not([type="submit"]):not([type="hidden"]):not([type="radio"]):not([type="checkbox"])'
+  )
+}
+
+function isNativeChatHistory(el: HTMLElement): boolean {
+  return (
+    el.classList.contains('chat-history-panel') ||
+    el.classList.contains('chat-room') ||
+    (typeof el.className === 'string' && el.className.includes('chat-history'))
+  )
+}
+
+function applyHide(el: HTMLElement, shouldHide: boolean): void {
+  if (shouldHide && !el.dataset.lcHidden) {
+    el.dataset.lcHidden = 'true'
+    el.style.display = 'none'
+  } else if (!shouldHide && el.dataset.lcHidden) {
+    delete el.dataset.lcHidden
+    el.style.display = ''
+  }
+}
+
+/**
+ * hideSendBox: hide the native danmaku input (always true when Chatterbox is mounted,
+ *              since Chatterbox provides its own send bar).
+ * hideNative:  additionally hide the native chat history panel.
+ *
+ * The gift/reward bar is intentionally left untouched — it is not a send box and
+ * not a chat history container.
+ */
+function hideSiblingNativeElements(hideSendBox: boolean, hideNative: boolean): void {
   const host = root?.parentElement
   if (!host) return
+
   for (const el of Array.from(host.children)) {
-    if (!(el instanceof HTMLElement)) continue
-    if (el.id === ROOT_ID) continue
-    if (hide) {
-      if (!el.dataset.lcHidden) {
-        el.dataset.lcHidden = 'true'
-        el.style.display = 'none'
-      }
-    } else {
-      if (el.dataset.lcHidden) {
-        delete el.dataset.lcHidden
-        el.style.display = ''
-      }
+    if (!(el instanceof HTMLElement) || el.id === ROOT_ID) continue
+    const isSendBox = isNativeSendBox(el)
+    const isChatHistory = isNativeChatHistory(el)
+    const shouldHide = (hideSendBox && isSendBox) || (hideNative && (isChatHistory || isSendBox))
+    applyHide(el, shouldHide)
+  }
+
+  // Also check one level up — the native send box may be outside the chat
+  // container entirely and sit between the leaderboard and the custom chat.
+  const hostParent = host.parentElement
+  if (!hostParent) return
+  for (const el of Array.from(hostParent.children)) {
+    if (!(el instanceof HTMLElement) || el === host) continue
+    if (isNativeSendBox(el)) {
+      applyHide(el, hideSendBox || hideNative)
+    } else if (!hideSendBox && !hideNative) {
+      applyHide(el, false)
     }
   }
 }
@@ -2308,10 +2346,13 @@ function hideSiblingNativeElements(hide: boolean): void {
 function updateNativeVisibility(): void {
   const mounted = !!root?.isConnected && !!root.querySelector('.lc-chat-composer')
   const nativeMounted = mounted && !rootUsesFallbackHost
+  const shouldHideNative = nativeMounted && customChatHideNative.value
   document.documentElement.classList.toggle('lc-custom-chat-mounted', nativeMounted)
   document.documentElement.classList.toggle('lc-custom-chat-root-outside-history', nativeMounted && rootOutsideHistory)
-  document.documentElement.classList.toggle('lc-custom-chat-hide-native', nativeMounted && customChatHideNative.value)
-  hideSiblingNativeElements(nativeMounted && customChatHideNative.value)
+  document.documentElement.classList.toggle('lc-custom-chat-hide-native', shouldHideNative)
+  // Always hide native send box when mounted (Chatterbox has its own); hide
+  // chat history only when the "隐藏原评论列表和原发送框" option is on.
+  hideSiblingNativeElements(nativeMounted, shouldHideNative)
 }
 
 function appendDebugRow(parent: HTMLElement, key: string, value: string): void {
@@ -2793,7 +2834,7 @@ export function stopCustomChatDom(): void {
     window.cancelAnimationFrame(nativeScanFrame)
     nativeScanFrame = null
   }
-  hideSiblingNativeElements(false)
+  hideSiblingNativeElements(false, false)
   document.documentElement.classList.remove('lc-custom-chat-hide-native')
   document.documentElement.classList.remove('lc-custom-chat-mounted')
   document.documentElement.classList.remove('lc-custom-chat-root-outside-history')
