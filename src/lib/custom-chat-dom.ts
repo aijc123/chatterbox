@@ -2328,19 +2328,6 @@ function hideSiblingNativeElements(hideSendBox: boolean, hideNative: boolean): v
     const shouldHide = (hideSendBox && isSendBox) || (hideNative && (isChatHistory || isSendBox))
     applyHide(el, shouldHide)
   }
-
-  // Also check one level up — the native send box may be outside the chat
-  // container entirely and sit between the leaderboard and the custom chat.
-  const hostParent = host.parentElement
-  if (!hostParent) return
-  for (const el of Array.from(hostParent.children)) {
-    if (!(el instanceof HTMLElement) || el === host) continue
-    if (isNativeSendBox(el)) {
-      applyHide(el, hideSendBox || hideNative)
-    } else if (!hideSendBox && !hideNative) {
-      applyHide(el, false)
-    }
-  }
 }
 
 function updateNativeVisibility(): void {

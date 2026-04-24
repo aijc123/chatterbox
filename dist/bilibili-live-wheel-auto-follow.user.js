@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.8.32
+// @version      2.8.33
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -8054,16 +8054,6 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
       const isChatHistory = isNativeChatHistory(el);
       const shouldHide = hideSendBox && isSendBox || hideNative && (isChatHistory || isSendBox);
       applyHide(el, shouldHide);
-    }
-    const hostParent = host.parentElement;
-    if (!hostParent) return;
-    for (const el of Array.from(hostParent.children)) {
-      if (!(el instanceof HTMLElement) || el === host) continue;
-      if (isNativeSendBox(el)) {
-        applyHide(el, hideSendBox || hideNative);
-      } else if (!hideSendBox && !hideNative) {
-        applyHide(el, false);
-      }
     }
   }
   function updateNativeVisibility() {
