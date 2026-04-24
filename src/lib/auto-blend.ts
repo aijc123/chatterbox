@@ -1,4 +1,11 @@
-import { ensureRoomId, getCsrfToken, getDedeUid, type SendDanmakuResult, setRandomDanmakuColor } from './api'
+import {
+  checkSelfRoomRestrictions,
+  ensureRoomId,
+  getCsrfToken,
+  getDedeUid,
+  type SendDanmakuResult,
+  setRandomDanmakuColor,
+} from './api'
 import {
   formatAutoBlendCandidate,
   formatAutoBlendSenderInfo,
@@ -90,6 +97,8 @@ let isSending = false
 let rateLimitHitCount = 0
 let firstRateLimitHitAt = 0
 let moderationStopReason: string | null = null
+let consecutiveSilentDrops = 0
+const SILENT_DROP_CHECK_THRESHOLD = 3
 const recentDomDanmaku: Array<{ text: string; uid: string | null; observedAt: number }> = []
 
 // Let a freshly-started wave breathe briefly before following it. With a
@@ -628,17 +637,34 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
           autoBlendLastActionText.value = `已提交，等待回显：${shortAutoBlendText(display)}`
           const echoSource = await waitForSentEcho(toSend, myUid, result.startedAt ?? Date.now())
           if (echoSource === 'ws' || echoSource === 'dom') {
+            consecutiveSilentDrops = 0
             const sourceLabel = echoSource === 'ws' ? 'WS' : 'DOM'
             autoBlendLastActionText.value = `已${sourceLabel}回显：${shortAutoBlendText(display)}`
-          } else if (echoSource === 'local') {
-            // API accepted but no WS/DOM broadcast echo detected within timeout.
+          } else {
+            // API accepted (code 0) but no WS/DOM broadcast echo — Bilibili silently
+            // discarded the message. Common causes: muted in room, fan medal required,
+            // account risk control, or send frequency too high.
+            consecutiveSilentDrops++
             autoBlendLastActionText.value = `接口成功未见广播：${shortAutoBlendText(display)}`
             appendLog(`自动跟车接口成功，但 ${Math.round(SEND_ECHO_TIMEOUT_MS / 1000)}s 内未看到广播回显：${display}`)
-          } else {
-            autoBlendLastActionText.value = `接口成功但未看到回显：${shortAutoBlendText(display)}`
-            appendLog(
-              `自动跟车接口成功，但 ${Math.round(SEND_ECHO_TIMEOUT_MS / 1000)}s 内没有在聊天区看到回显：${display}`
-            )
+
+            if (consecutiveSilentDrops >= SILENT_DROP_CHECK_THRESHOLD) {
+              consecutiveSilentDrops = 0
+              appendLog('自动跟车：连续多次未见广播，正在巡检当前房间限制状态…')
+              try {
+                const signals = await checkSelfRoomRestrictions(roomId)
+                if (signals.length > 0) {
+                  const desc = signals.map(s => `${s.message}（${s.duration}）`).join('；')
+                  stopAutoBlendAfterModeration(`🔴 自动跟车：巡检发现限制，已自动关闭：${desc}`)
+                  return
+                }
+                appendLog(
+                  '自动跟车：巡检未发现明确禁言/限制，弹幕仍未广播。可能原因：该房间需要粉丝牌、发送频率过快、或账号存在风控。'
+                )
+              } catch {
+                appendLog('自动跟车：巡检请求失败，无法确认限制原因。')
+              }
+            }
           }
         }
 
@@ -680,6 +706,7 @@ export function startAutoBlend(): void {
   rateLimitHitCount = 0
   firstRateLimitHitAt = 0
   moderationStopReason = null
+  consecutiveSilentDrops = 0
   recentDomDanmaku.length = 0
   autoBlendStatusText.value = '观察中'
   autoBlendCandidateText.value = '暂无'

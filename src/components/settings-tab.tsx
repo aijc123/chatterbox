@@ -996,7 +996,7 @@ export function SettingsTab() {
           </div>
           <div className='cb-panel cb-stack' style={{ marginBottom: '.5em' }}>
             <div className='cb-heading' style={{ marginBottom: 0 }}>
-              监控室代理状态
+              监控室代理状态（网站主控版）
             </div>
             <div className='cb-note'>
               监控、推荐、跳转和统一跟车配置现在都以网站为准。脚本这边只负责同步牌子房/关注房清单、拉取网站配置，并在当前直播页执行试运行。
@@ -1021,7 +1021,8 @@ export function SettingsTab() {
               </label>
             </div>
             <div className='cb-note'>
-              连接状态：{guardRoomAgentConnected.value ? '已连接' : '未连接'} · {guardRoomAgentStatusText.value}
+              连接状态（网站主控版）：{guardRoomAgentConnected.value ? '已连接' : '未连接'} ·{' '}
+              {guardRoomAgentStatusText.value}
             </div>
             <div className='cb-note'>当前会话：{guardRoomLiveDeskSessionId.value || '暂无活动监控会话'}</div>
             <div className='cb-note'>

@@ -427,6 +427,21 @@ async function fetchSilentListSignals(roomId: number): Promise<RestrictionSignal
   ]
 }
 
+/**
+ * Checks whether the current logged-in user is muted or otherwise restricted
+ * in the given room. Used to diagnose silent send failures.
+ */
+export async function checkSelfRoomRestrictions(roomId: number): Promise<RestrictionSignal[]> {
+  const [roomInfoResult, silentListResult] = await Promise.allSettled([
+    fetchRoomUserInfoSignals(roomId),
+    fetchSilentListSignals(roomId),
+  ])
+  const signals: RestrictionSignal[] = []
+  if (roomInfoResult.status === 'fulfilled') signals.push(...roomInfoResult.value)
+  if (silentListResult.status === 'fulfilled') signals.push(...silentListResult.value)
+  return signals.filter(s => s.kind !== 'unknown' && s.kind !== 'deactivated')
+}
+
 export async function checkMedalRoomRestriction(room: MedalRoom): Promise<MedalRestrictionCheck> {
   const checkedAt = Date.now()
   try {

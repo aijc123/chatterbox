@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.8.28
+// @version      2.8.30
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -2143,6 +2143,16 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
         source: "GetSilentUserList"
       }
     ];
+  }
+  async function checkSelfRoomRestrictions(roomId) {
+    const [roomInfoResult, silentListResult] = await Promise.allSettled([
+      fetchRoomUserInfoSignals(roomId),
+      fetchSilentListSignals(roomId)
+    ]);
+    const signals = [];
+    if (roomInfoResult.status === "fulfilled") signals.push(...roomInfoResult.value);
+    if (silentListResult.status === "fulfilled") signals.push(...silentListResult.value);
+    return signals.filter((s2) => s2.kind !== "unknown" && s2.kind !== "deactivated");
   }
   async function checkMedalRoomRestriction(room) {
     const checkedAt = Date.now();
@@ -4996,6 +5006,8 @@ ws;
   let rateLimitHitCount = 0;
   let firstRateLimitHitAt = 0;
   let moderationStopReason = null;
+  let consecutiveSilentDrops = 0;
+  const SILENT_DROP_CHECK_THRESHOLD = 3;
   const recentDomDanmaku = [];
   const RATE_LIMIT_BACKOFF_MS = 2 * 60 * 1e3;
   const SEND_ECHO_TIMEOUT_MS = 4e3;
@@ -5416,16 +5428,30 @@ ws;
             autoBlendLastActionText.value = `已提交，等待回显：${shortAutoBlendText(display)}`;
             const echoSource = await waitForSentEcho(toSend, myUid, result.startedAt ?? Date.now());
             if (echoSource === "ws" || echoSource === "dom") {
+              consecutiveSilentDrops = 0;
               const sourceLabel = echoSource === "ws" ? "WS" : "DOM";
               autoBlendLastActionText.value = `已${sourceLabel}回显：${shortAutoBlendText(display)}`;
-            } else if (echoSource === "local") {
+            } else {
+              consecutiveSilentDrops++;
               autoBlendLastActionText.value = `接口成功未见广播：${shortAutoBlendText(display)}`;
               appendLog(`自动跟车接口成功，但 ${Math.round(SEND_ECHO_TIMEOUT_MS / 1e3)}s 内未看到广播回显：${display}`);
-            } else {
-              autoBlendLastActionText.value = `接口成功但未看到回显：${shortAutoBlendText(display)}`;
-              appendLog(
-                `自动跟车接口成功，但 ${Math.round(SEND_ECHO_TIMEOUT_MS / 1e3)}s 内没有在聊天区看到回显：${display}`
-              );
+              if (consecutiveSilentDrops >= SILENT_DROP_CHECK_THRESHOLD) {
+                consecutiveSilentDrops = 0;
+                appendLog("自动跟车：连续多次未见广播，正在巡检当前房间限制状态…");
+                try {
+                  const signals = await checkSelfRoomRestrictions(roomId);
+                  if (signals.length > 0) {
+                    const desc = signals.map((s2) => `${s2.message}（${s2.duration}）`).join("；");
+                    stopAutoBlendAfterModeration(`🔴 自动跟车：巡检发现限制，已自动关闭：${desc}`);
+                    return;
+                  }
+                  appendLog(
+                    "自动跟车：巡检未发现明确禁言/限制，弹幕仍未广播。可能原因：该房间需要粉丝牌、发送频率过快、或账号存在风控。"
+                  );
+                } catch {
+                  appendLog("自动跟车：巡检请求失败，无法确认限制原因。");
+                }
+              }
             }
           }
           if (!result.success && !result.cancelled && handleSendFailure(result, roomId)) return;
@@ -5460,6 +5486,7 @@ ws;
     rateLimitHitCount = 0;
     firstRateLimitHitAt = 0;
     moderationStopReason = null;
+    consecutiveSilentDrops = 0;
     recentDomDanmaku.length = 0;
     autoBlendStatusText.value = "观察中";
     autoBlendCandidateText.value = "暂无";
@@ -11517,7 +11544,7 @@ u$2(
                 ] })
               ] }),
 u$2("div", { className: "cb-panel cb-stack", style: { marginBottom: ".5em" }, children: [
-u$2("div", { className: "cb-heading", style: { marginBottom: 0 }, children: "监控室代理状态" }),
+u$2("div", { className: "cb-heading", style: { marginBottom: 0 }, children: "监控室代理状态（网站主控版）" }),
 u$2("div", { className: "cb-note", children: "监控、推荐、跳转和统一跟车配置现在都以网站为准。脚本这边只负责同步牌子房/关注房清单、拉取网站配置，并在当前直播页执行试运行。" }),
 u$2("div", { className: "cb-row", style: { display: "flex", gap: ".5em", alignItems: "center", flexWrap: "wrap" }, children: u$2("label", { className: "cb-note", style: { display: "inline-flex", alignItems: "center", gap: ".4em" }, children: [
                   "心跳间隔",
@@ -11538,9 +11565,10 @@ u$2(
                   "秒"
                 ] }) }),
 u$2("div", { className: "cb-note", children: [
-                  "连接状态：",
+                  "连接状态（网站主控版）：",
                   guardRoomAgentConnected.value ? "已连接" : "未连接",
-                  " · ",
+                  " ·",
+                  " ",
                   guardRoomAgentStatusText.value
                 ] }),
 u$2("div", { className: "cb-note", children: [
