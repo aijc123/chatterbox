@@ -969,7 +969,6 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
 }
 html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-items,
 html.lc-custom-chat-hide-native.lc-custom-chat-mounted .super-chat-card,
-html.lc-custom-chat-hide-native.lc-custom-chat-mounted .gift-item,
 html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-control-panel,
 html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-input-panel,
 html.lc-custom-chat-hide-native.lc-custom-chat-mounted .control-panel-ctnr,
@@ -2300,7 +2299,7 @@ function syncComposerFromStore(): void {
 
 function isNativeSendBox(el: HTMLElement): boolean {
   return !!el.querySelector(
-    'input[type="text"], textarea, input:not([type="submit"]):not([type="hidden"]):not([type="radio"]):not([type="checkbox"])'
+    'input[type="text"], textarea, input:not([type="submit"]):not([type="hidden"]):not([type="radio"]):not([type="checkbox"]):not([type="range"]):not([type="number"]):not([type="button"]):not([type="image"]):not([type="reset"]):not([type="file"]):not([type="color"])'
   )
 }
 

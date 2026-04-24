@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.8.37
+// @version      2.8.38
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -6900,7 +6900,6 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
 }
 html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-items,
 html.lc-custom-chat-hide-native.lc-custom-chat-mounted .super-chat-card,
-html.lc-custom-chat-hide-native.lc-custom-chat-mounted .gift-item,
 html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-control-panel,
 html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-input-panel,
 html.lc-custom-chat-hide-native.lc-custom-chat-mounted .control-panel-ctnr,
@@ -8049,7 +8048,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   }
   function isNativeSendBox(el) {
     return !!el.querySelector(
-      'input[type="text"], textarea, input:not([type="submit"]):not([type="hidden"]):not([type="radio"]):not([type="checkbox"])'
+      'input[type="text"], textarea, input:not([type="submit"]):not([type="hidden"]):not([type="radio"]):not([type="checkbox"]):not([type="range"]):not([type="number"]):not([type="button"]):not([type="image"]):not([type="reset"]):not([type="file"]):not([type="color"])'
     );
   }
   function isNativeChatHistory(el) {
