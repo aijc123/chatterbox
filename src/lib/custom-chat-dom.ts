@@ -972,7 +972,13 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .gift-item,
 html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-control-panel,
 html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-input-panel,
 html.lc-custom-chat-hide-native.lc-custom-chat-mounted .control-panel-ctnr,
-html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-input-ctnr {
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-input-ctnr,
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted [class*="input-panel"],
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted [class*="input-ctnr"],
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted [class*="send-bar"],
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted [class*="bottom-send"],
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted [class*="chat-send"],
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted .live-input-panel {
   display: none !important;
 }
 html.lc-custom-chat-hide-native.lc-custom-chat-mounted.lc-custom-chat-root-outside-history .chat-history-panel {
@@ -1265,7 +1271,7 @@ function bestMergedBadges(currentBadges: string[], incomingBadges: string[]): st
   for (const raw of [...currentBadges, ...incomingBadges]) {
     const level = parseBadgeLevel(raw)
     if (level !== null) {
-      if (bestLevel === null || level > bestLevel) bestLevel = level
+      if (level > 0 && (bestLevel === null || level > bestLevel)) bestLevel = level
       continue
     }
     if (!merged.includes(raw)) merged.push(raw)
@@ -1405,7 +1411,7 @@ function normalizedUserLevelBadge(message: CustomChatEvent, name = displayName(m
     const level = text ? parseBadgeLevel(text) : parseBadgeLevel(raw)
     if (level !== null) return formatBadgeLevel(level)
   }
-  return formatBadgeLevel(0)
+  return null
 }
 
 function displayName(message: CustomChatEvent): string {
@@ -2279,12 +2285,33 @@ function syncComposerFromStore(): void {
   updateCount()
 }
 
+function hideSiblingNativeElements(hide: boolean): void {
+  const host = root?.parentElement
+  if (!host) return
+  for (const el of Array.from(host.children)) {
+    if (!(el instanceof HTMLElement)) continue
+    if (el.id === ROOT_ID) continue
+    if (hide) {
+      if (!el.dataset.lcHidden) {
+        el.dataset.lcHidden = 'true'
+        el.style.display = 'none'
+      }
+    } else {
+      if (el.dataset.lcHidden) {
+        delete el.dataset.lcHidden
+        el.style.display = ''
+      }
+    }
+  }
+}
+
 function updateNativeVisibility(): void {
   const mounted = !!root?.isConnected && !!root.querySelector('.lc-chat-composer')
   const nativeMounted = mounted && !rootUsesFallbackHost
   document.documentElement.classList.toggle('lc-custom-chat-mounted', nativeMounted)
   document.documentElement.classList.toggle('lc-custom-chat-root-outside-history', nativeMounted && rootOutsideHistory)
   document.documentElement.classList.toggle('lc-custom-chat-hide-native', nativeMounted && customChatHideNative.value)
+  hideSiblingNativeElements(nativeMounted && customChatHideNative.value)
 }
 
 function appendDebugRow(parent: HTMLElement, key: string, value: string): void {
@@ -2766,6 +2793,7 @@ export function stopCustomChatDom(): void {
     window.cancelAnimationFrame(nativeScanFrame)
     nativeScanFrame = null
   }
+  hideSiblingNativeElements(false)
   document.documentElement.classList.remove('lc-custom-chat-hide-native')
   document.documentElement.classList.remove('lc-custom-chat-mounted')
   document.documentElement.classList.remove('lc-custom-chat-root-outside-history')

@@ -36,8 +36,6 @@ export function Configurator() {
         }}
         className='cb-scroll'
       >
-        <NormalSendTab />
-
         <AutoSendControls />
 
         <div>
@@ -51,6 +49,8 @@ export function Configurator() {
         >
           <MemesList />
         </div>
+
+        <NormalSendTab />
       </div>
 
       <div

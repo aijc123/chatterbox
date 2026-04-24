@@ -177,7 +177,7 @@ function bindEvents(roomId: number, live: LiveWS): void {
     rememberWsDanmaku(text, uid)
     const badges: string[] = []
     if (badge?.[0]) badges.push(`${badge[1]} ${badge[0]}`)
-    badges.push(`LV${Number.isFinite(userLevel) && userLevel > 0 ? userLevel : 0}`)
+    if (Number.isFinite(userLevel) && userLevel > 0) badges.push(`LV${userLevel}`)
     if (user[2] === 1) badges.push('房管')
     emit({
       id: data.msg_id ?? `dm-${uid}-${Date.now()}-${Math.random()}`,

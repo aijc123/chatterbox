@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.8.30
+// @version      2.8.31
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -4604,7 +4604,7 @@ ws;
       rememberWsDanmaku(text, uid);
       const badges = [];
       if (badge?.[0]) badges.push(`${badge[1]} ${badge[0]}`);
-      badges.push(`LV${Number.isFinite(userLevel) && userLevel > 0 ? userLevel : 0}`);
+      if (Number.isFinite(userLevel) && userLevel > 0) badges.push(`LV${userLevel}`);
       if (user[2] === 1) badges.push("房管");
       emit({
         id: data.msg_id ?? `dm-${uid}-${Date.now()}-${Math.random()}`,
@@ -6875,7 +6875,13 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .gift-item,
 html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-control-panel,
 html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-input-panel,
 html.lc-custom-chat-hide-native.lc-custom-chat-mounted .control-panel-ctnr,
-html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-input-ctnr {
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-input-ctnr,
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted [class*="input-panel"],
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted [class*="input-ctnr"],
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted [class*="send-bar"],
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted [class*="bottom-send"],
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted [class*="chat-send"],
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted .live-input-panel {
   display: none !important;
 }
 html.lc-custom-chat-hide-native.lc-custom-chat-mounted.lc-custom-chat-root-outside-history .chat-history-panel {
@@ -7123,7 +7129,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     for (const raw of [...currentBadges, ...incomingBadges]) {
       const level = parseBadgeLevel(raw);
       if (level !== null) {
-        if (bestLevel === null || level > bestLevel) bestLevel = level;
+        if (level > 0 && (bestLevel === null || level > bestLevel)) bestLevel = level;
         continue;
       }
       if (!merged.includes(raw)) merged.push(raw);
@@ -7230,7 +7236,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
       const level = text ? parseBadgeLevel(text) : parseBadgeLevel(raw);
       if (level !== null) return formatBadgeLevel(level);
     }
-    return formatBadgeLevel(0);
+    return null;
   }
   function displayName(message) {
     let name = cleanDisplayName(message.uname) || "匿名";
@@ -8002,12 +8008,32 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     textarea.value = fasongText.value;
     updateCount();
   }
+  function hideSiblingNativeElements(hide) {
+    const host = root?.parentElement;
+    if (!host) return;
+    for (const el of Array.from(host.children)) {
+      if (!(el instanceof HTMLElement)) continue;
+      if (el.id === ROOT_ID) continue;
+      if (hide) {
+        if (!el.dataset.lcHidden) {
+          el.dataset.lcHidden = "true";
+          el.style.display = "none";
+        }
+      } else {
+        if (el.dataset.lcHidden) {
+          delete el.dataset.lcHidden;
+          el.style.display = "";
+        }
+      }
+    }
+  }
   function updateNativeVisibility() {
     const mounted = !!root?.isConnected && !!root.querySelector(".lc-chat-composer");
     const nativeMounted = mounted && !rootUsesFallbackHost;
     document.documentElement.classList.toggle("lc-custom-chat-mounted", nativeMounted);
     document.documentElement.classList.toggle("lc-custom-chat-root-outside-history", nativeMounted && rootOutsideHistory);
     document.documentElement.classList.toggle("lc-custom-chat-hide-native", nativeMounted && customChatHideNative.value);
+    hideSiblingNativeElements(nativeMounted && customChatHideNative.value);
   }
   function appendDebugRow(parent, key, value) {
     const row = document.createElement("div");
@@ -8437,6 +8463,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
       window.cancelAnimationFrame(nativeScanFrame);
       nativeScanFrame = null;
     }
+    hideSiblingNativeElements(false);
     document.documentElement.classList.remove("lc-custom-chat-hide-native");
     document.documentElement.classList.remove("lc-custom-chat-mounted");
     document.documentElement.classList.remove("lc-custom-chat-root-outside-history");
@@ -10307,6 +10334,7 @@ u$2(
       ] })
     ] });
   }
+  const open = y$1(true);
   function NormalSendTab() {
     if (customChatEnabled.value) return null;
     const sendMessage = async () => {
@@ -10316,8 +10344,41 @@ u$2(
       }
     };
     return u$2("div", { className: "cb-section cb-stack", style: { marginBottom: ".5em" }, children: [
-u$2("div", { className: "cb-heading", style: { fontWeight: "bold", marginBottom: 0 }, children: "常规发送" }),
-u$2("div", { className: "cb-body cb-stack", children: [
+u$2(
+        "div",
+        {
+          className: "cb-heading",
+          style: {
+            fontWeight: "bold",
+            marginBottom: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between"
+          },
+          children: [
+u$2("span", { children: "常规发送" }),
+u$2(
+              "button",
+              {
+                type: "button",
+                onClick: () => {
+                  open.value = !open.value;
+                },
+                style: {
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  padding: "0 4px",
+                  fontSize: "12px",
+                  color: "inherit"
+                },
+                children: open.value ? "▼" : "▶"
+              }
+            )
+          ]
+        }
+      ),
+      open.value && u$2("div", { className: "cb-body cb-stack", children: [
 u$2("div", { style: { position: "relative" }, children: [
 u$2(
             "textarea",
@@ -12598,7 +12659,6 @@ u$2(
               },
               className: "cb-scroll",
               children: [
-u$2(NormalSendTab, {}),
 u$2(AutoSendControls, {}),
 u$2("div", { children: u$2(AutoBlendControls, {}) }),
 u$2(
@@ -12609,7 +12669,8 @@ u$2(
                     },
                     children: u$2(MemesList, {})
                   }
-                )
+                ),
+u$2(NormalSendTab, {})
               ]
             }
           ),
