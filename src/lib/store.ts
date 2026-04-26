@@ -20,12 +20,12 @@ export const danmakuDirectConfirm = gmSignal('danmakuDirectConfirm', false)
 export const danmakuDirectAlwaysShow = gmSignal('danmakuDirectAlwaysShow', false)
 const customChatDefaultMigrationKey = 'customChatDefaultPresetMigrated'
 if (!GM_getValue(customChatDefaultMigrationKey, false)) {
-  GM_setValue('customChatEnabled', true)
+  GM_setValue('customChatEnabled', false)
   GM_setValue('customChatHideNative', false)
   GM_setValue('customChatUseWs', true)
   GM_setValue(customChatDefaultMigrationKey, true)
 }
-export const customChatEnabled = gmSignal('customChatEnabled', true)
+export const customChatEnabled = gmSignal('customChatEnabled', false)
 export const customChatHideNative = gmSignal('customChatHideNative', false)
 export const customChatUseWs = gmSignal('customChatUseWs', true)
 export const customChatTheme = gmSignal<'laplace' | 'light' | 'compact'>('customChatTheme', 'laplace')

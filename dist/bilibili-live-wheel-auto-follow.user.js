@@ -1145,12 +1145,12 @@
   const danmakuDirectAlwaysShow = gmSignal("danmakuDirectAlwaysShow", false);
   const customChatDefaultMigrationKey = "customChatDefaultPresetMigrated";
   if (!_GM_getValue(customChatDefaultMigrationKey, false)) {
-    _GM_setValue("customChatEnabled", true);
+    _GM_setValue("customChatEnabled", false);
     _GM_setValue("customChatHideNative", false);
     _GM_setValue("customChatUseWs", true);
     _GM_setValue(customChatDefaultMigrationKey, true);
   }
-  const customChatEnabled = gmSignal("customChatEnabled", true);
+  const customChatEnabled = gmSignal("customChatEnabled", false);
   const customChatHideNative = gmSignal("customChatHideNative", false);
   const customChatUseWs = gmSignal("customChatUseWs", true);
   const customChatTheme = gmSignal("customChatTheme", "laplace");
