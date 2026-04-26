@@ -25,6 +25,11 @@ if (!GM_getValue(customChatDefaultMigrationKey, false)) {
   GM_setValue('customChatUseWs', true)
   GM_setValue(customChatDefaultMigrationKey, true)
 }
+const customChatDisableDefaultMigrationKey = 'customChatDisabledByDefaultMigrated'
+if (!GM_getValue(customChatDisableDefaultMigrationKey, false)) {
+  GM_setValue('customChatEnabled', false)
+  GM_setValue(customChatDisableDefaultMigrationKey, true)
+}
 export const customChatEnabled = gmSignal('customChatEnabled', false)
 export const customChatHideNative = gmSignal('customChatHideNative', false)
 export const customChatUseWs = gmSignal('customChatUseWs', true)
