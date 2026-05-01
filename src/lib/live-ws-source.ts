@@ -1,6 +1,6 @@
 import { LiveWS } from '@laplace.live/ws/client'
 
-import { ensureRoomId, getDedeUid, getSpmPrefix } from './api'
+import { ensureRoomId, getDedeUid } from './api'
 import { BASE_URL } from './const'
 import {
   type CustomChatEvent,
@@ -29,6 +29,11 @@ interface DanmuInfoResponse {
 }
 
 type UnknownRecord = Record<string, unknown>
+
+function getSpmPrefix(): string {
+  const metaTag = document.querySelector('meta[name="spm_prefix"]')
+  return metaTag?.getAttribute('content') ?? '444.8'
+}
 
 let liveConnection: LiveWS | null = null
 let started = false

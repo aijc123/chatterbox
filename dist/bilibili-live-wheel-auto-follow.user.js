@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.8.46
+// @version      2.8.47
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -2615,7 +2615,7 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
     const prefix = `${name}=`;
     return document.cookie.split(";").map((c2) => c2.trim()).find((c2) => c2.startsWith(prefix))?.slice(prefix.length);
   }
-  function getSpmPrefix() {
+  function getSpmPrefix$2() {
     const metaTag = document.querySelector('meta[name="spm_prefix"]');
     return metaTag?.getAttribute("content") ?? "444.8";
   }
@@ -2988,7 +2988,7 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
       if (cachedWbiKeys) {
         query = encodeWbi(
           {
-            web_location: getSpmPrefix()
+            web_location: getSpmPrefix$2()
           },
           cachedWbiKeys
         );
@@ -5312,6 +5312,10 @@ ws;
     const formatted = formatMilliyuanAmount(amount, "");
     return formatted ? `${formatted}元` : "";
   }
+  function getSpmPrefix$1() {
+    const metaTag = document.querySelector('meta[name="spm_prefix"]');
+    return metaTag?.getAttribute("content") ?? "444.8";
+  }
   let liveConnection = null;
   let started = false;
   let consumerCount = 0;
@@ -5377,7 +5381,7 @@ ws;
       {
         id: roomId,
         type: 0,
-        web_location: getSpmPrefix()
+        web_location: getSpmPrefix$1()
       },
       wbiKeys
     );
@@ -10014,6 +10018,10 @@ html.lc-dm-direct-always .${MARKER} {
     seen.splice(0, seen.length);
   }
   let currentAbort = null;
+  function getSpmPrefix() {
+    const metaTag = document.querySelector('meta[name="spm_prefix"]');
+    return metaTag?.getAttribute("content") ?? "444.8";
+  }
   function cancelLoop() {
     currentAbort?.abort();
     currentAbort = null;

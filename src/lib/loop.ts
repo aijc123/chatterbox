@@ -1,6 +1,6 @@
 import type { DanmakuConfigResponse } from '../types'
 
-import { ensureRoomId, fetchEmoticons, getCsrfToken, getSpmPrefix, setDanmakuMode, setRandomDanmakuColor } from './api'
+import { ensureRoomId, fetchEmoticons, getCsrfToken, setDanmakuMode, setRandomDanmakuColor } from './api'
 import { BASE_URL } from './const'
 import { formatLockedEmoticonReject, isEmoticonUnique, isLockedEmoticon } from './emoticon'
 import { classifyRiskEvent, syncGuardRoomRiskEvent } from './guard-room-sync'
@@ -23,6 +23,11 @@ import { processMessages } from './utils'
 import { cachedWbiKeys, encodeWbi, waitForWbiKeys } from './wbi'
 
 let currentAbort: AbortController | null = null
+
+function getSpmPrefix(): string {
+  const metaTag = document.querySelector('meta[name="spm_prefix"]')
+  return metaTag?.getAttribute('content') ?? '444.8'
+}
 
 export function cancelLoop(): void {
   currentAbort?.abort()
