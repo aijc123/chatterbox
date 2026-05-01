@@ -1,95 +1,122 @@
 /**
- * Adds an auto-follow blacklist toggle to Bilibili's reused danmaku menu.
+ * Injects an auto-follow blacklist toggle into Bilibili's danmaku context menu,
+ * and exposes helpers for the panel UI to manage the blacklist.
  */
 
 import { appendLog } from './log'
 import { autoBlendUserBlacklist } from './store'
 
-const INJECTED_CLASS = 'lc-bl-toggle'
+const INJECTED_ATTR = 'data-lc-bl'
 
-let pendingUid: string | null = null
-let pendingUname: string | null = null
-let clickHandler: ((e: MouseEvent) => void) | null = null
+let lastUid: string | null = null
+let lastUname: string | null = null
+let contextMenuHandler: (() => void) | null = null
 
-function captureFromClick(e: MouseEvent): void {
-  const target = e.target
-  if (!(target instanceof HTMLElement)) return
-  if (!target.closest('.open-menu')) return
-  const item = target.closest<HTMLElement>('[data-uid]')
-  if (!item) {
-    pendingUid = null
-    pendingUname = null
-    return
-  }
-  pendingUid = item.dataset.uid ?? null
-  pendingUname = item.dataset.uname ?? null
+function extractUidFromDanmakuItem(item: HTMLElement): string | null {
+  const direct = item.getAttribute('data-uid')
+  if (direct) return direct
+  const link = item.querySelector<HTMLAnchorElement>('a[href*="space.bilibili.com"], a[href*="uid="]')
+  const href = link?.href ?? ''
+  return href.match(/space\.bilibili\.com\/(\d+)/)?.[1] ?? href.match(/[?&]uid=(\d+)/)?.[1] ?? null
 }
 
-function buildToggleItem(template: HTMLElement, uid: string, uname: string | null): HTMLElement {
-  const isBlacklisted = uid in autoBlendUserBlacklist.value
-  const item = template.cloneNode(true) as HTMLElement
-  item.classList.add(INJECTED_CLASS)
-  item.removeAttribute('target')
-  for (const a of Array.from(item.querySelectorAll('a'))) {
-    a.removeAttribute('href')
+function extractUnameFromDanmakuItem(item: HTMLElement): string | null {
+  const selectors = ['[data-uname]', '.user-name', '.username', '.danmaku-item-user', '[class*="user-name"]']
+  for (const selector of selectors) {
+    const el = item.querySelector<HTMLElement>(selector)
+    const value = el?.getAttribute('data-uname') ?? el?.getAttribute('title') ?? el?.textContent
+    const clean = (value ?? '').replace(/\s+/g, ' ').trim()
+    if (clean && clean.length <= 32 && !/通过活动|装扮|粉丝牌|用户等级|头像|复制|举报|回复|关闭/.test(clean))
+      return clean
   }
+  return null
+}
 
-  const span = item.querySelector('span')
-  if (span) span.textContent = isBlacklisted ? '解除融入黑名单' : '添加融入黑名单'
+function closeNativeContextMenu(): void {
+  for (const li of document.querySelectorAll('li')) {
+    if (li.textContent?.trim() === '关闭') {
+      li.click()
+      return
+    }
+  }
+}
 
-  item.addEventListener('click', e => {
-    e.stopPropagation()
+function createMenuItem(source: HTMLLIElement, label: string): HTMLLIElement {
+  const item = document.createElement('li')
+  item.className = source.className
+  item.setAttribute(INJECTED_ATTR, '')
+  item.textContent = label
+  return item
+}
 
+function tryInjectMenuItem(copyLi: HTMLLIElement): void {
+  if (!lastUid) return
+  const ul = copyLi.parentElement
+  if (!ul || ul.querySelector(`[${INJECTED_ATTR}]`)) return
+
+  const isBlacklisted = lastUid in autoBlendUserBlacklist.value
+  const label = isBlacklisted ? '解除融入黑名单' : '添加融入黑名单'
+  const el = createMenuItem(copyLi, label)
+
+  el.addEventListener('click', () => {
+    const uid = lastUid
+    if (!uid) return
     const next = { ...autoBlendUserBlacklist.value }
-    const display = uname || uid
+    const display = lastUname || uid
     if (uid in next) {
       delete next[uid]
       appendLog(`🚲 已解除融入黑名单：${display}`)
     } else {
-      next[uid] = uname ?? ''
+      next[uid] = lastUname ?? ''
       appendLog(`🚲 已加入融入黑名单：${display}`)
     }
     autoBlendUserBlacklist.value = next
-
-    const menu = item.closest<HTMLElement>('.danmaku-menu')
-    if (menu) menu.style.display = 'none'
+    closeNativeContextMenu()
   })
 
-  return item
-}
-
-function ensureToggleInMenu(): void {
-  if (!pendingUid) return
-  const menu = document.querySelector<HTMLElement>('.danmaku-menu')
-  if (!menu) return
-  const list = menu.querySelector<HTMLElement>('.none-select')
-  if (!list) return
-  const template = list.firstElementChild
-  if (!(template instanceof HTMLElement)) return
-
-  list.querySelector(`.${INJECTED_CLASS}`)?.remove()
-  list.appendChild(buildToggleItem(template, pendingUid, pendingUname))
+  ul.insertBefore(el, copyLi.nextSibling)
 }
 
 export function startUserBlacklistHijack(): void {
-  if (clickHandler) return
+  if (contextMenuHandler) return
 
-  clickHandler = e => {
-    captureFromClick(e)
-    if (!pendingUid) return
-    requestAnimationFrame(() => ensureToggleInMenu())
+  contextMenuHandler = () => {
+    const active = document.activeElement
+    if (!(active instanceof HTMLElement)) {
+      lastUid = null
+      lastUname = null
+      return
+    }
+    const item = active.closest<HTMLElement>('.chat-item.danmaku-item')
+    if (!item) {
+      lastUid = null
+      lastUname = null
+      return
+    }
+    lastUid = extractUidFromDanmakuItem(item)
+    lastUname = extractUnameFromDanmakuItem(item)
+
+    requestAnimationFrame(() => {
+      for (const li of document.querySelectorAll<HTMLLIElement>('li')) {
+        if (li.textContent?.trim() === '复制弹幕') {
+          tryInjectMenuItem(li)
+          break
+        }
+      }
+    })
   }
-  document.addEventListener('click', clickHandler, true)
+
+  document.addEventListener('contextmenu', contextMenuHandler)
 }
 
 export function stopUserBlacklistHijack(): void {
-  if (clickHandler) {
-    document.removeEventListener('click', clickHandler, true)
-    clickHandler = null
+  if (contextMenuHandler) {
+    document.removeEventListener('contextmenu', contextMenuHandler)
+    contextMenuHandler = null
   }
-  pendingUid = null
-  pendingUname = null
-  for (const el of Array.from(document.querySelectorAll(`.${INJECTED_CLASS}`))) {
+  lastUid = null
+  lastUname = null
+  for (const el of Array.from(document.querySelectorAll(`[${INJECTED_ATTR}]`))) {
     el.remove()
   }
 }

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.8.49
+// @version      2.8.51
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -1421,16 +1421,19 @@
       }
 
       #laplace-chatterbox-dialog summary::after {
-        content: "?";
+        content: "";
         margin-left: auto;
-        color: #8e8e93;
-        font-size: 13px;
-        line-height: 1;
+        width: 10px;
+        height: 10px;
+        border-right: 2.5px solid #8e8e93;
+        border-bottom: 2.5px solid #8e8e93;
+        transform: rotate(-45deg);
         transition: transform .18s ease;
+        flex-shrink: 0;
       }
 
       #laplace-chatterbox-dialog details[open] > summary::after {
-        transform: rotate(180deg);
+        transform: rotate(135deg);
       }
 
       #laplace-chatterbox-dialog button,
@@ -9627,8 +9630,8 @@ html.lc-dm-direct-always .${MARKER} {
   let styleEl = null;
   let attachedContainer = null;
   let alwaysShowDispose = null;
-  let contextMenuHandler = null;
-  function closeNativeContextMenu() {
+  let contextMenuHandler$1 = null;
+  function closeNativeContextMenu$1() {
     for (const li of document.querySelectorAll("li")) {
       if (li.textContent?.trim() === "关闭") {
         li.click();
@@ -9653,7 +9656,7 @@ html.lc-dm-direct-always .${MARKER} {
       if (text) {
         void repeatDanmaku(text, { confirm: danmakuDirectConfirm.value, anchor: { x: e2.clientX, y: e2.clientY } });
       }
-      closeNativeContextMenu();
+      closeNativeContextMenu$1();
     };
     const stealEl = createContextMenuItem(li, "偷弹幕");
     stealEl.onclick = () => {
@@ -9661,26 +9664,26 @@ html.lc-dm-direct-always .${MARKER} {
       if (text) {
         void stealDanmaku(text);
       }
-      closeNativeContextMenu();
+      closeNativeContextMenu$1();
     };
     ul.insertBefore(stealEl, li.nextSibling);
     ul.insertBefore(repeatEl, li.nextSibling);
   }
   function initContextMenuHijack() {
-    if (contextMenuHandler) return;
-    contextMenuHandler = () => {
+    if (contextMenuHandler$1) return;
+    contextMenuHandler$1 = () => {
       requestAnimationFrame(() => {
         for (const li of document.querySelectorAll("li")) {
           tryInjectContextMenuItems(li);
         }
       });
     };
-    document.addEventListener("contextmenu", contextMenuHandler);
+    document.addEventListener("contextmenu", contextMenuHandler$1);
   }
   function stopContextMenuHijack() {
-    if (contextMenuHandler) {
-      document.removeEventListener("contextmenu", contextMenuHandler);
-      contextMenuHandler = null;
+    if (contextMenuHandler$1) {
+      document.removeEventListener("contextmenu", contextMenuHandler$1);
+      contextMenuHandler$1 = null;
     }
   }
   function startDanmakuDirect() {
@@ -10203,78 +10206,103 @@ html.lc-dm-direct-always .${MARKER} {
       }
     }
   }
-  const INJECTED_CLASS = "lc-bl-toggle";
-  let pendingUid = null;
-  let pendingUname = null;
-  let clickHandler = null;
-  function captureFromClick(e2) {
-    const target = e2.target;
-    if (!(target instanceof HTMLElement)) return;
-    if (!target.closest(".open-menu")) return;
-    const item = target.closest("[data-uid]");
-    if (!item) {
-      pendingUid = null;
-      pendingUname = null;
-      return;
-    }
-    pendingUid = item.dataset.uid ?? null;
-    pendingUname = item.dataset.uname ?? null;
+  const INJECTED_ATTR = "data-lc-bl";
+  let lastUid = null;
+  let lastUname = null;
+  let contextMenuHandler = null;
+  function extractUidFromDanmakuItem(item) {
+    const direct = item.getAttribute("data-uid");
+    if (direct) return direct;
+    const link = item.querySelector('a[href*="space.bilibili.com"], a[href*="uid="]');
+    const href = link?.href ?? "";
+    return href.match(/space\.bilibili\.com\/(\d+)/)?.[1] ?? href.match(/[?&]uid=(\d+)/)?.[1] ?? null;
   }
-  function buildToggleItem(template, uid, uname) {
-    const isBlacklisted = uid in autoBlendUserBlacklist.value;
-    const item = template.cloneNode(true);
-    item.classList.add(INJECTED_CLASS);
-    item.removeAttribute("target");
-    for (const a2 of Array.from(item.querySelectorAll("a"))) {
-      a2.removeAttribute("href");
+  function extractUnameFromDanmakuItem(item) {
+    const selectors = ["[data-uname]", ".user-name", ".username", ".danmaku-item-user", '[class*="user-name"]'];
+    for (const selector of selectors) {
+      const el = item.querySelector(selector);
+      const value = el?.getAttribute("data-uname") ?? el?.getAttribute("title") ?? el?.textContent;
+      const clean = (value ?? "").replace(/\s+/g, " ").trim();
+      if (clean && clean.length <= 32 && !/通过活动|装扮|粉丝牌|用户等级|头像|复制|举报|回复|关闭/.test(clean))
+        return clean;
     }
-    const span = item.querySelector("span");
-    if (span) span.textContent = isBlacklisted ? "解除融入黑名单" : "添加融入黑名单";
-    item.addEventListener("click", (e2) => {
-      e2.stopPropagation();
+    return null;
+  }
+  function closeNativeContextMenu() {
+    for (const li of document.querySelectorAll("li")) {
+      if (li.textContent?.trim() === "关闭") {
+        li.click();
+        return;
+      }
+    }
+  }
+  function createMenuItem(source, label) {
+    const item = document.createElement("li");
+    item.className = source.className;
+    item.setAttribute(INJECTED_ATTR, "");
+    item.textContent = label;
+    return item;
+  }
+  function tryInjectMenuItem(copyLi) {
+    if (!lastUid) return;
+    const ul = copyLi.parentElement;
+    if (!ul || ul.querySelector(`[${INJECTED_ATTR}]`)) return;
+    const isBlacklisted = lastUid in autoBlendUserBlacklist.value;
+    const label = isBlacklisted ? "解除融入黑名单" : "添加融入黑名单";
+    const el = createMenuItem(copyLi, label);
+    el.addEventListener("click", () => {
+      const uid = lastUid;
+      if (!uid) return;
       const next = { ...autoBlendUserBlacklist.value };
-      const display = uname || uid;
+      const display = lastUname || uid;
       if (uid in next) {
         delete next[uid];
         appendLog(`🚲 已解除融入黑名单：${display}`);
       } else {
-        next[uid] = uname ?? "";
+        next[uid] = lastUname ?? "";
         appendLog(`🚲 已加入融入黑名单：${display}`);
       }
       autoBlendUserBlacklist.value = next;
-      const menu = item.closest(".danmaku-menu");
-      if (menu) menu.style.display = "none";
+      closeNativeContextMenu();
     });
-    return item;
-  }
-  function ensureToggleInMenu() {
-    if (!pendingUid) return;
-    const menu = document.querySelector(".danmaku-menu");
-    if (!menu) return;
-    const list = menu.querySelector(".none-select");
-    if (!list) return;
-    const template = list.firstElementChild;
-    if (!(template instanceof HTMLElement)) return;
-    list.querySelector(`.${INJECTED_CLASS}`)?.remove();
-    list.appendChild(buildToggleItem(template, pendingUid, pendingUname));
+    ul.insertBefore(el, copyLi.nextSibling);
   }
   function startUserBlacklistHijack() {
-    if (clickHandler) return;
-    clickHandler = (e2) => {
-      captureFromClick(e2);
-      if (!pendingUid) return;
-      requestAnimationFrame(() => ensureToggleInMenu());
+    if (contextMenuHandler) return;
+    contextMenuHandler = () => {
+      const active = document.activeElement;
+      if (!(active instanceof HTMLElement)) {
+        lastUid = null;
+        lastUname = null;
+        return;
+      }
+      const item = active.closest(".chat-item.danmaku-item");
+      if (!item) {
+        lastUid = null;
+        lastUname = null;
+        return;
+      }
+      lastUid = extractUidFromDanmakuItem(item);
+      lastUname = extractUnameFromDanmakuItem(item);
+      requestAnimationFrame(() => {
+        for (const li of document.querySelectorAll("li")) {
+          if (li.textContent?.trim() === "复制弹幕") {
+            tryInjectMenuItem(li);
+            break;
+          }
+        }
+      });
     };
-    document.addEventListener("click", clickHandler, true);
+    document.addEventListener("contextmenu", contextMenuHandler);
   }
   function stopUserBlacklistHijack() {
-    if (clickHandler) {
-      document.removeEventListener("click", clickHandler, true);
-      clickHandler = null;
+    if (contextMenuHandler) {
+      document.removeEventListener("contextmenu", contextMenuHandler);
+      contextMenuHandler = null;
     }
-    pendingUid = null;
-    pendingUname = null;
-    for (const el of Array.from(document.querySelectorAll(`.${INJECTED_CLASS}`))) {
+    lastUid = null;
+    lastUname = null;
+    for (const el of Array.from(document.querySelectorAll(`[${INJECTED_ATTR}]`))) {
       el.remove();
     }
   }
@@ -11826,6 +11854,129 @@ u$2("div", { style: { fontSize: ".9em", color: "#555" }, children: service.descr
   function SettingHint({ children }) {
     return u$2("div", { className: "cb-note", style: { marginTop: "-.25em" }, children });
   }
+  function BlacklistPanel() {
+    const addUid = useSignal("");
+    const addUname = useSignal("");
+    const list = autoBlendUserBlacklist.value;
+    const entries = Object.entries(list);
+    const handleAdd = () => {
+      const uid = addUid.value.trim().replace(/\D/g, "");
+      if (!uid) return;
+      if (uid in list) {
+        appendLog(`⚠️ UID ${uid} 已在黑名单中`);
+        return;
+      }
+      const next = { ...list, [uid]: addUname.value.trim() };
+      autoBlendUserBlacklist.value = next;
+      appendLog(`🚲 已加入融入黑名单：${addUname.value.trim() || uid}`);
+      addUid.value = "";
+      addUname.value = "";
+    };
+    const handleRemove = (uid) => {
+      const next = { ...list };
+      const display = next[uid] || uid;
+      delete next[uid];
+      autoBlendUserBlacklist.value = next;
+      appendLog(`🚲 已解除融入黑名单：${display}`);
+    };
+    return u$2("details", { style: { marginTop: ".5em" }, children: [
+u$2("summary", { style: { cursor: "pointer", userSelect: "none" }, children: [
+        "融入黑名单",
+        entries.length > 0 && u$2("span", { className: "cb-soft", children: [
+          " (",
+          entries.length,
+          ")"
+        ] })
+      ] }),
+u$2("div", { style: { margin: ".5em 0", display: "grid", gap: ".35em" }, children: [
+u$2("div", { className: "cb-note", children: "黑名单用户的弹幕不会触发自动跟车。也可在弹幕右键菜单中添加。" }),
+        entries.length > 0 ? u$2("div", { style: { maxHeight: "150px", overflowY: "auto", display: "grid", gap: ".25em" }, children: entries.map(([uid, uname]) => u$2(
+          "div",
+          {
+            style: {
+              display: "flex",
+              alignItems: "center",
+              gap: ".5em",
+              padding: "2px 4px",
+              borderRadius: "3px",
+              background: "rgba(0,0,0,.04)"
+            },
+            children: [
+u$2(
+                "span",
+                {
+                  style: {
+                    flex: 1,
+                    fontSize: "12px",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap"
+                  },
+                  children: [
+                    uname || "(未记录昵称)",
+u$2("span", { style: { color: "#999", marginLeft: ".4em" }, children: [
+                      "UID ",
+                      uid
+                    ] })
+                  ]
+                }
+              ),
+u$2(
+                "button",
+                {
+                  type: "button",
+                  className: "cb-rule-remove",
+                  style: { minHeight: "unset", padding: "1px 6px", fontSize: "11px" },
+                  onClick: () => handleRemove(uid),
+                  children: "删除"
+                }
+              )
+            ]
+          },
+          uid
+        )) }) : u$2("div", { className: "cb-empty", children: "暂无黑名单用户" }),
+u$2("div", { style: { display: "flex", gap: ".35em", alignItems: "center", flexWrap: "wrap" }, children: [
+u$2(
+            "input",
+            {
+              type: "text",
+              placeholder: "UID",
+              style: { width: "80px" },
+              value: addUid.value,
+              onInput: (e2) => {
+                addUid.value = e2.currentTarget.value.replace(/\D/g, "");
+              },
+              onKeyDown: (e2) => {
+                if (e2.key === "Enter" && !e2.isComposing) {
+                  e2.preventDefault();
+                  handleAdd();
+                }
+              }
+            }
+          ),
+u$2(
+            "input",
+            {
+              type: "text",
+              placeholder: "备注名（可选）",
+              style: { flex: 1, minWidth: "60px" },
+              value: addUname.value,
+              onInput: (e2) => {
+                addUname.value = e2.currentTarget.value;
+              },
+              onKeyDown: (e2) => {
+                if (e2.key === "Enter" && !e2.isComposing) {
+                  e2.preventDefault();
+                  handleAdd();
+                }
+              }
+            }
+          ),
+u$2("button", { type: "button", onClick: handleAdd, style: { whiteSpace: "nowrap" }, children: "添加" })
+        ] })
+      ] })
+    ] });
+  }
   function AutoBlendControls() {
     const isOn = autoBlendEnabled.value;
     const currentPreset = autoBlendPreset.value;
@@ -12154,7 +12305,8 @@ u$2("span", { style: { color: "#a15c00" }, children: "猛" })
                   "s，超过冷却 ",
                   autoBlendCooldownSec.value,
                   "s。"
-                ] })
+                ] }),
+u$2(BlacklistPanel, {})
               ]
             }
           )

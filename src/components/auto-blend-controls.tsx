@@ -1,5 +1,8 @@
+import { useSignal } from '@preact/signals'
+
 import { AUTO_BLEND_PRESETS } from '../lib/auto-blend-preset-config'
 import { applyAutoBlendPreset } from '../lib/auto-blend-presets'
+import { appendLog } from '../lib/log'
 import {
   autoBlendAdvancedOpen,
   autoBlendBurstSettleMs,
@@ -21,6 +24,7 @@ import {
   autoBlendStatusText,
   autoBlendThreshold,
   autoBlendUseReplacements,
+  autoBlendUserBlacklist,
   autoBlendWindowSec,
   msgSendInterval,
 } from '../lib/store'
@@ -71,6 +75,125 @@ function SettingHint({ children }: { children: string }) {
     <div className='cb-note' style={{ marginTop: '-.25em' }}>
       {children}
     </div>
+  )
+}
+
+function BlacklistPanel() {
+  const addUid = useSignal('')
+  const addUname = useSignal('')
+  const list = autoBlendUserBlacklist.value
+  const entries = Object.entries(list)
+
+  const handleAdd = () => {
+    const uid = addUid.value.trim().replace(/\D/g, '')
+    if (!uid) return
+    if (uid in list) {
+      appendLog(`⚠️ UID ${uid} 已在黑名单中`)
+      return
+    }
+    const next = { ...list, [uid]: addUname.value.trim() }
+    autoBlendUserBlacklist.value = next
+    appendLog(`🚲 已加入融入黑名单：${addUname.value.trim() || uid}`)
+    addUid.value = ''
+    addUname.value = ''
+  }
+
+  const handleRemove = (uid: string) => {
+    const next = { ...list }
+    const display = next[uid] || uid
+    delete next[uid]
+    autoBlendUserBlacklist.value = next
+    appendLog(`🚲 已解除融入黑名单：${display}`)
+  }
+
+  return (
+    <details style={{ marginTop: '.5em' }}>
+      <summary style={{ cursor: 'pointer', userSelect: 'none' }}>
+        融入黑名单
+        {entries.length > 0 && <span className='cb-soft'> ({entries.length})</span>}
+      </summary>
+
+      <div style={{ margin: '.5em 0', display: 'grid', gap: '.35em' }}>
+        <div className='cb-note'>黑名单用户的弹幕不会触发自动跟车。也可在弹幕右键菜单中添加。</div>
+
+        {entries.length > 0 ? (
+          <div style={{ maxHeight: '150px', overflowY: 'auto', display: 'grid', gap: '.25em' }}>
+            {entries.map(([uid, uname]) => (
+              <div
+                key={uid}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '.5em',
+                  padding: '2px 4px',
+                  borderRadius: '3px',
+                  background: 'rgba(0,0,0,.04)',
+                }}
+              >
+                <span
+                  style={{
+                    flex: 1,
+                    fontSize: '12px',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {uname || '(未记录昵称)'}
+                  <span style={{ color: '#999', marginLeft: '.4em' }}>UID {uid}</span>
+                </span>
+                <button
+                  type='button'
+                  className='cb-rule-remove'
+                  style={{ minHeight: 'unset', padding: '1px 6px', fontSize: '11px' }}
+                  onClick={() => handleRemove(uid)}
+                >
+                  删除
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className='cb-empty'>暂无黑名单用户</div>
+        )}
+
+        <div style={{ display: 'flex', gap: '.35em', alignItems: 'center', flexWrap: 'wrap' }}>
+          <input
+            type='text'
+            placeholder='UID'
+            style={{ width: '80px' }}
+            value={addUid.value}
+            onInput={e => {
+              addUid.value = e.currentTarget.value.replace(/\D/g, '')
+            }}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !e.isComposing) {
+                e.preventDefault()
+                handleAdd()
+              }
+            }}
+          />
+          <input
+            type='text'
+            placeholder='备注名（可选）'
+            style={{ flex: 1, minWidth: '60px' }}
+            value={addUname.value}
+            onInput={e => {
+              addUname.value = e.currentTarget.value
+            }}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !e.isComposing) {
+                e.preventDefault()
+                handleAdd()
+              }
+            }}
+          />
+          <button type='button' onClick={handleAdd} style={{ whiteSpace: 'nowrap' }}>
+            添加
+          </button>
+        </div>
+      </div>
+    </details>
   )
 }
 
@@ -378,6 +501,8 @@ export function AutoBlendControls() {
             当前要发 {autoBlendSendCount.value * msgSendInterval.value}s，超过冷却 {autoBlendCooldownSec.value}s。
           </div>
         )}
+
+        <BlacklistPanel />
       </details>
     </details>
   )

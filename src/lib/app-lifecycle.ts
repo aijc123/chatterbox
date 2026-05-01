@@ -98,16 +98,19 @@ const PANEL_STYLE = `
       }
 
       #laplace-chatterbox-dialog summary::after {
-        content: "?";
+        content: "";
         margin-left: auto;
-        color: #8e8e93;
-        font-size: 13px;
-        line-height: 1;
+        width: 10px;
+        height: 10px;
+        border-right: 2.5px solid #8e8e93;
+        border-bottom: 2.5px solid #8e8e93;
+        transform: rotate(-45deg);
         transition: transform .18s ease;
+        flex-shrink: 0;
       }
 
       #laplace-chatterbox-dialog details[open] > summary::after {
-        transform: rotate(180deg);
+        transform: rotate(135deg);
       }
 
       #laplace-chatterbox-dialog button,
