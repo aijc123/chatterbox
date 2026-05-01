@@ -1,3 +1,6 @@
+import { useRef } from 'preact/hooks'
+
+import { cn } from '../lib/cn'
 import { activeTab, dialogOpen } from '../lib/store'
 import { AboutTab } from './about-tab'
 import { AutoBlendControls } from './auto-blend-controls'
@@ -12,75 +15,45 @@ import { Tabs } from './tabs'
 export function Configurator() {
   const tab = activeTab.value
   const visible = dialogOpen.value
+  // Mount each tab on first visit, then keep it in DOM (avoids remounting state)
+  const visited = useRef(new Set([tab]))
+  visited.current.add(tab)
+  const panelClass = (active: boolean) => cn('cb-scroll', active ? 'lc-block' : 'lc-hidden')
 
   return (
     <div
       id='laplace-chatterbox-dialog'
-      style={{
-        position: 'fixed',
-        right: '8px',
-        bottom: '46px',
-        zIndex: 2147483647,
-        display: visible ? 'block' : 'none',
-        maxHeight: '50vh',
-        overflowY: 'auto',
-        width: '320px',
-        maxWidth: 'calc(100vw - 16px)',
-      }}
+      className={cn(
+        'lc-fixed lc-right-2 lc-bottom-[46px] lc-z-[2147483647]',
+        'lc-w-[320px] lc-max-w-[calc(100vw_-_16px)]',
+        'lc-max-h-[50vh] lc-overflow-y-auto',
+        !visible && 'lc-hidden'
+      )}
     >
       <Tabs />
 
-      <div
-        style={{
-          display: tab === 'fasong' ? 'block' : 'none',
-        }}
-        className='cb-scroll'
-      >
-        <AutoSendControls />
-
-        <div>
-          <AutoBlendControls />
-        </div>
-
-        <div
-          style={{
-            margin: '.25rem 0',
-          }}
-        >
-          <MemesList />
-        </div>
-
-        <NormalSendTab />
+      <div className={panelClass(tab === 'fasong')}>
+        {visited.current.has('fasong') && (
+          <>
+            <AutoSendControls />
+            <div>
+              <AutoBlendControls />
+            </div>
+            <div style={{ margin: '.25rem 0' }}>
+              <MemesList />
+            </div>
+            <NormalSendTab />
+          </>
+        )}
       </div>
 
-      <div
-        style={{
-          display: tab === 'tongchuan' ? 'block' : 'none',
-        }}
-        className='cb-scroll'
-      >
-        <SttTab />
-      </div>
+      <div className={panelClass(tab === 'tongchuan')}>{visited.current.has('tongchuan') && <SttTab />}</div>
 
-      <div
-        style={{
-          display: tab === 'settings' ? 'block' : 'none',
-        }}
-        className='cb-scroll'
-      >
-        <SettingsTab />
-      </div>
+      <div className={panelClass(tab === 'settings')}>{visited.current.has('settings') && <SettingsTab />}</div>
 
-      <div
-        style={{
-          display: tab === 'about' ? 'block' : 'none',
-        }}
-        className='cb-scroll'
-      >
-        <AboutTab />
-      </div>
+      <div className={panelClass(tab === 'about')}>{visited.current.has('about') && <AboutTab />}</div>
 
-      <div style={{ paddingInline: '10px', paddingBlockEnd: '10px' }}>
+      <div className='lc-px-[10px] lc-pb-[10px]'>
         <LogPanel />
       </div>
     </div>

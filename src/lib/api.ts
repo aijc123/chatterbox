@@ -2,15 +2,10 @@ import type { BilibiliGetEmoticonsResponse } from '../types'
 
 import { BASE_URL } from './const'
 import { emitLocalDanmakuEcho } from './custom-chat-events'
+import { findEmoticon, isEmoticonUnique, isLockedEmoticon } from './emoticon'
 import { describeRestrictionDuration, type RestrictionSignal, scanRestrictionSignals } from './moderation'
 import { buildReplacementMap } from './replacement'
-import {
-  availableDanmakuColors,
-  cachedEmoticonPackages,
-  cachedRoomId,
-  cachedStreamerUid,
-  isEmoticonUnique,
-} from './store'
+import { availableDanmakuColors, cachedEmoticonPackages, cachedRoomId, cachedStreamerUid } from './store'
 import { extractRoomNumber } from './utils'
 import { cachedWbiKeys, encodeWbi } from './wbi'
 
@@ -505,6 +500,17 @@ export async function checkMedalRoomRestriction(room: MedalRoom): Promise<MedalR
 export async function sendDanmaku(message: string, roomId: number, csrfToken: string): Promise<SendDanmakuResult> {
   const emoticon = isEmoticonUnique(message)
   const startedAt = Date.now()
+
+  if (isLockedEmoticon(message)) {
+    const reqText = findEmoticon(message)?.unlock_show_text?.trim()
+    return {
+      success: false,
+      message,
+      isEmoticon: true,
+      startedAt,
+      error: reqText ? `表情权限不足，需要 ${reqText}` : '表情权限不足',
+    }
+  }
 
   const form = new FormData()
   form.append('bubble', '2')

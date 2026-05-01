@@ -13,25 +13,20 @@ export const logLines = signal<string[]>([])
 
 export interface UserNotice {
   id: number
-  tone: 'warning' | 'error'
+  tone: 'info' | 'success' | 'warning' | 'error'
   message: string
 }
 
-/** Latest user-facing warning/error surfaced outside the collapsed log panel. */
-export const userNotice = signal<UserNotice | null>(null)
+export type NotifyLevel = UserNotice['tone']
 
-let noticeTimer: ReturnType<typeof setTimeout> | null = null
+/** Queue of active user-facing notices surfaced outside the collapsed log panel. */
+export const userNotices = signal<UserNotice[]>([])
 
 function showUserNotice(message: string, tone: UserNotice['tone']): void {
-  userNotice.value = {
-    id: Date.now(),
-    tone,
-    message,
-  }
-  if (noticeTimer) clearTimeout(noticeTimer)
-  noticeTimer = setTimeout(() => {
-    userNotice.value = null
-    noticeTimer = null
+  const id = Date.now()
+  userNotices.value = [...userNotices.value, { id, tone, message }]
+  setTimeout(() => {
+    userNotices.value = userNotices.value.filter(n => n.id !== id)
   }, 5000)
 }
 
@@ -41,6 +36,13 @@ function maybeSurfaceLogMessage(message: string): void {
   } else if (/^⚠️/.test(message)) {
     showUserNotice(message, 'warning')
   }
+}
+
+export function notifyUser(level: NotifyLevel, message: string, detail?: string): void {
+  const fullMessage = detail ? `${message}：${detail}` : message
+  const prefix = level === 'error' ? '❌' : level === 'warning' ? '⚠️' : level === 'success' ? '✅' : 'ℹ️'
+  appendLog(`${prefix} ${fullMessage}`)
+  if (level === 'warning' || level === 'error') showUserNotice(fullMessage, level)
 }
 
 /**

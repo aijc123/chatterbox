@@ -47,6 +47,9 @@ let observer: MutationObserver | null = null
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let healthTimer: ReturnType<typeof setInterval> | null = null
 let attached: HTMLElement | null = null
+let flushTimer: ReturnType<typeof setTimeout> | null = null
+const pendingNodes = new Set<HTMLElement>()
+const OBSERVER_DEBOUNCE_MS = 16
 
 const USER_SELECTORS = [
   '[data-uname]',
@@ -201,24 +204,39 @@ function tryAttach(): boolean {
 
   for (const sub of subscriptions) notifyAttach(container, sub)
 
+  const flushPendingNodes = (): void => {
+    flushTimer = null
+    for (const node of pendingNodes) {
+      pendingNodes.delete(node)
+      if (!node.isConnected || !isValidDanmakuNode(node)) continue
+      const ev = extractDanmakuInfo(node)
+      if (!ev) continue
+      for (const sub of subscriptions) {
+        if (!sub.onMessage) continue
+        try {
+          sub.onMessage(ev)
+        } catch {
+          // Subscriber errors are isolated; don't crash the shared stream.
+        }
+      }
+    }
+  }
+
+  const scheduleFlush = (): void => {
+    if (flushTimer) return
+    flushTimer = setTimeout(flushPendingNodes, OBSERVER_DEBOUNCE_MS)
+  }
+
   observer = new MutationObserver(mutations => {
     for (const m of mutations) {
       for (let i = 0; i < m.addedNodes.length; i++) {
         const node = m.addedNodes[i]
         if (!(node instanceof HTMLElement)) continue
         if (!isValidDanmakuNode(node)) continue
-        const ev = extractDanmakuInfo(node)
-        if (!ev) continue
-        for (const sub of subscriptions) {
-          if (!sub.onMessage) continue
-          try {
-            sub.onMessage(ev)
-          } catch {
-            // Subscriber errors are isolated; don't crash the shared stream.
-          }
-        }
+        pendingNodes.add(node)
       }
     }
+    if (pendingNodes.size > 0) scheduleFlush()
   })
   observer.observe(container, { childList: true, subtree: false })
   return true
@@ -247,6 +265,11 @@ function maybeDetach(): void {
     clearInterval(healthTimer)
     healthTimer = null
   }
+  if (flushTimer) {
+    clearTimeout(flushTimer)
+    flushTimer = null
+  }
+  pendingNodes.clear()
   if (observer) {
     observer.disconnect()
     observer = null

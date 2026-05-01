@@ -9,6 +9,7 @@ import {
   type MedalRestrictionCheck,
   sendDanmaku,
 } from '../lib/api'
+import { exportSettings, importSettings } from '../lib/backup'
 import { BASE_URL, VERSION } from '../lib/const'
 import { MILK_GREEN_IMESSAGE_CSS } from '../lib/custom-chat-presets'
 import { gmSignal } from '../lib/gm-signal'
@@ -22,7 +23,7 @@ import {
   guardRoomLiveDeskHeartbeatSec,
   guardRoomLiveDeskSessionId,
 } from '../lib/guard-room-live-desk-state'
-import { appendLog, maxLogLines } from '../lib/log'
+import { appendLog, maxLogLines, notifyUser } from '../lib/log'
 import { buildReplacementMap } from '../lib/replacement'
 import {
   cachedRoomId,
@@ -292,6 +293,7 @@ async function fetchRemoteKeywords(): Promise<RemoteKeywords> {
 }
 
 export function SettingsTab() {
+  const settingsSearch = useSignal('')
   const syncStatus = useSignal('未同步')
   const syncStatusColor = useSignal('#666')
   const syncing = useSignal(false)
@@ -791,10 +793,29 @@ export function SettingsTab() {
     knownRoomIds.unshift(currentRoomStr)
   }
   const editingRules = editingRoomId.value ? (localRoomRules.value[editingRoomId.value] ?? []) : []
+  const settingsQuery = settingsSearch.value.trim().toLowerCase()
+  const sectionStyle = (keywords: string) =>
+    !settingsQuery || keywords.toLowerCase().includes(settingsQuery) ? undefined : { display: 'none' }
 
   return (
     <>
-      <details className='cb-settings-accordion' open>
+      <div className='cb-section cb-stack' style={{ margin: '.5em 0', gap: '.35em' }}>
+        <label htmlFor='settingsSearch' className='cb-label'>
+          搜索设置
+        </label>
+        <input
+          id='settingsSearch'
+          type='search'
+          value={settingsSearch.value}
+          placeholder='输入关键词，例如：表情、保安室、CSS、备份'
+          style={{ width: '100%' }}
+          onInput={e => {
+            settingsSearch.value = e.currentTarget.value
+          }}
+        />
+      </div>
+
+      <details className='cb-settings-accordion' open style={sectionStyle('云端规则替换 远程 规则 同步 替换')}>
         <summary>云端规则替换</summary>
         <div
           className='cb-section cb-stack'
@@ -829,7 +850,7 @@ export function SettingsTab() {
         </div>
       </details>
 
-      <details className='cb-settings-accordion' open>
+      <details className='cb-settings-accordion' open style={sectionStyle('本地全局规则 替换 规则')}>
         <summary>本地全局规则</summary>
         <div
           className='cb-section cb-stack'
@@ -868,7 +889,7 @@ export function SettingsTab() {
         </div>
       </details>
 
-      <details className='cb-settings-accordion'>
+      <details className='cb-settings-accordion' style={sectionStyle('本地直播间规则 房间 规则 替换')}>
         <summary>本地直播间规则</summary>
         <div
           className='cb-section cb-stack'
@@ -955,7 +976,7 @@ export function SettingsTab() {
         </div>
       </details>
 
-      <details className='cb-settings-accordion'>
+      <details className='cb-settings-accordion' style={sectionStyle('表情 emote emoji ID 复制')}>
         <summary>表情</summary>
         <div
           className='cb-section cb-stack'
@@ -970,7 +991,10 @@ export function SettingsTab() {
         </div>
       </details>
 
-      <details className='cb-settings-accordion'>
+      <details
+        className='cb-settings-accordion'
+        style={sectionStyle('粉丝牌禁言巡检 禁言 粉丝牌 直播间 巡检 保安室 guard room 同步')}
+      >
         <summary>粉丝牌禁言巡检</summary>
         <div
           className='cb-section cb-stack'
@@ -1234,7 +1258,7 @@ export function SettingsTab() {
         </div>
       </details>
 
-      <details className='cb-settings-accordion'>
+      <details className='cb-settings-accordion' style={sectionStyle('Chatterbox Chat 评论区 WS DOM 主题 CSS')}>
         <summary className='cb-module-summary'>
           <span className='cb-accordion-title'>Chatterbox Chat</span>
           <span className='cb-module-state' data-active={customChatEnabled.value ? 'true' : 'false'}>
@@ -1377,7 +1401,7 @@ export function SettingsTab() {
         </div>
       </details>
 
-      <details className='cb-settings-accordion'>
+      <details className='cb-settings-accordion' style={sectionStyle('偷弹幕 +1 发送 确认 按钮')}>
         <summary className='cb-module-summary'>
           <span className='cb-accordion-title'>偷弹幕与 +1</span>
           <span className='cb-module-state' data-active={danmakuDirectMode.value ? 'true' : 'false'}>
@@ -1443,7 +1467,7 @@ export function SettingsTab() {
         </div>
       </details>
 
-      <details className='cb-settings-accordion'>
+      <details className='cb-settings-accordion' style={sectionStyle('直播间布局 优化布局 滚动 拉黑 解锁')}>
         <summary className='cb-module-summary'>
           <span className='cb-accordion-title'>直播间布局</span>
           <span className='cb-module-state' data-active={optimizeLayout.value ? 'true' : 'false'}>
@@ -1495,7 +1519,7 @@ export function SettingsTab() {
         </div>
       </details>
 
-      <details className='cb-settings-accordion'>
+      <details className='cb-settings-accordion' style={sectionStyle('日志设置 日志 行数')}>
         <summary>日志设置</summary>
         <div className='cb-section cb-stack' style={{ margin: '.5em 0', paddingBottom: '1em' }}>
           <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.5em' }}>
@@ -1523,6 +1547,99 @@ export function SettingsTab() {
           </div>
         </div>
       </details>
+
+      <BackupSection query={settingsQuery} />
     </>
+  )
+}
+
+function BackupSection({ query = '' }: { query?: string }) {
+  const importOpen = useSignal(false)
+  const importText = useSignal('')
+  const importMsg = useSignal('')
+  const visible = !query || '配置备份 恢复 导出 导入 JSON 复制 backup export import'.toLowerCase().includes(query)
+
+  function handleExport() {
+    const json = exportSettings()
+    const blob = new Blob([json], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `chatterbox-backup-${new Date().toISOString().slice(0, 10)}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+    notifyUser('success', '配置已导出')
+  }
+
+  function handleCopyExport() {
+    const json = exportSettings()
+    navigator.clipboard.writeText(json).then(
+      () => notifyUser('success', '配置已复制到剪贴板'),
+      () => notifyUser('error', '复制配置失败，请手动复制')
+    )
+  }
+
+  function handleImport() {
+    const result = importSettings(importText.value)
+    if (!result.ok) {
+      importMsg.value = `❌ 导入失败：${result.error}`
+      notifyUser('error', '配置导入失败', result.error)
+      return
+    }
+    importMsg.value = `✅ 已导入 ${result.count} 项，请刷新页面生效`
+    notifyUser('success', `配置导入成功（${result.count} 项），请刷新页面`)
+  }
+
+  return (
+    <details className='cb-settings-accordion' style={visible ? undefined : { display: 'none' }}>
+      <summary>配置备份 / 恢复</summary>
+      <div className='cb-section cb-stack' style={{ margin: '.5em 0', paddingBottom: '1em' }}>
+        <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.5em' }}>
+          配置备份 / 恢复
+        </div>
+        <div className='cb-row' style={{ display: 'flex', gap: '.5em', flexWrap: 'wrap' }}>
+          <button className='cb-btn' onClick={handleExport} title='下载配置 JSON 文件' type='button'>
+            导出配置
+          </button>
+          <button className='cb-btn' onClick={handleCopyExport} title='复制配置 JSON 到剪贴板' type='button'>
+            复制 JSON
+          </button>
+          <button
+            className='cb-btn'
+            onClick={() => {
+              importOpen.value = !importOpen.value
+              importMsg.value = ''
+            }}
+            type='button'
+          >
+            {importOpen.value ? '取消导入' : '导入配置'}
+          </button>
+        </div>
+        {importOpen.value && (
+          <div className='cb-stack' style={{ marginTop: '.5em', gap: '.5em' }}>
+            <textarea
+              style={{ width: '100%', height: '80px', fontFamily: 'monospace', fontSize: '0.8em', resize: 'vertical' }}
+              placeholder='粘贴配置 JSON...'
+              value={importText.value}
+              onInput={e => {
+                importText.value = e.currentTarget.value
+                importMsg.value = ''
+              }}
+            />
+            <button className='cb-btn' onClick={handleImport} disabled={!importText.value.trim()} type='button'>
+              确认导入（刷新后生效）
+            </button>
+            {importMsg.value && (
+              <span style={{ fontSize: '0.85em', color: importMsg.value.startsWith('✅') ? '#4caf50' : '#f44336' }}>
+                {importMsg.value}
+              </span>
+            )}
+          </div>
+        )}
+        <p style={{ color: '#999', fontSize: '0.8em', margin: '.25em 0 0' }}>
+          导出包含所有设置、模板、替换规则和跟车配置（不含烂梗缓存）。
+        </p>
+      </div>
+    </details>
   )
 }

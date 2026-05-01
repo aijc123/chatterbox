@@ -62,6 +62,20 @@ export interface BilibiliEmoticon {
   url: string
   emoticon_unique: string
   emoticon_id: number
+  /**
+   * Server-computed permission for the current user. `1` = sendable,
+   * `0` = locked. Optional because older responses may omit it.
+   */
+  perm?: number
+  /**
+   * Required identity tier. Observed values include 1 总督, 2 提督, 3 舰长,
+   * 4 粉丝团, 99 public.
+   */
+  identity?: number
+  unlock_need_level?: number
+  unlock_need_gift?: number
+  unlock_show_text?: string
+  unlock_show_color?: string
 }
 
 export interface BilibiliEmoticonPackage {

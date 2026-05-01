@@ -1,138 +1,20 @@
 import { effect, signal } from '@preact/signals'
 
-import type { BilibiliEmoticonPackage } from '../types'
-
-import { GM_deleteValue, GM_getValue, GM_setValue } from '$'
-import { gmSignal } from './gm-signal'
+import { GM_getValue, GM_setValue } from '$'
 import { appendLog } from './log'
+import { persistSendState, sendMsg } from './store-send'
 
-// GM-persisted settings
-export const msgSendInterval = gmSignal('msgSendInterval', 1)
-export const maxLength = gmSignal('maxLength', 38)
-export const randomColor = gmSignal('randomColor', false)
-export const randomInterval = gmSignal('randomInterval', false)
-export const randomChar = gmSignal('randomChar', false)
-export const aiEvasion = gmSignal('aiEvasion', false)
-export const forceScrollDanmaku = gmSignal('forceScrollDanmaku', false)
-export const optimizeLayout = gmSignal('optimizeLayout', false)
-export const danmakuDirectMode = gmSignal('danmakuDirectMode', true)
-export const danmakuDirectConfirm = gmSignal('danmakuDirectConfirm', false)
-export const danmakuDirectAlwaysShow = gmSignal('danmakuDirectAlwaysShow', false)
-const customChatDefaultMigrationKey = 'customChatDefaultPresetMigrated'
-if (!GM_getValue(customChatDefaultMigrationKey, false)) {
-  GM_setValue('customChatEnabled', false)
-  GM_setValue('customChatHideNative', false)
-  GM_setValue('customChatUseWs', true)
-  GM_setValue(customChatDefaultMigrationKey, true)
-}
-const customChatDisableDefaultMigrationKey = 'customChatDisabledByDefaultMigrated'
-if (!GM_getValue(customChatDisableDefaultMigrationKey, false)) {
-  GM_setValue('customChatEnabled', false)
-  GM_setValue(customChatDisableDefaultMigrationKey, true)
-}
-export const customChatEnabled = gmSignal('customChatEnabled', false)
-export const customChatHideNative = gmSignal('customChatHideNative', false)
-export const customChatUseWs = gmSignal('customChatUseWs', true)
-export const customChatTheme = gmSignal<'laplace' | 'light' | 'compact'>('customChatTheme', 'laplace')
-export const customChatShowDanmaku = gmSignal('customChatShowDanmaku', true)
-export const customChatShowGift = gmSignal('customChatShowGift', true)
-export const customChatShowSuperchat = gmSignal('customChatShowSuperchat', true)
-export const customChatShowEnter = gmSignal('customChatShowEnter', true)
-export const customChatShowNotice = gmSignal('customChatShowNotice', true)
-export const customChatCss = gmSignal('customChatCss', '')
-export const customChatPerfDebug = gmSignal('customChatPerfDebug', false)
-export const unlockForbidLive = gmSignal('unlockForbidLive', true)
-export const guardRoomEndpoint = gmSignal('guardRoomEndpoint', 'https://bilibili-guard-room.vercel.app')
-export const guardRoomSyncKey = gmSignal('guardRoomSyncKey', '')
-export const guardRoomWebsiteControlEnabled = gmSignal('guardRoomWebsiteControlEnabled', false)
-export const activeTab = gmSignal('activeTab', 'fasong')
-export const msgTemplates = gmSignal<string[]>('MsgTemplates', [])
-export const activeTemplateIndex = gmSignal('activeTemplateIndex', 0)
-export const logPanelOpen = gmSignal('logPanelOpen', false)
-export const logPanelFocusRequest = signal(0)
-export const autoSendPanelOpen = gmSignal('autoSendPanelOpen', true)
-export const autoBlendPanelOpen = gmSignal('autoBlendPanelOpen', true)
-export const memesPanelOpen = gmSignal('memesPanelOpen', true)
-export const dialogOpen = gmSignal('dialogOpen', false)
+export * from './store-auto-blend'
+export * from './store-chat'
+export * from './store-guard-room'
+export * from './store-meme'
+export * from './store-replacement'
+export * from './store-send'
+export * from './store-stt'
+export * from './store-ui'
 
-// 自动跟车 (auto-blend internally): send when any message hits N repeats within W seconds,
-// then freeze the detector for C seconds. A routine timer picks from active candidates
-// by weighted random choice for sustained multi-topic trends.
-// Optional: require N distinct users for a stricter social-consensus trigger.
-export const autoBlendWindowSec = gmSignal('autoBlendWindowSec', 20) // rolling window W
-export const autoBlendThreshold = gmSignal('autoBlendThreshold', 4) // burst threshold N
-export const autoBlendCooldownSec = gmSignal('autoBlendCooldownSec', 35) // post-send freeze C
-export const autoBlendRoutineIntervalSec = gmSignal('autoBlendRoutineIntervalSec', 60) // routine timer period
-export const autoBlendBurstSettleMs = gmSignal('autoBlendBurstSettleMs', 1500)
-export const autoBlendRateLimitWindowMin = gmSignal('autoBlendRateLimitWindowMin', 10)
-export const autoBlendRateLimitStopThreshold = gmSignal('autoBlendRateLimitStopThreshold', 3)
-export const autoBlendPreset = gmSignal<'safe' | 'normal' | 'hot' | 'custom'>('autoBlendPreset', 'normal')
-export const autoBlendAdvancedOpen = gmSignal('autoBlendAdvancedOpen', false)
-const autoBlendDryRunMigrationKey = 'autoBlendDryRunVisibleDefaultMigrated'
-if (!GM_getValue(autoBlendDryRunMigrationKey, false)) {
-  if (GM_getValue('autoBlendDryRun', false) === true) GM_setValue('autoBlendDryRun', false)
-  GM_setValue(autoBlendDryRunMigrationKey, true)
-}
-export const autoBlendDryRun = gmSignal('autoBlendDryRun', false)
-export const autoBlendAvoidRisky = gmSignal('autoBlendAvoidRisky', true)
-export const autoBlendBlockedWords = gmSignal('autoBlendBlockedWords', '抽奖\n加群\n私信\n房管\n举报')
-export const autoBlendIncludeReply = gmSignal('autoBlendIncludeReply', false)
-export const autoBlendUseReplacements = gmSignal('autoBlendUseReplacements', true)
-export const autoBlendRequireDistinctUsers = gmSignal('autoBlendRequireDistinctUsers', true)
-export const autoBlendMinDistinctUsers = gmSignal('autoBlendMinDistinctUsers', 3)
-export const autoBlendSendCount = gmSignal('autoBlendSendCount', 1)
-// When enabled, a burst trigger sends ALL currently-trending messages (sorted by
-// count) instead of just the one that crossed the threshold first.
-// The routine timer always picks one message per tick (weighted random).
-export const autoBlendSendAllTrending = gmSignal('autoBlendSendAllTrending', false)
-
-// Meme Contributor (社区烂梗贡献者)
-export const enableMemeContribution = gmSignal('enableMemeContribution', false)
-export const memeContributorCandidates = gmSignal<string[]>('memeContributorCandidates', [])
-export const memeContributorSeenTexts = gmSignal<string[]>('memeContributorSeenTexts', [])
-
-// Soniox settings
-export const sonioxApiKey = gmSignal('sonioxApiKey', '')
-export const sonioxLanguageHints = gmSignal<string[]>('sonioxLanguageHints', ['zh'])
-export const sonioxAutoSend = gmSignal('sonioxAutoSend', true)
-export const sonioxMaxLength = gmSignal('sonioxMaxLength', 40)
-export const sonioxWrapBrackets = gmSignal('sonioxWrapBrackets', false)
-export const sonioxTranslationEnabled = gmSignal('sonioxTranslationEnabled', false)
-export const sonioxTranslationTarget = gmSignal('sonioxTranslationTarget', 'en')
-
-// Migrate legacy flat replacementRules → localGlobalRules (one-time, then delete old key)
-;(() => {
-  const old = GM_getValue<Array<{ from?: string; to?: string }>>('replacementRules', [])
-  if (old.length > 0) {
-    const existing = GM_getValue<Array<{ from?: string; to?: string }>>('localGlobalRules', [])
-    if (existing.length === 0) {
-      GM_setValue('localGlobalRules', old)
-    }
-    GM_deleteValue('replacementRules')
-  }
-})()
-
-// Replacement rules
-export const localGlobalRules = gmSignal<Array<{ from?: string; to?: string }>>('localGlobalRules', [])
-export const localRoomRules = gmSignal<Record<string, Array<{ from?: string; to?: string }>>>('localRoomRules', {})
-export const remoteKeywords = gmSignal<{
-  global?: { keywords?: Record<string, string> }
-  rooms?: Array<{ room: string; keywords?: Record<string, string> }>
-} | null>('remoteKeywords', null)
-export const remoteKeywordsLastSync = gmSignal<number | null>('remoteKeywordsLastSync', null)
-
-export const persistSendState = gmSignal<Record<string, boolean>>('persistSendState', {})
-export const hasSeenWelcome = gmSignal('hasSeenWelcome', false)
-
-// Runtime state (not GM-persisted)
-export const sendMsg = signal(false)
-export const sttRunning = signal(false)
 export const cachedRoomId = signal<number | null>(null)
-export const guardRoomHandoffActive = signal(false)
-export const autoBlendEnabled = signal(false)
-export const autoBlendStatusText = signal('已关闭')
-export const autoBlendCandidateText = signal('暂无')
-export const autoBlendLastActionText = signal('暂无')
+export const cachedStreamerUid = signal<number | null>(null)
 
 let sendStateRestored = false
 
@@ -162,16 +44,3 @@ effect(() => {
     }
   }
 })
-
-export const cachedStreamerUid = signal<number | null>(null)
-export const availableDanmakuColors = signal<string[] | null>(null)
-export const replacementMap = signal<Map<string, string> | null>(null)
-
-export const cachedEmoticonPackages = signal<BilibiliEmoticonPackage[]>([])
-
-export function isEmoticonUnique(msg: string): boolean {
-  return cachedEmoticonPackages.value.some(pkg => pkg.emoticons.some(e => e.emoticon_unique === msg))
-}
-
-// Fasong tab shared text
-export const fasongText = signal('')

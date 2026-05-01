@@ -1,4 +1,5 @@
 import { BASE_URL } from './const'
+import { formatLockedEmoticonReject, isLockedEmoticon } from './emoticon'
 import { appendLog } from './log'
 import { enqueueDanmaku, SendPriority } from './send-queue'
 import { aiEvasion } from './store'
@@ -75,6 +76,12 @@ export async function tryAiEvasion(
     appendLog(`🤖 ${logPrefix}检测到敏感词：${detection.sensitiveWords.join(', ')}，正在尝试规避…`)
 
     const evadedMessage = replaceSensitiveWords(message, detection.sensitiveWords)
+    if (isLockedEmoticon(evadedMessage)) {
+      const error = 'AI规避结果是锁定表情'
+      appendLog(formatLockedEmoticonReject(evadedMessage, `${logPrefix}AI规避表情`))
+      return { success: false, evadedMessage, error }
+    }
+
     const retryResult = await enqueueDanmaku(evadedMessage, roomId, csrfToken, SendPriority.MANUAL)
 
     if (retryResult.success) {

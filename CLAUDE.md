@@ -54,12 +54,16 @@ The build output is written to `dist/`. The main userscript output is `dist/bili
 
 ### Key Modules
 
-- `src/lib/store.ts` defines GM-persisted signals and runtime state.
+- `src/lib/store.ts` re-exports domain store modules and keeps only small cross-domain runtime glue. Add new persisted signals to the closest `store-*.ts` domain file instead of growing `store.ts`.
+- `src/lib/emoticon.ts` owns emoticon lookup, locked-emoticon detection, and rejection log text. Do not reintroduce emoticon helpers into `store.ts`.
 - `src/lib/loop.ts` handles auto-send loop behavior.
 - `src/lib/auto-blend.ts`, `auto-blend-presets.ts`, `auto-blend-status.ts`, and `auto-blend-trend.ts` implement auto-follow detection, presets, status labels, and trend scoring.
 - `src/lib/send-queue.ts` serializes send attempts and helps avoid overlapping danmaku sends.
+- `src/lib/user-blacklist.ts` injects the auto-follow blacklist toggle into Bilibili's danmaku menu. Auto-follow must ignore blacklisted UIDs.
 - `src/lib/danmaku-direct.ts` implements steal/+1 buttons beside chat messages.
 - `src/lib/custom-chat.ts`, `custom-chat-dom.ts`, `custom-chat-events.ts`, `custom-chat-render.ts`, and `custom-chat-search.ts` implement Chatterbox Chat.
+- `custom-chat-style.ts`, `custom-chat-virtualizer.ts`, `custom-chat-native-adapter.ts`, and `custom-chat-interaction.ts` hold extracted Custom Chat infrastructure. Keep future CSS, virtualization math, native DOM filtering, and button/a11y primitives there.
+- `custom-chat-dom.ts` uses one shared RAF dispatcher for render/rerender work and debounces native DOM fallback scans. Keep new high-frequency UI work on that scheduler instead of adding standalone RAF loops.
 - `src/lib/live-ws-source.ts` connects directly to Bilibili Live WebSocket events, with DOM fallback through the custom chat modules.
 - `src/lib/api.ts` wraps Bilibili live APIs, including danmaku sending, room info, fan-medal rooms, and restriction checks.
 - `src/lib/guard-room-sync.ts` supports optional sync of fan-medal inspection summaries to the external Guard Room project.
@@ -67,6 +71,9 @@ The build output is written to `dist/`. The main userscript output is `dist/bili
 - `src/lib/ai-evasion.ts` checks and rewrites blocked danmaku when AI evasion is enabled.
 - `src/lib/wbi.ts` handles Bilibili WBI signing.
 - `src/lib/fetch-hijack.ts` intercepts relevant requests early.
+- `src/lib/auto-blend-events.ts` is the internal event/log bridge for auto-follow. Prefer emitting events there over adding direct `appendLog()` calls inside `auto-blend.ts`.
+- `src/lib/log.ts` owns `appendLog()` plus `notifyUser(level, message, detail?)`. User-facing failures should use `notifyUser` instead of `alert()`.
+- `src/lib/app-lifecycle.ts` keeps App-level side effects (panel styles, Custom Chat room rearm, optimized layout style) out of the Preact shell.
 
 ### UI Notes
 
@@ -75,6 +82,7 @@ The build output is written to `dist/`. The main userscript output is `dist/bili
 - Fan-medal inspection, replacement rules, Chatterbox Chat settings, +1 mode, layout options, and log limits live in the settings tab.
 - Chatterbox Chat themes include iMessage Dark, iMessage Light, Compact Bubble, plus the milk-green iMessage CSS preset in `src/lib/custom-chat-presets.ts`.
 - Keep the floating panel compact: it is meant to sit inside Bilibili Live's right-side area.
+- Panel styling now uses a mix of legacy `cb-*` classes and UnoCSS `lc-*` utilities. UnoCSS is configured with a prefix and no global reset; never add unprefixed utility classes that could leak into Bilibili's page.
 
 ## State and Persistence
 

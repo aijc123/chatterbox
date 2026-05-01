@@ -14,15 +14,11 @@ export function ToggleButton() {
       type='button'
       id='laplace-chatterbox-toggle'
       onClick={toggle}
+      className='lc-fixed lc-right-2 lc-bottom-2 lc-z-[2147483647] lc-cursor-pointer lc-select-none'
       style={{
         appearance: 'none',
         outline: 'none',
         border: 'none',
-        position: 'fixed',
-        right: '8px',
-        bottom: '8px',
-        zIndex: 2147483647,
-        cursor: 'pointer',
         background: bg.value,
         color: 'white',
         padding: '6px 8px',

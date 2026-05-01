@@ -4,7 +4,8 @@ import { useEffect, useLayoutEffect, useRef } from 'preact/hooks'
 
 import { ensureRoomId, getCsrfToken } from '../lib/api'
 import { BASE_URL } from '../lib/const'
-import { appendLog } from '../lib/log'
+import { formatLockedEmoticonReject, isLockedEmoticon } from '../lib/emoticon'
+import { appendLog, notifyUser } from '../lib/log'
 import { ignoreMemeCandidate } from '../lib/meme-contributor'
 import { applyReplacements } from '../lib/replacement'
 import { enqueueDanmaku, SendPriority } from '../lib/send-queue'
@@ -96,6 +97,12 @@ function MemeItem({
 
       for (let i = 0; i < total; i++) {
         const segment = segments[i]
+        if (isLockedEmoticon(segment)) {
+          const label = total > 1 ? `烂梗表情 [${i + 1}/${total}]` : '烂梗表情'
+          appendLog(formatLockedEmoticonReject(segment, label))
+          continue
+        }
+
         const result = await enqueueDanmaku(segment, roomId, csrfToken, SendPriority.MANUAL)
         const label = total > 1 ? `烂梗 [${i + 1}/${total}]` : '烂梗'
         const display = wasReplaced && total === 1 ? `${meme.content} → ${segment}` : segment
@@ -119,7 +126,7 @@ function MemeItem({
     try {
       await navigator.clipboard.writeText(meme.content)
     } catch {
-      alert(`复制失败，请手动复制：${meme.content}`)
+      notifyUser('error', '复制烂梗失败，请手动复制', meme.content)
       return
     }
     copyLabel.value = '已复制'
@@ -332,10 +339,11 @@ export function MemesList() {
   }
 
   useEffect(() => {
+    if (!memesPanelOpen.value) return
     void loadMemes()
     const timer = setInterval(() => void loadMemes({ silent: true }), MEME_RELOAD_INTERVAL)
     return () => clearInterval(timer)
-  }, [sortBy.value])
+  }, [sortBy.value, memesPanelOpen.value])
 
   return (
     <>

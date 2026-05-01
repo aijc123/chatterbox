@@ -16,7 +16,7 @@ export function Tabs() {
         <button
           type='button'
           key={tab.id}
-          className='cb-tab'
+          className='cb-tab lc-min-w-0'
           data-active={current === tab.id}
           onClick={() => {
             activeTab.value = tab.id

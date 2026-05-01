@@ -2,6 +2,7 @@ import type { DanmakuConfigResponse } from '../types'
 
 import { ensureRoomId, fetchEmoticons, getCsrfToken, getSpmPrefix, setDanmakuMode, setRandomDanmakuColor } from './api'
 import { BASE_URL } from './const'
+import { formatLockedEmoticonReject, isEmoticonUnique, isLockedEmoticon } from './emoticon'
 import { classifyRiskEvent, syncGuardRoomRiskEvent } from './guard-room-sync'
 import { appendLog } from './log'
 import { applyReplacements, buildReplacementMap } from './replacement'
@@ -10,7 +11,6 @@ import {
   activeTemplateIndex,
   availableDanmakuColors,
   forceScrollDanmaku,
-  isEmoticonUnique,
   maxLength,
   msgSendInterval,
   msgTemplates,
@@ -178,6 +178,18 @@ export async function loop(): Promise<void> {
         }
         const message = Msg[i]
         if (sendMsg.value) {
+          if (isLockedEmoticon(message)) {
+            const skipLabel = total > 1 ? `自动表情 [${i + 1}/${total}]` : '自动表情'
+            appendLog(formatLockedEmoticonReject(message, skipLabel))
+            const resolvedRandomInterval = enableRandomInterval ? Math.floor(Math.random() * 500) : 0
+            const ok = await abortableSleep(interval * 1000 - resolvedRandomInterval, signal)
+            if (!ok) {
+              completed = false
+              break
+            }
+            continue
+          }
+
           const isEmote = isEmoticonUnique(message)
           const originalMessage = message
           const processedMessage = isEmote ? message : applyReplacements(message)

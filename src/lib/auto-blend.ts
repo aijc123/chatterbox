@@ -6,6 +6,7 @@ import {
   type SendDanmakuResult,
   setRandomDanmakuColor,
 } from './api'
+import { logAutoBlend, logAutoBlendSendResult } from './auto-blend-events'
 import {
   formatAutoBlendCandidate,
   formatAutoBlendSenderInfo,
@@ -19,9 +20,9 @@ import {
   subscribeCustomChatEvents,
 } from './custom-chat-events'
 import { type DanmakuEvent, subscribeDanmaku } from './danmaku-stream'
+import { formatLockedEmoticonReject, isEmoticonUnique, isLockedEmoticon } from './emoticon'
 import { classifyRiskEvent, syncGuardRoomRiskEvent } from './guard-room-sync'
 import { startLiveWsSource, stopLiveWsSource } from './live-ws-source'
-import { appendLog } from './log'
 import { clearMemeSession, recordMemeCandidate } from './meme-contributor'
 import {
   classifyByCode,
@@ -50,8 +51,8 @@ import {
   autoBlendStatusText,
   autoBlendThreshold,
   autoBlendUseReplacements,
+  autoBlendUserBlacklist,
   autoBlendWindowSec,
-  isEmoticonUnique,
   maxLength,
   msgSendInterval,
   randomChar,
@@ -77,6 +78,8 @@ interface TrendEntry {
 
 // message → rolling-window trend data
 const trendMap = new Map<string, TrendEntry>()
+let nextTrendPruneAt = Number.POSITIVE_INFINITY
+let lastPruneWindowMs = 0
 
 // Global hard cooldown: while Date.now() < cooldownUntil, all incoming danmaku
 // are discarded. Engaged after every send to prevent echo stacking.
@@ -133,6 +136,8 @@ function clearPendingAutoBlend(reason: string): void {
   }
   pendingBurstText = null
   trendMap.clear()
+  nextTrendPruneAt = Number.POSITIVE_INFINITY
+  lastPruneWindowMs = 0
   updateCandidateText()
   autoBlendLastActionText.value = reason
 }
@@ -141,7 +146,7 @@ function stopAutoBlendAfterModeration(reason: string): void {
   moderationStopReason = reason
   clearPendingAutoBlend(reason)
   autoBlendEnabled.value = false
-  appendLog(reason)
+  logAutoBlend(reason, reason.startsWith('🔴') ? 'error' : 'warning')
 }
 
 function handleSendFailure(result: SendDanmakuResult, roomId?: number): boolean {
@@ -292,6 +297,10 @@ function matchesDomEchoEvent(event: DanmakuEvent, target: string, uid: string | 
   return event.text.trim() === target && (!uid || !event.uid || event.uid === uid)
 }
 
+export function isAutoBlendBlacklistedUid(uid: string | null): boolean {
+  return !!uid && uid in autoBlendUserBlacklist.value
+}
+
 function waitForSentEcho(
   text: string,
   uid: string | null,
@@ -345,12 +354,17 @@ function waitForSentEcho(
   })
 }
 
-function pruneExpired(now: number): void {
+function pruneExpired(now: number, force = false): void {
   const windowMs = autoBlendWindowSec.value * 1000
+  if (!force && windowMs === lastPruneWindowMs && now < nextTrendPruneAt) return
+  lastPruneWindowMs = windowMs
+  let next = Number.POSITIVE_INFINITY
   for (const [k, entry] of trendMap) {
     entry.events = entry.events.filter(e => now - e.ts <= windowMs)
     if (entry.events.length === 0) trendMap.delete(k)
+    else next = Math.min(next, entry.events[0].ts + windowMs + 1)
   }
+  nextTrendPruneAt = next
   updateCandidateText()
 }
 
@@ -427,6 +441,8 @@ function recordDanmaku(rawText: string, uid: string | null, isReply: boolean): v
 
   // Always exclude self to prevent positive feedback loops.
   if (uid && myUid && uid === myUid) return
+  if (isAutoBlendBlacklistedUid(uid)) return
+  if (isLockedEmoticon(text)) return
 
   pruneExpired(now)
 
@@ -436,6 +452,8 @@ function recordDanmaku(rawText: string, uid: string | null, isReply: boolean): v
     trendMap.set(text, entry)
   }
   entry.events.push({ ts: now, uid })
+  const expiresAt = now + autoBlendWindowSec.value * 1000 + 1
+  if (expiresAt < nextTrendPruneAt) nextTrendPruneAt = expiresAt
   updateCandidateText()
 
   // During cooldown/sending we still keep counting, but defer the actual follow
@@ -534,7 +552,7 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
     if (reason === 'routine') {
       const text = shortAutoBlendText(triggeredText)
       autoBlendLastActionText.value = `还在发，先跳过：${text}`
-      appendLog(`自动跟车：还在发，先跳过补跟：${text}`)
+      logAutoBlend(`自动跟车：还在发，先跳过补跟：${text}`)
     }
     return
   }
@@ -555,7 +573,7 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
     const csrfToken = getCsrfToken()
     if (!csrfToken) {
       autoBlendLastActionText.value = '未登录，跳过'
-      appendLog('自动跟车：没检测到登录态，先跳过')
+      logAutoBlend('自动跟车：没检测到登录态，先跳过', 'warning')
       return
     }
     const roomId = await ensureRoomId()
@@ -568,20 +586,24 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
     // triggers autoBlendSendCount controls how many times to repeat.
     const isMulti = targets.length > 1
     if (isMulti) {
-      appendLog(`自动跟车：同一波有 ${targets.length} 句话达标，开始依次跟`)
+      logAutoBlend(`自动跟车：同一波有 ${targets.length} 句话达标，开始依次跟`)
     }
 
     let memeRecorded = false
 
     for (let ti = 0; ti < targets.length; ti++) {
       const { text: originalText, uniqueUsers, totalCount } = targets[ti]
+      if (isLockedEmoticon(originalText)) {
+        logAutoBlend(formatLockedEmoticonReject(originalText, '自动跟车(表情)'), 'warning')
+        continue
+      }
       const isEmote = isEmoticonUnique(originalText)
       const useReplacements = autoBlendUseReplacements.value && !isEmote
       const replaced = useReplacements ? applyReplacements(originalText) : originalText
       const wasReplaced = useReplacements && originalText !== replaced
 
       if (isMulti) {
-        appendLog(`  - ${shortAutoBlendText(originalText)}（${formatAutoBlendSenderInfo(uniqueUsers, totalCount)}）`)
+        logAutoBlend(`  - ${shortAutoBlendText(originalText)}（${formatAutoBlendSenderInfo(uniqueUsers, totalCount)}）`)
       }
 
       const repeatCount =
@@ -600,7 +622,7 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
 
         if (autoBlendDryRun.value) {
           autoBlendLastActionText.value = `试运行命中：${shortAutoBlendText(display)}`
-          appendLog(`自动跟车试运行（未发送）：${display}`)
+          logAutoBlend(`自动跟车试运行（未发送）：${display}`)
           continue
         }
 
@@ -608,7 +630,7 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
 
         if (isMulti) {
           const label = repeatCount > 1 ? `自动跟车 [${i + 1}/${repeatCount}]` : '自动跟车'
-          appendLog(result, label, display)
+          logAutoBlendSendResult(result, label, display)
           if (result.success && !result.cancelled) {
             autoBlendLastActionText.value = `已跟车：${shortAutoBlendText(display)}`
           } else if (result.cancelled) {
@@ -622,14 +644,14 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
           const repeatSuffix = repeatCount > 1 ? ` [${i + 1}/${repeatCount}]` : ''
           if (result.cancelled) {
             autoBlendLastActionText.value = `被手动发送打断：${shortAutoBlendText(display)}`
-            appendLog(`自动跟车${repeatSuffix}：被手动发送打断：${display}`)
+            logAutoBlend(`自动跟车${repeatSuffix}：被手动发送打断：${display}`)
           } else if (result.success) {
             autoBlendLastActionText.value = `已跟车：${shortAutoBlendText(display)}`
-            appendLog(`已跟车${repeatSuffix}（${info}）：${display}`)
+            logAutoBlend(`已跟车${repeatSuffix}（${info}）：${display}`)
           } else {
             const error = formatDanmakuError(result.error)
             autoBlendLastActionText.value = `没发出去：${shortAutoBlendText(display)}`
-            appendLog(`自动跟车没发出去${repeatSuffix}（${info}）：${display}，原因：${error}`)
+            logAutoBlend(`自动跟车没发出去${repeatSuffix}（${info}）：${display}，原因：${error}`, 'error')
           }
         }
 
@@ -646,11 +668,14 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
             // account risk control, or send frequency too high.
             consecutiveSilentDrops++
             autoBlendLastActionText.value = `接口成功未见广播：${shortAutoBlendText(display)}`
-            appendLog(`自动跟车接口成功，但 ${Math.round(SEND_ECHO_TIMEOUT_MS / 1000)}s 内未看到广播回显：${display}`)
+            logAutoBlend(
+              `自动跟车接口成功，但 ${Math.round(SEND_ECHO_TIMEOUT_MS / 1000)}s 内未看到广播回显：${display}`,
+              'warning'
+            )
 
             if (consecutiveSilentDrops >= SILENT_DROP_CHECK_THRESHOLD) {
               consecutiveSilentDrops = 0
-              appendLog('自动跟车：连续多次未见广播，正在巡检当前房间限制状态…')
+              logAutoBlend('自动跟车：连续多次未见广播，正在巡检当前房间限制状态…')
               try {
                 const signals = await checkSelfRoomRestrictions(roomId)
                 if (signals.length > 0) {
@@ -658,11 +683,11 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
                   stopAutoBlendAfterModeration(`🔴 自动跟车：巡检发现限制，已自动关闭：${desc}`)
                   return
                 }
-                appendLog(
+                logAutoBlend(
                   '自动跟车：巡检未发现明确禁言/限制，弹幕仍未广播。可能原因：该房间需要粉丝牌、发送频率过快、或账号存在风控。'
                 )
               } catch {
-                appendLog('自动跟车：巡检请求失败，无法确认限制原因。')
+                logAutoBlend('自动跟车：巡检请求失败，无法确认限制原因。', 'warning')
               }
             }
           }
@@ -693,7 +718,7 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     autoBlendLastActionText.value = `出错：${msg}`
-    appendLog(`自动跟车出错：${msg}`)
+    logAutoBlend('自动跟车出错', 'error', msg)
   } finally {
     isSending = false
     updateStatusText()
@@ -708,6 +733,8 @@ export function startAutoBlend(): void {
   moderationStopReason = null
   consecutiveSilentDrops = 0
   recentDomDanmaku.length = 0
+  nextTrendPruneAt = Number.POSITIVE_INFINITY
+  lastPruneWindowMs = 0
   autoBlendStatusText.value = '观察中'
   autoBlendCandidateText.value = '暂无'
   autoBlendLastActionText.value = '暂无'
@@ -758,6 +785,8 @@ export function stopAutoBlend(): void {
   }
   stopLiveWsSource()
   trendMap.clear()
+  nextTrendPruneAt = Number.POSITIVE_INFINITY
+  lastPruneWindowMs = 0
   recentDomDanmaku.length = 0
   clearMemeSession()
   cooldownUntil = 0

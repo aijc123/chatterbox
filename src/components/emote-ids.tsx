@@ -1,5 +1,6 @@
 import { useSignal } from '@preact/signals'
 
+import { notifyUser } from '../lib/log'
 import { cachedEmoticonPackages } from '../lib/store'
 
 export function EmoteIds() {
@@ -18,7 +19,7 @@ export function EmoteIds() {
     try {
       await navigator.clipboard.writeText(unique)
     } catch {
-      alert(`复制失败，请手动复制：${unique}`)
+      notifyUser('error', '复制表情 ID 失败，请手动复制', unique)
       return
     }
     copiedId.value = unique

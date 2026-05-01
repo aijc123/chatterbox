@@ -1,10 +1,12 @@
 import preact from '@preact/preset-vite'
+import UnoCSS from 'unocss/vite'
 import { defineConfig } from 'vite'
 import monkey, { util } from 'vite-plugin-monkey'
 
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
+    UnoCSS(),
     preact(),
     monkey({
       entry: 'src/main.tsx',

@@ -1,5 +1,6 @@
 import { render } from 'preact'
 
+import 'virtual:uno.css'
 import './lib/fetch-hijack'
 
 import { App } from './components/app'
@@ -10,18 +11,22 @@ function mount() {
   render(<App />, app)
 }
 
+const isLiveHost = location.hostname === 'live.bilibili.com'
+
 // The userscript runs at document-start so the WBI XHR interceptor (wbi.ts)
 // can patch XMLHttpRequest before the page fires /x/web-interface/nav.
 // At that point document.body may not exist yet, so we defer mounting until
 // the browser creates <body>.
-if (document.body) {
-  mount()
-} else {
-  const observer = new MutationObserver(() => {
-    if (document.body) {
-      observer.disconnect()
-      mount()
-    }
-  })
-  observer.observe(document.documentElement, { childList: true })
+if (isLiveHost) {
+  if (document.body) {
+    mount()
+  } else {
+    const observer = new MutationObserver(() => {
+      if (document.body) {
+        observer.disconnect()
+        mount()
+      }
+    })
+    observer.observe(document.documentElement, { childList: true })
+  }
 }
