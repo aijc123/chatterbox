@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.8.52
+// @version      2.8.54
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -27,11 +27,11 @@
 (function (speechToTextWeb) {
   'use strict';
 
-  const d$2=new Set;const o$3 = async e=>{d$2.has(e)||(d$2.add(e),(t=>{typeof GM_addStyle=="function"?GM_addStyle(t):(document.head||document.documentElement).appendChild(document.createElement("style")).append(t);})(e));};
+  const d$3=new Set;const l$4 = async e=>{d$3.has(e)||(d$3.add(e),(t=>{typeof GM_addStyle=="function"?GM_addStyle(t):(document.head||document.documentElement).appendChild(document.createElement("style")).append(t);})(e));};
 
-  o$3(" :root,:host{--spacing: .25rem}#laplace-chatterbox-toggle,#laplace-chatterbox-dialog{box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,SF Pro Text,Segoe UI,sans-serif;font-size:12px;letter-spacing:0}.lc-px-\\[10px\\]{padding-inline:10px}.lc-pb-\\[10px\\]{padding-bottom:10px}.lc-max-h-\\[50vh\\]{max-height:50vh}.lc-max-w-\\[calc\\(100vw_-_16px\\)\\]{max-width:calc(100vw - 16px)}.lc-min-w-0{min-width:calc(var(--spacing) * 0)}.lc-w-\\[320px\\]{width:320px}.lc-block{display:block}.lc-hidden{display:none}.lc-cursor-pointer{cursor:pointer}.lc-select-none{-webkit-user-select:none;user-select:none}.lc-bottom-\\[46px\\]{bottom:46px}.lc-bottom-2{bottom:calc(var(--spacing) * 2)}.lc-right-2{right:calc(var(--spacing) * 2)}.lc-fixed{position:fixed}.lc-z-\\[2147483647\\]{z-index:2147483647}.lc-overflow-y-auto{overflow-y:auto} ");
+  l$4(" :root,:host{--spacing: .25rem}#laplace-chatterbox-toggle,#laplace-chatterbox-dialog{box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,SF Pro Text,Segoe UI,sans-serif;font-size:12px;letter-spacing:0}.lc-px-\\[10px\\]{padding-inline:10px}.lc-pb-\\[10px\\]{padding-bottom:10px}.lc-max-h-\\[50vh\\]{max-height:50vh}.lc-max-w-\\[calc\\(100vw_-_16px\\)\\]{max-width:calc(100vw - 16px)}.lc-min-w-0{min-width:calc(var(--spacing) * 0)}.lc-w-\\[320px\\]{width:320px}.lc-block{display:block}.lc-hidden{display:none}.lc-bottom-\\[46px\\]{bottom:46px}.lc-right-2{right:calc(var(--spacing) * 2)}.lc-fixed{position:fixed}.lc-z-\\[2147483647\\]{z-index:2147483647}.lc-overflow-y-auto{overflow-y:auto} ");
 
-  var n$1, l$3, u$3, t$2, i$2, r$3, o$2, e$2, f$2, c$2, s$2, a$2, h$2, p$3, v$2, d$1 = {}, w$3 = [], _$3 = /acit|ex(?:s|g|n|p|$)|rph|grid|ows|mnc|ntw|ine[ch]|zoo|^ord|itera/i, g$2 = Array.isArray;
+  var n$1, l$3, u$3, t$2, i$2, r$3, o$2, e$2, f$2, c$2, s$2, a$2, h$3, p$3, v$2, d$2 = {}, w$3 = [], _$3 = /acit|ex(?:s|g|n|p|$)|rph|grid|ows|mnc|ntw|ine[ch]|zoo|^ord|itera/i, g$2 = Array.isArray;
   function m$2(n2, l2) {
     for (var u2 in l2) n2[u2] = l2[u2];
     return n2;
@@ -63,7 +63,7 @@
   function I(n2) {
     if (n2.__P && n2.__d) {
       var u2 = n2.__v, t2 = u2.__e, i2 = [], r2 = [], o2 = m$2({}, u2);
-      o2.__v = u2.__v + 1, l$3.vnode && l$3.vnode(o2), q$1(n2.__P, o2, u2, n2.__n, n2.__P.namespaceURI, 32 & u2.__u ? [t2] : null, i2, null == t2 ? $(u2) : t2, !!(32 & u2.__u), r2), o2.__v = u2.__v, o2.__.__k[o2.__i] = o2, D(i2, o2, r2), u2.__e = u2.__ = null, o2.__e != t2 && P(o2);
+      o2.__v = u2.__v + 1, l$3.vnode && l$3.vnode(o2), q$2(n2.__P, o2, u2, n2.__n, n2.__P.namespaceURI, 32 & u2.__u ? [t2] : null, i2, null == t2 ? $(u2) : t2, !!(32 & u2.__u), r2), o2.__v = u2.__v, o2.__.__k[o2.__i] = o2, D$1(i2, o2, r2), u2.__e = u2.__ = null, o2.__e != t2 && P(o2);
     }
   }
   function P(n2) {
@@ -83,7 +83,7 @@
   }
   function L(n2, l2, u2, t2, i2, r2, o2, e2, f2, c2, s2) {
     var a2, h2, p2, v2, y2, _2, g2, m2 = t2 && t2.__k || w$3, b2 = l2.length;
-    for (f2 = T$1(u2, l2, m2, f2, b2), a2 = 0; a2 < b2; a2++) null != (p2 = u2.__k[a2]) && (h2 = -1 != p2.__i && m2[p2.__i] || d$1, p2.__i = a2, _2 = q$1(n2, p2, h2, i2, r2, o2, e2, f2, c2, s2), v2 = p2.__e, p2.ref && h2.ref != p2.ref && (h2.ref && J(h2.ref, null, p2), s2.push(p2.ref, p2.__c || v2, p2)), null == y2 && null != v2 && (y2 = v2), (g2 = !!(4 & p2.__u)) || h2.__k === p2.__k ? (f2 = j$2(p2, f2, n2, g2), g2 && h2.__e && (h2.__e = null)) : "function" == typeof p2.type && void 0 !== _2 ? f2 = _2 : v2 && (f2 = v2.nextSibling), p2.__u &= -7);
+    for (f2 = T$1(u2, l2, m2, f2, b2), a2 = 0; a2 < b2; a2++) null != (p2 = u2.__k[a2]) && (h2 = -1 != p2.__i && m2[p2.__i] || d$2, p2.__i = a2, _2 = q$2(n2, p2, h2, i2, r2, o2, e2, f2, c2, s2), v2 = p2.__e, p2.ref && h2.ref != p2.ref && (h2.ref && J(h2.ref, null, p2), s2.push(p2.ref, p2.__c || v2, p2)), null == y2 && null != v2 && (y2 = v2), (g2 = !!(4 & p2.__u)) || h2.__k === p2.__k ? (f2 = j$2(p2, f2, n2, g2), g2 && h2.__e && (h2.__e = null)) : "function" == typeof p2.type && void 0 !== _2 ? f2 = _2 : v2 && (f2 = v2.nextSibling), p2.__u &= -7);
     return u2.__e = y2, f2;
   }
   function T$1(n2, l2, u2, t2, i2) {
@@ -122,7 +122,7 @@
       if ("string" == typeof t2 && (n2.style.cssText = t2 = ""), t2) for (l2 in t2) u2 && l2 in u2 || z$1(n2.style, l2, "");
       if (u2) for (l2 in u2) t2 && u2[l2] == t2[l2] || z$1(n2.style, l2, u2[l2]);
     }
-    else if ("o" == l2[0] && "n" == l2[1]) r2 = l2 != (l2 = l2.replace(a$2, "$1")), o2 = l2.toLowerCase(), l2 = o2 in n2 || "onFocusOut" == l2 || "onFocusIn" == l2 ? o2.slice(2) : l2.slice(2), n2.l || (n2.l = {}), n2.l[l2 + r2] = u2, u2 ? t2 ? u2[s$2] = t2[s$2] : (u2[s$2] = h$2, n2.addEventListener(l2, r2 ? v$2 : p$3, r2)) : n2.removeEventListener(l2, r2 ? v$2 : p$3, r2);
+    else if ("o" == l2[0] && "n" == l2[1]) r2 = l2 != (l2 = l2.replace(a$2, "$1")), o2 = l2.toLowerCase(), l2 = o2 in n2 || "onFocusOut" == l2 || "onFocusIn" == l2 ? o2.slice(2) : l2.slice(2), n2.l || (n2.l = {}), n2.l[l2 + r2] = u2, u2 ? t2 ? u2[s$2] = t2[s$2] : (u2[s$2] = h$3, n2.addEventListener(l2, r2 ? v$2 : p$3, r2)) : n2.removeEventListener(l2, r2 ? v$2 : p$3, r2);
     else {
       if ("http://www.w3.org/2000/svg" == i2) l2 = l2.replace(/xlink(H|:h)/, "h").replace(/sName$/, "s");
       else if ("width" != l2 && "height" != l2 && "href" != l2 && "list" != l2 && "form" != l2 && "tabIndex" != l2 && "download" != l2 && "rowSpan" != l2 && "colSpan" != l2 && "role" != l2 && "popover" != l2 && l2 in n2) try {
@@ -137,13 +137,13 @@
     return function(u2) {
       if (this.l) {
         var t2 = this.l[u2.type + n2];
-        if (null == u2[c$2]) u2[c$2] = h$2++;
+        if (null == u2[c$2]) u2[c$2] = h$3++;
         else if (u2[c$2] < t2[s$2]) return;
         return t2(l$3.event ? l$3.event(u2) : u2);
       }
     };
   }
-  function q$1(n2, u2, t2, i2, r2, o2, e2, f2, c2, s2) {
+  function q$2(n2, u2, t2, i2, r2, o2, e2, f2, c2, s2) {
     var a2, h2, p2, v2, y2, d2, _2, k2, x2, M, $2, I2, P2, A2, H2, T2 = u2.type;
     if (void 0 !== u2.constructor) return null;
     128 & t2.__u && (c2 = !!(32 & t2.__u), o2 = [f2 = u2.__e = t2.__e]), (a2 = l$3.__b) && a2(u2);
@@ -182,7 +182,7 @@
   function B$1(n2) {
     n2 && (n2.__c && (n2.__c.__e = true), n2.__k && n2.__k.some(B$1));
   }
-  function D(n2, u2, t2) {
+  function D$1(n2, u2, t2) {
     for (var i2 = 0; i2 < t2.length; i2++) J(t2[i2], t2[++i2], t2[++i2]);
     l$3.__c && l$3.__c(u2, n2), n2.some(function(u3) {
       try {
@@ -198,7 +198,7 @@
     return "object" != typeof n2 || null == n2 || n2.__b > 0 ? n2 : g$2(n2) ? n2.map(E$1) : m$2({}, n2);
   }
   function G(u2, t2, i2, r2, o2, e2, f2, c2, s2) {
-    var a2, h2, p2, v2, y2, w2, _2, m2 = i2.props || d$1, k2 = t2.props, x2 = t2.type;
+    var a2, h2, p2, v2, y2, w2, _2, m2 = i2.props || d$2, k2 = t2.props, x2 = t2.type;
     if ("svg" == x2 ? o2 = "http://www.w3.org/2000/svg" : "math" == x2 ? o2 = "http://www.w3.org/1998/Math/MathML" : o2 || (o2 = "http://www.w3.org/1999/xhtml"), null != e2) {
       for (a2 = 0; a2 < e2.length; a2++) if ((y2 = e2[a2]) && "setAttribute" in y2 == !!x2 && (x2 ? y2.localName == x2 : 3 == y2.nodeType)) {
         u2 = y2, e2[a2] = null;
@@ -248,7 +248,7 @@
   }
   function R(u2, t2, i2) {
     var r2, o2, e2, f2;
-    t2 == document && (t2 = document.documentElement), l$3.__ && l$3.__(u2, t2), o2 = (r2 = false) ? null : t2.__k, e2 = [], f2 = [], q$1(t2, u2 = t2.__k = k$1(S$1, null, [u2]), o2 || d$1, d$1, t2.namespaceURI, o2 ? null : t2.firstChild ? n$1.call(t2.childNodes) : null, e2, o2 ? o2.__e : t2.firstChild, r2, f2), D(e2, u2, f2);
+    t2 == document && (t2 = document.documentElement), l$3.__ && l$3.__(u2, t2), o2 = (r2 = false) ? null : t2.__k, e2 = [], f2 = [], q$2(t2, u2 = t2.__k = k$1(S$1, null, [u2]), o2 || d$2, d$2, t2.namespaceURI, o2 ? null : t2.firstChild ? n$1.call(t2.childNodes) : null, e2, o2 ? o2.__e : t2.firstChild, r2, f2), D$1(e2, u2, f2);
   }
   n$1 = w$3.slice, l$3 = { __e: function(n2, l2, u2, t2) {
     for (var i2, r2, o2; l2 = l2.__; ) if ((i2 = l2.__c) && !i2.__) try {
@@ -266,7 +266,7 @@
     this.__v && (this.__e = true, n2 && this.__h.push(n2), A$1(this));
   }, C$1.prototype.render = S$1, i$2 = [], o$2 = "function" == typeof Promise ? Promise.prototype.then.bind(Promise.resolve()) : setTimeout, e$2 = function(n2, l2) {
     return n2.__v.__b - l2.__v.__b;
-  }, H.__r = 0, f$2 = Math.random().toString(8), c$2 = "__d" + f$2, s$2 = "__a" + f$2, a$2 = /(PointerCapture)$|Capture$/i, h$2 = 0, p$3 = V(false), v$2 = V(true);
+  }, H.__r = 0, f$2 = Math.random().toString(8), c$2 = "__d" + f$2, s$2 = "__a" + f$2, a$2 = /(PointerCapture)$|Capture$/i, h$3 = 0, p$3 = V(false), v$2 = V(true);
   var f$1 = 0;
   function u$2(e2, t2, n2, o2, i2, u2) {
     t2 || (t2 = {});
@@ -276,6 +276,7 @@
     if ("function" == typeof e2 && (a2 = e2.defaultProps)) for (c2 in a2) void 0 === p2[c2] && (p2[c2] = a2[c2]);
     return l$3.vnode && l$3.vnode(l2), l2;
   }
+  var _GM_addStyle = (() => typeof GM_addStyle != "undefined" ? GM_addStyle : void 0)();
   var _GM_deleteValue = (() => typeof GM_deleteValue != "undefined" ? GM_deleteValue : void 0)();
   var _GM_getValue = (() => typeof GM_getValue != "undefined" ? GM_getValue : void 0)();
   var _GM_info = (() => typeof GM_info != "undefined" ? GM_info : void 0)();
@@ -286,6 +287,43 @@
     c$1.__h && c$1.__h(r$2, n2, o$1 || t2), o$1 = 0;
     var u2 = r$2.__H || (r$2.__H = { __: [], __h: [] });
     return n2 >= u2.__.length && u2.__.push({}), u2.__[n2];
+  }
+  function d$1(n2) {
+    return o$1 = 1, h$2(D, n2);
+  }
+  function h$2(n2, u2, i2) {
+    var o2 = p$2(t$1++, 2);
+    if (o2.t = n2, !o2.__c && (o2.__ = [D(void 0, u2), function(n3) {
+      var t2 = o2.__N ? o2.__N[0] : o2.__[0], r2 = o2.t(t2, n3);
+      t2 !== r2 && (o2.__N = [r2, o2.__[1]], o2.__c.setState({}));
+    }], o2.__c = r$2, !r$2.__f)) {
+      var f2 = function(n3, t2, r2) {
+        if (!o2.__c.__H) return true;
+        var u3 = o2.__c.__H.__.filter(function(n4) {
+          return n4.__c;
+        });
+        if (u3.every(function(n4) {
+          return !n4.__N;
+        })) return !c2 || c2.call(this, n3, t2, r2);
+        var i3 = o2.__c.props !== n3;
+        return u3.some(function(n4) {
+          if (n4.__N) {
+            var t3 = n4.__[0];
+            n4.__ = n4.__N, n4.__N = void 0, t3 !== n4.__[0] && (i3 = true);
+          }
+        }), c2 && c2.call(this, n3, t2, r2) || i3;
+      };
+      r$2.__f = true;
+      var c2 = r$2.shouldComponentUpdate, e2 = r$2.componentWillUpdate;
+      r$2.componentWillUpdate = function(n3, t2, r2) {
+        if (this.__e) {
+          var u3 = c2;
+          c2 = void 0, f2(n3, t2, r2), c2 = u3;
+        }
+        e2 && e2.call(this, n3, t2, r2);
+      }, r$2.shouldComponentUpdate = f2;
+    }
+    return o2.__N || o2.__;
   }
   function y$2(n2, u2) {
     var i2 = p$2(t$1++, 3);
@@ -303,6 +341,11 @@
   function T(n2, r2) {
     var u2 = p$2(t$1++, 7);
     return C(u2.__H, r2) && (u2.__ = n2(), u2.__H = r2, u2.__h = n2), u2.__;
+  }
+  function q$1(n2, t2) {
+    return o$1 = 8, T(function() {
+      return n2;
+    }, t2);
   }
   function j$1() {
     for (var n2; n2 = f.shift(); ) {
@@ -372,6 +415,9 @@
     return !n2 || n2.length !== t2.length || t2.some(function(t3, r2) {
       return t3 !== n2[r2];
     });
+  }
+  function D(n2, t2) {
+    return "function" == typeof t2 ? t2(n2) : t2;
   }
   var i = Symbol.for("preact-signals");
   function t() {
@@ -1918,9 +1964,14 @@
     }
   }
   function installPanelStyles() {
+    if (typeof _GM_addStyle === "function") {
+      _GM_addStyle(PANEL_STYLE);
+      return () => {
+      };
+    }
     const style = document.createElement("style");
     style.textContent = PANEL_STYLE;
-    document.head.appendChild(style);
+    (document.head || document.documentElement).appendChild(style);
     return () => style.remove();
   }
   function startCustomChatRoomRearm() {
@@ -15591,18 +15642,46 @@ u$2("button", { type: "button", className: "cb-btn", onClick: () => finish("👋
     );
   }
   function ToggleButton() {
-    const toggle = () => {
+    const [pressed, setPressed] = d$1(false);
+    const btnRef = A(null);
+    const toggle = q$1(() => {
       dialogOpen.value = !dialogOpen.value;
-    };
+    }, []);
+    const sending2 = sendMsg.value;
+    const open = dialogOpen.value;
     return u$2(
       "button",
       {
+        ref: btnRef,
         type: "button",
         id: "laplace-chatterbox-toggle",
-        "data-open": dialogOpen.value,
-        "data-sending": sendMsg.value,
+        "data-open": open,
+        "data-sending": sending2,
         onClick: toggle,
-        className: "lc-fixed lc-right-2 lc-bottom-2 lc-z-[2147483647] lc-cursor-pointer lc-select-none",
+        onPointerDown: () => setPressed(true),
+        onPointerUp: () => setPressed(false),
+        onPointerLeave: () => setPressed(false),
+        style: {
+          appearance: "none",
+          outline: "none",
+          border: "1px solid rgba(255, 255, 255, .42)",
+          borderRadius: "999px",
+          minHeight: "30px",
+          padding: "0 12px",
+          background: sending2 ? "rgba(0, 186, 143, .88)" : "rgba(30, 30, 30, .78)",
+          color: "#fff",
+          boxShadow: "0 10px 28px rgba(0, 0, 0, .22), inset 0 1px rgba(255, 255, 255, .22)",
+          backdropFilter: "blur(18px) saturate(1.4)",
+          WebkitBackdropFilter: "blur(18px) saturate(1.4)",
+          transform: pressed ? "scale(0.96)" : open ? "scale(1.06)" : "scale(1)",
+          transition: "transform .2s ease, background .2s ease",
+          cursor: "pointer",
+          userSelect: "none",
+          position: "fixed",
+          right: "8px",
+          bottom: "8px",
+          zIndex: 2147483647
+        },
         children: "弹幕助手"
       }
     );

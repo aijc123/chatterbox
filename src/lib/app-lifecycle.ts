@@ -1,5 +1,6 @@
 import { effect } from '@preact/signals'
 
+import { GM_addStyle } from '$'
 import { customChatEnabled, customChatHideNative, customChatUseWs, optimizeLayout } from './store'
 import { extractRoomNumber } from './utils'
 
@@ -608,9 +609,13 @@ function currentLiveRoomSlug(): string | null {
   }
 }
 export function installPanelStyles(): () => void {
+  if (typeof GM_addStyle === 'function') {
+    GM_addStyle(PANEL_STYLE)
+    return () => {}
+  }
   const style = document.createElement('style')
   style.textContent = PANEL_STYLE
-  document.head.appendChild(style)
+  ;(document.head || document.documentElement).appendChild(style)
   return () => style.remove()
 }
 export function startCustomChatRoomRearm(): () => void {
