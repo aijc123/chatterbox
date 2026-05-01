@@ -10,7 +10,7 @@ const INJECTED_ATTR = 'data-lc-bl'
 
 let lastUid: string | null = null
 let lastUname: string | null = null
-let contextMenuHandler: (() => void) | null = null
+let contextMenuHandler: ((e: Event) => void) | null = null
 
 function extractUidFromDanmakuItem(item: HTMLElement): string | null {
   const direct = item.getAttribute('data-uid')
@@ -80,14 +80,14 @@ function tryInjectMenuItem(copyLi: HTMLLIElement): void {
 export function startUserBlacklistHijack(): void {
   if (contextMenuHandler) return
 
-  contextMenuHandler = () => {
-    const active = document.activeElement
-    if (!(active instanceof HTMLElement)) {
+  contextMenuHandler = (e: Event) => {
+    const target = e.target
+    if (!(target instanceof HTMLElement)) {
       lastUid = null
       lastUname = null
       return
     }
-    const item = active.closest<HTMLElement>('.chat-item.danmaku-item')
+    const item = target.closest<HTMLElement>('.chat-item.danmaku-item')
     if (!item) {
       lastUid = null
       lastUname = null

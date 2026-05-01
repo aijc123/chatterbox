@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.8.51
+// @version      2.8.52
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -27,11 +27,11 @@
 (function (speechToTextWeb) {
   'use strict';
 
-  const d$3=new Set;const o$3 = async e=>{d$3.has(e)||(d$3.add(e),(t=>{typeof GM_addStyle=="function"?GM_addStyle(t):(document.head||document.documentElement).appendChild(document.createElement("style")).append(t);})(e));};
+  const d$2=new Set;const o$3 = async e=>{d$2.has(e)||(d$2.add(e),(t=>{typeof GM_addStyle=="function"?GM_addStyle(t):(document.head||document.documentElement).appendChild(document.createElement("style")).append(t);})(e));};
 
   o$3(" :root,:host{--spacing: .25rem}#laplace-chatterbox-toggle,#laplace-chatterbox-dialog{box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,SF Pro Text,Segoe UI,sans-serif;font-size:12px;letter-spacing:0}.lc-px-\\[10px\\]{padding-inline:10px}.lc-pb-\\[10px\\]{padding-bottom:10px}.lc-max-h-\\[50vh\\]{max-height:50vh}.lc-max-w-\\[calc\\(100vw_-_16px\\)\\]{max-width:calc(100vw - 16px)}.lc-min-w-0{min-width:calc(var(--spacing) * 0)}.lc-w-\\[320px\\]{width:320px}.lc-block{display:block}.lc-hidden{display:none}.lc-cursor-pointer{cursor:pointer}.lc-select-none{-webkit-user-select:none;user-select:none}.lc-bottom-\\[46px\\]{bottom:46px}.lc-bottom-2{bottom:calc(var(--spacing) * 2)}.lc-right-2{right:calc(var(--spacing) * 2)}.lc-fixed{position:fixed}.lc-z-\\[2147483647\\]{z-index:2147483647}.lc-overflow-y-auto{overflow-y:auto} ");
 
-  var n$1, l$3, u$3, t$2, i$2, r$3, o$2, e$2, f$2, c$2, s$2, a$2, h$2, p$3, v$2, d$2 = {}, w$3 = [], _$3 = /acit|ex(?:s|g|n|p|$)|rph|grid|ows|mnc|ntw|ine[ch]|zoo|^ord|itera/i, g$2 = Array.isArray;
+  var n$1, l$3, u$3, t$2, i$2, r$3, o$2, e$2, f$2, c$2, s$2, a$2, h$2, p$3, v$2, d$1 = {}, w$3 = [], _$3 = /acit|ex(?:s|g|n|p|$)|rph|grid|ows|mnc|ntw|ine[ch]|zoo|^ord|itera/i, g$2 = Array.isArray;
   function m$2(n2, l2) {
     for (var u2 in l2) n2[u2] = l2[u2];
     return n2;
@@ -83,7 +83,7 @@
   }
   function L(n2, l2, u2, t2, i2, r2, o2, e2, f2, c2, s2) {
     var a2, h2, p2, v2, y2, _2, g2, m2 = t2 && t2.__k || w$3, b2 = l2.length;
-    for (f2 = T$1(u2, l2, m2, f2, b2), a2 = 0; a2 < b2; a2++) null != (p2 = u2.__k[a2]) && (h2 = -1 != p2.__i && m2[p2.__i] || d$2, p2.__i = a2, _2 = q$1(n2, p2, h2, i2, r2, o2, e2, f2, c2, s2), v2 = p2.__e, p2.ref && h2.ref != p2.ref && (h2.ref && J(h2.ref, null, p2), s2.push(p2.ref, p2.__c || v2, p2)), null == y2 && null != v2 && (y2 = v2), (g2 = !!(4 & p2.__u)) || h2.__k === p2.__k ? (f2 = j$2(p2, f2, n2, g2), g2 && h2.__e && (h2.__e = null)) : "function" == typeof p2.type && void 0 !== _2 ? f2 = _2 : v2 && (f2 = v2.nextSibling), p2.__u &= -7);
+    for (f2 = T$1(u2, l2, m2, f2, b2), a2 = 0; a2 < b2; a2++) null != (p2 = u2.__k[a2]) && (h2 = -1 != p2.__i && m2[p2.__i] || d$1, p2.__i = a2, _2 = q$1(n2, p2, h2, i2, r2, o2, e2, f2, c2, s2), v2 = p2.__e, p2.ref && h2.ref != p2.ref && (h2.ref && J(h2.ref, null, p2), s2.push(p2.ref, p2.__c || v2, p2)), null == y2 && null != v2 && (y2 = v2), (g2 = !!(4 & p2.__u)) || h2.__k === p2.__k ? (f2 = j$2(p2, f2, n2, g2), g2 && h2.__e && (h2.__e = null)) : "function" == typeof p2.type && void 0 !== _2 ? f2 = _2 : v2 && (f2 = v2.nextSibling), p2.__u &= -7);
     return u2.__e = y2, f2;
   }
   function T$1(n2, l2, u2, t2, i2) {
@@ -198,7 +198,7 @@
     return "object" != typeof n2 || null == n2 || n2.__b > 0 ? n2 : g$2(n2) ? n2.map(E$1) : m$2({}, n2);
   }
   function G(u2, t2, i2, r2, o2, e2, f2, c2, s2) {
-    var a2, h2, p2, v2, y2, w2, _2, m2 = i2.props || d$2, k2 = t2.props, x2 = t2.type;
+    var a2, h2, p2, v2, y2, w2, _2, m2 = i2.props || d$1, k2 = t2.props, x2 = t2.type;
     if ("svg" == x2 ? o2 = "http://www.w3.org/2000/svg" : "math" == x2 ? o2 = "http://www.w3.org/1998/Math/MathML" : o2 || (o2 = "http://www.w3.org/1999/xhtml"), null != e2) {
       for (a2 = 0; a2 < e2.length; a2++) if ((y2 = e2[a2]) && "setAttribute" in y2 == !!x2 && (x2 ? y2.localName == x2 : 3 == y2.nodeType)) {
         u2 = y2, e2[a2] = null;
@@ -248,7 +248,7 @@
   }
   function R(u2, t2, i2) {
     var r2, o2, e2, f2;
-    t2 == document && (t2 = document.documentElement), l$3.__ && l$3.__(u2, t2), o2 = (r2 = false) ? null : t2.__k, e2 = [], f2 = [], q$1(t2, u2 = t2.__k = k$1(S$1, null, [u2]), o2 || d$2, d$2, t2.namespaceURI, o2 ? null : t2.firstChild ? n$1.call(t2.childNodes) : null, e2, o2 ? o2.__e : t2.firstChild, r2, f2), D(e2, u2, f2);
+    t2 == document && (t2 = document.documentElement), l$3.__ && l$3.__(u2, t2), o2 = (r2 = false) ? null : t2.__k, e2 = [], f2 = [], q$1(t2, u2 = t2.__k = k$1(S$1, null, [u2]), o2 || d$1, d$1, t2.namespaceURI, o2 ? null : t2.firstChild ? n$1.call(t2.childNodes) : null, e2, o2 ? o2.__e : t2.firstChild, r2, f2), D(e2, u2, f2);
   }
   n$1 = w$3.slice, l$3 = { __e: function(n2, l2, u2, t2) {
     for (var i2, r2, o2; l2 = l2.__; ) if ((i2 = l2.__c) && !i2.__) try {
@@ -429,7 +429,7 @@
       r$1 = t2;
     }
   }
-  var h$1 = void 0, s = 0, v = 0, u = 0, e = 0, c = void 0, d$1 = 0;
+  var h$1 = void 0, s = 0, v = 0, u = 0, e = 0, c = void 0, d = 0;
   function a(i2) {
     if (void 0 !== r$1) {
       var t2 = i2.n;
@@ -548,7 +548,7 @@
       })(this);
       this.v = i2;
       this.i++;
-      d$1++;
+      d++;
       s++;
       try {
         for (var n2 = this.t; void 0 !== n2; n2 = n2.x) n2.t.N();
@@ -595,7 +595,7 @@
     l$1.call(this, void 0);
     this.x = i2;
     this.s = void 0;
-    this.g = d$1 - 1;
+    this.g = d - 1;
     this.f = 4;
     this.W = null == t2 ? void 0 : t2.watched;
     this.Z = null == t2 ? void 0 : t2.unwatched;
@@ -607,8 +607,8 @@
     if (1 & this.f) return false;
     if (32 == (36 & this.f)) return true;
     this.f &= -5;
-    if (this.g === d$1) return true;
-    this.g = d$1;
+    if (this.g === d) return true;
+    this.g = d;
     this.f |= 1;
     if (this.i > 0 && !w$1(this)) {
       this.f &= -2;
@@ -757,7 +757,7 @@
     r2[Symbol.dispose] = r2;
     return r2;
   }
-  var l, d, h, p = "undefined" != typeof window && !!window.__PREACT_SIGNALS_DEVTOOLS__, _ = [];
+  var l, h, p = "undefined" != typeof window && !!window.__PREACT_SIGNALS_DEVTOOLS__, _ = [];
   j(function() {
     l = this.N;
   })();
@@ -844,18 +844,15 @@
           o2.setState({});
         }, "function" == typeof n2.type ? n2.type.displayName || n2.type.name : "");
       }
-      d = o2;
       b(r2);
     }
   });
   g("__e", function(i2, n2, r2, t2) {
     b();
-    d = void 0;
     i2(n2, r2, t2);
   });
   g("diffed", function(i2, n2) {
     b();
-    d = void 0;
     var r2;
     if ("string" == typeof n2.type && (r2 = n2.__e)) {
       var t2 = n2.__np, o2 = n2.props;
@@ -949,16 +946,6 @@
   function useSignal(i2, n2) {
     return T(function() {
       return y$1(i2, n2);
-    }, []);
-  }
-  function useComputed(i2, n2) {
-    var r2 = A(i2);
-    r2.current = i2;
-    d.__$f |= 4;
-    return T(function() {
-      return g$1(function() {
-        return r2.current();
-      }, n2);
     }, []);
   }
   var q = function(i2) {
@@ -1349,6 +1336,19 @@
         box-shadow: 0 10px 28px rgba(0, 0, 0, .22), inset 0 1px rgba(255, 255, 255, .22) !important;
         backdrop-filter: blur(18px) saturate(1.4);
         -webkit-backdrop-filter: blur(18px) saturate(1.4);
+        transition: transform .2s ease, background .2s ease;
+      }
+
+      #laplace-chatterbox-toggle[data-sending="true"] {
+        background: rgba(0, 186, 143, .88) !important;
+      }
+
+      #laplace-chatterbox-toggle[data-open="true"] {
+        transform: scale(1.06);
+      }
+
+      #laplace-chatterbox-toggle:active {
+        transform: scale(0.96);
       }
 
       #laplace-chatterbox-dialog {
@@ -9590,13 +9590,15 @@ html.lc-dm-direct-always .${MARKER} {
     if (!ev.isReply) return ev.text;
     return ev.uname ? `@${ev.uname} ${ev.text}` : null;
   }
-  function injectButtons(node, msg) {
+  function injectButtons(node, msg, uid, uname) {
     if (node.querySelector(`.${MARKER}`)) return;
     const anchor = node.querySelector(".danmaku-item-right");
     if (!anchor) return;
     const container = document.createElement("span");
     container.className = MARKER;
     container.dataset.msg = msg;
+    if (uid) container.dataset.uid = uid;
+    if (uname) container.dataset.uname = uname;
     const stealBtn = document.createElement("button");
     stealBtn.type = "button";
     stealBtn.textContent = "偷";
@@ -9607,8 +9609,14 @@ html.lc-dm-direct-always .${MARKER} {
     repeatBtn.textContent = "+1";
     repeatBtn.title = "+1 发送弹幕";
     repeatBtn.dataset.action = "repeat";
+    const blacklistBtn = document.createElement("button");
+    blacklistBtn.type = "button";
+    blacklistBtn.textContent = "黑";
+    blacklistBtn.title = uid && uid in autoBlendUserBlacklist.value ? "解除融入黑名单" : "添加融入黑名单";
+    blacklistBtn.dataset.action = "blacklist";
     container.appendChild(stealBtn);
     container.appendChild(repeatBtn);
+    container.appendChild(blacklistBtn);
     anchor.after(container);
   }
   function handleDelegatedClick(e2) {
@@ -9624,6 +9632,19 @@ html.lc-dm-direct-always .${MARKER} {
     if (action === "steal") void stealDanmaku(msg);
     else if (action === "repeat") {
       void repeatDanmaku(msg, { confirm: danmakuDirectConfirm.value, anchor: { x: e2.clientX, y: e2.clientY } });
+    } else if (action === "blacklist") {
+      const uid = container?.dataset.uid;
+      if (!uid) return;
+      const next = { ...autoBlendUserBlacklist.value };
+      const display = container?.dataset.uname || uid;
+      if (uid in next) {
+        delete next[uid];
+        appendLog(`🚲 已解除融入黑名单：${display}`);
+      } else {
+        next[uid] = container?.dataset.uname ?? "";
+        appendLog(`🚲 已加入融入黑名单：${display}`);
+      }
+      autoBlendUserBlacklist.value = next;
     }
   }
   let unsubscribe$1 = null;
@@ -9704,7 +9725,7 @@ html.lc-dm-direct-always .${MARKER} {
       onMessage: (ev) => {
         if (!danmakuDirectMode.value) return;
         const msg = eventToSendableMessage(ev);
-        if (msg !== null) injectButtons(ev.node, msg);
+        if (msg !== null) injectButtons(ev.node, msg, ev.uid ?? null, ev.uname ?? null);
       },
       emitExisting: true
     });
@@ -10269,14 +10290,14 @@ html.lc-dm-direct-always .${MARKER} {
   }
   function startUserBlacklistHijack() {
     if (contextMenuHandler) return;
-    contextMenuHandler = () => {
-      const active = document.activeElement;
-      if (!(active instanceof HTMLElement)) {
+    contextMenuHandler = (e2) => {
+      const target = e2.target;
+      if (!(target instanceof HTMLElement)) {
         lastUid = null;
         lastUname = null;
         return;
       }
-      const item = active.closest(".chat-item.danmaku-item");
+      const item = target.closest(".chat-item.danmaku-item");
       if (!item) {
         lastUid = null;
         lastUname = null;
@@ -15570,7 +15591,6 @@ u$2("button", { type: "button", className: "cb-btn", onClick: () => finish("👋
     );
   }
   function ToggleButton() {
-    const bg = useComputed(() => sendMsg.value ? "rgb(0 186 143)" : "#777");
     const toggle = () => {
       dialogOpen.value = !dialogOpen.value;
     };
@@ -15579,18 +15599,10 @@ u$2("button", { type: "button", className: "cb-btn", onClick: () => finish("👋
       {
         type: "button",
         id: "laplace-chatterbox-toggle",
+        "data-open": dialogOpen.value,
+        "data-sending": sendMsg.value,
         onClick: toggle,
         className: "lc-fixed lc-right-2 lc-bottom-2 lc-z-[2147483647] lc-cursor-pointer lc-select-none",
-        style: {
-          appearance: "none",
-          outline: "none",
-          border: "none",
-          background: bg.value,
-          color: "white",
-          padding: "6px 8px",
-          borderRadius: "4px",
-          userSelect: "none"
-        },
         children: "弹幕助手"
       }
     );

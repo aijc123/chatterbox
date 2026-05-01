@@ -2,7 +2,8 @@ import { effect as signalEffect } from '@preact/signals'
 
 import { repeatDanmaku, stealDanmaku } from './danmaku-actions'
 import { type DanmakuEvent, subscribeDanmaku } from './danmaku-stream'
-import { danmakuDirectAlwaysShow, danmakuDirectConfirm, danmakuDirectMode } from './store'
+import { appendLog } from './log'
+import { autoBlendUserBlacklist, danmakuDirectAlwaysShow, danmakuDirectConfirm, danmakuDirectMode } from './store'
 
 const MARKER = 'lc-dm-direct'
 const STYLE_ID = 'lc-dm-direct-style'
@@ -59,7 +60,7 @@ function eventToSendableMessage(ev: DanmakuEvent): string | null {
   return ev.uname ? `@${ev.uname} ${ev.text}` : null
 }
 
-function injectButtons(node: HTMLElement, msg: string): void {
+function injectButtons(node: HTMLElement, msg: string, uid: string | null, uname: string | null): void {
   if (node.querySelector(`.${MARKER}`)) return
   const anchor = node.querySelector('.danmaku-item-right')
   if (!anchor) return
@@ -67,6 +68,8 @@ function injectButtons(node: HTMLElement, msg: string): void {
   const container = document.createElement('span')
   container.className = MARKER
   container.dataset.msg = msg
+  if (uid) container.dataset.uid = uid
+  if (uname) container.dataset.uname = uname
 
   const stealBtn = document.createElement('button')
   stealBtn.type = 'button'
@@ -80,8 +83,15 @@ function injectButtons(node: HTMLElement, msg: string): void {
   repeatBtn.title = '+1 发送弹幕'
   repeatBtn.dataset.action = 'repeat'
 
+  const blacklistBtn = document.createElement('button')
+  blacklistBtn.type = 'button'
+  blacklistBtn.textContent = '黑'
+  blacklistBtn.title = uid && uid in autoBlendUserBlacklist.value ? '解除融入黑名单' : '添加融入黑名单'
+  blacklistBtn.dataset.action = 'blacklist'
+
   container.appendChild(stealBtn)
   container.appendChild(repeatBtn)
+  container.appendChild(blacklistBtn)
   anchor.after(container)
 }
 
@@ -98,6 +108,19 @@ function handleDelegatedClick(e: MouseEvent): void {
   if (action === 'steal') void stealDanmaku(msg)
   else if (action === 'repeat') {
     void repeatDanmaku(msg, { confirm: danmakuDirectConfirm.value, anchor: { x: e.clientX, y: e.clientY } })
+  } else if (action === 'blacklist') {
+    const uid = container?.dataset.uid
+    if (!uid) return
+    const next = { ...autoBlendUserBlacklist.value }
+    const display = container?.dataset.uname || uid
+    if (uid in next) {
+      delete next[uid]
+      appendLog(`🚲 已解除融入黑名单：${display}`)
+    } else {
+      next[uid] = container?.dataset.uname ?? ''
+      appendLog(`🚲 已加入融入黑名单：${display}`)
+    }
+    autoBlendUserBlacklist.value = next
   }
 }
 
@@ -195,7 +218,7 @@ export function startDanmakuDirect(): void {
     onMessage: ev => {
       if (!danmakuDirectMode.value) return
       const msg = eventToSendableMessage(ev)
-      if (msg !== null) injectButtons(ev.node, msg)
+      if (msg !== null) injectButtons(ev.node, msg, ev.uid ?? null, ev.uname ?? null)
     },
     emitExisting: true,
   })

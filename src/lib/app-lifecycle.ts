@@ -26,6 +26,19 @@ const PANEL_STYLE = `
         box-shadow: 0 10px 28px rgba(0, 0, 0, .22), inset 0 1px rgba(255, 255, 255, .22) !important;
         backdrop-filter: blur(18px) saturate(1.4);
         -webkit-backdrop-filter: blur(18px) saturate(1.4);
+        transition: transform .2s ease, background .2s ease;
+      }
+
+      #laplace-chatterbox-toggle[data-sending="true"] {
+        background: rgba(0, 186, 143, .88) !important;
+      }
+
+      #laplace-chatterbox-toggle[data-open="true"] {
+        transform: scale(1.06);
+      }
+
+      #laplace-chatterbox-toggle:active {
+        transform: scale(0.96);
       }
 
       #laplace-chatterbox-dialog {
