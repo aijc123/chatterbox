@@ -20,4 +20,23 @@ describe('custom chat virtualizer', () => {
       total: 500,
     })
   })
+
+  test('handles variable row heights with binary-search range lookup', () => {
+    const heights = [40, 80, 30, 120, 50]
+    const range = calculateVirtualRange({
+      itemCount: heights.length,
+      scrollTop: 85,
+      viewportHeight: 90,
+      overscan: 1,
+      rowHeight: index => heights[index] ?? 0,
+    })
+
+    expect(range).toEqual({
+      start: 0,
+      end: 5,
+      top: 0,
+      bottom: 320,
+      total: 320,
+    })
+  })
 })

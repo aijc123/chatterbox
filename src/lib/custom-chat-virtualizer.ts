@@ -14,6 +14,39 @@ export interface VirtualRange {
   total: number
 }
 
+function buildOffsets(itemCount: number, rowHeight: (index: number) => number): number[] {
+  const offsets = new Array<number>(itemCount + 1)
+  offsets[0] = 0
+  for (let index = 0; index < itemCount; index++) offsets[index + 1] = offsets[index] + rowHeight(index)
+  return offsets
+}
+
+function findFirstVisibleIndex(offsets: number[], scrollTop: number): number {
+  let low = 0
+  let high = offsets.length - 2
+
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2)
+    if (offsets[mid + 1] < scrollTop) low = mid + 1
+    else high = mid - 1
+  }
+
+  return low
+}
+
+function findRangeEndIndex(offsets: number[], viewportBottom: number, start: number): number {
+  let low = start
+  let high = offsets.length - 1
+
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2)
+    if (offsets[mid] < viewportBottom) low = mid + 1
+    else high = mid
+  }
+
+  return low
+}
+
 export function calculateVirtualContentHeight(
   itemCount: number,
   rowHeight: (index: number) => number,
@@ -25,26 +58,16 @@ export function calculateVirtualContentHeight(
 }
 
 export function calculateVirtualRange(input: VirtualRangeInput): VirtualRange {
-  const total = calculateVirtualContentHeight(input.itemCount, input.rowHeight)
+  const offsets = buildOffsets(input.itemCount, input.rowHeight)
+  const total = offsets[input.itemCount] ?? 0
   if (input.itemCount === 0) return { start: 0, end: 0, top: 0, bottom: 0, total }
 
   const viewportBottom = input.scrollTop + Math.max(input.viewportHeight, 1)
-  let start = 0
-  let top = 0
-  while (start < input.itemCount && top + input.rowHeight(start) < input.scrollTop) {
-    top += input.rowHeight(start)
-    start++
-  }
-  start = Math.max(0, start - input.overscan)
-  top = calculateVirtualContentHeight(input.itemCount, input.rowHeight, start)
-
-  let end = start
-  let bottom = top
-  while (end < input.itemCount && bottom < viewportBottom) {
-    bottom += input.rowHeight(end)
-    end++
-  }
-  end = Math.min(input.itemCount, end + input.overscan)
-  bottom = calculateVirtualContentHeight(input.itemCount, input.rowHeight, end)
+  const visibleStart = findFirstVisibleIndex(offsets, input.scrollTop)
+  const visibleEnd = findRangeEndIndex(offsets, viewportBottom, visibleStart)
+  const start = Math.max(0, visibleStart - input.overscan)
+  const end = Math.min(input.itemCount, visibleEnd + input.overscan)
+  const top = offsets[start] ?? 0
+  const bottom = offsets[end] ?? total
   return { start, end, top, bottom, total }
 }

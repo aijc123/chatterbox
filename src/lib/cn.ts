@@ -1,10 +1,27 @@
-import { type ClassValue, clsx } from 'clsx'
-import { extendTailwindMerge } from 'tailwind-merge'
+type ClassDictionary = Record<string, boolean | null | undefined>
+type ClassArray = ClassValue[]
+type ClassValue = string | number | false | null | undefined | ClassDictionary | ClassArray
 
-const twMerge = extendTailwindMerge({
-  prefix: 'lc-',
-})
+function pushClass(tokens: string[], value: ClassValue): void {
+  if (!value) return
+  if (typeof value === 'string' || typeof value === 'number') {
+    const parts = String(value).trim().split(/\s+/)
+    for (const part of parts) {
+      if (part) tokens.push(part)
+    }
+    return
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) pushClass(tokens, entry)
+    return
+  }
+  for (const [key, enabled] of Object.entries(value)) {
+    if (enabled) tokens.push(key)
+  }
+}
 
 export function cn(...inputs: ClassValue[]): string {
-  return twMerge(clsx(inputs))
+  const tokens: string[] = []
+  for (const input of inputs) pushClass(tokens, input)
+  return tokens.join(' ')
 }

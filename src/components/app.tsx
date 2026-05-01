@@ -13,6 +13,7 @@ import { loop } from '../lib/loop'
 import { autoBlendEnabled, customChatEnabled, customChatUseWs, danmakuDirectMode, optimizeLayout } from '../lib/store'
 import { startUserBlacklistHijack, stopUserBlacklistHijack } from '../lib/user-blacklist'
 import { Configurator } from './configurator'
+import { ErrorBoundary } from './error-boundary'
 import { Onboarding } from './onboarding'
 import { ToggleButton } from './toggle-button'
 import { AlertDialog } from './ui/alert-dialog'
@@ -93,10 +94,12 @@ export function App() {
   return (
     <>
       <ToggleButton />
-      <Configurator />
-      <Onboarding />
-      <UserNotice />
-      <AlertDialog />
+      <ErrorBoundary>
+        <Configurator />
+        <Onboarding />
+        <UserNotice />
+        <AlertDialog />
+      </ErrorBoundary>
     </>
   )
 }

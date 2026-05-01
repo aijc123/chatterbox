@@ -1,7 +1,7 @@
 {
   "name": "bilibili-live-wheel-auto-follow",
   "private": true,
-  "version": "2.8.54",
+  "version": "2.8.56",
   "description": "B站/哔哩哔哩直播间独轮车、自动跟车、Chatterbox Chat 和粉丝牌禁言巡检弹幕助手 userscript",
   "homepage": "https://github.com/aijc123/bilibili-live-wheel-auto-follow",
   "repository": {
@@ -25,6 +25,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "analyze:bundle": "node scripts/analyze-bundle.mjs",
     "preview": "vite preview",
     "test": "bun test",
     "release": "bun scripts/release.ts patch",
@@ -38,9 +39,7 @@
     "@laplace.live/ws": "^7.1.10",
     "@preact/signals": "^2.9.0",
     "@soniox/speech-to-text-web": "^1.4.0",
-    "clsx": "^2.1.1",
-    "preact": "^10.29.1",
-    "tailwind-merge": "2.6.0"
+    "preact": "^10.29.1"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.12",
