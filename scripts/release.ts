@@ -152,6 +152,14 @@ async function waitForUserscriptVersion(url: string, expectedVersion: string): P
   throw new Error(`GitHub Pages did not publish ${expectedVersion} to ${url} within ${pagesVerifyTimeoutMs / 1000}s`)
 }
 
+function runPreflightChecks(): void {
+  console.log('Running release preflight checks')
+  run(['bun', 'install', '--frozen-lockfile'])
+  run(['bun', 'x', 'biome', 'ci', '.'])
+  run(['bun', 'test'])
+  run(['bun', 'run', 'build'])
+}
+
 async function main(): Promise<void> {
   const { kind, nextVersion: explicitVersion } = parseArgs(Bun.argv.slice(2))
   const packageJsonText = await Bun.file(packageJsonUrl).text()
@@ -188,6 +196,8 @@ async function main(): Promise<void> {
     throw new Error(`Tag ${tagName} already exists on origin`)
   }
 
+  runPreflightChecks()
+
   const releaseNotesContent = await Bun.file(releaseNotesUrl).text()
   const bullets = extractCurrentReleaseBullets(releaseNotesContent)
   const updatedReleaseNotes = replaceOrInsertVersionSection(releaseNotesContent, nextVersion, bullets)
@@ -197,9 +207,6 @@ async function main(): Promise<void> {
   await Bun.write(releaseNotesUrl, updatedReleaseNotes)
 
   console.log(`Preparing release ${nextVersion}`)
-
-  run(['bun', 'x', 'biome', 'ci', '.'])
-  run(['bun', 'test'])
   run(['bun', 'run', 'build'])
 
   run(['git', 'add', '-A'])
