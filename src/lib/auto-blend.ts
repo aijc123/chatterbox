@@ -6,6 +6,7 @@ import {
   type SendDanmakuResult,
   setRandomDanmakuColor,
 } from './api'
+import { isAutoBlendBlacklistedUid } from './auto-blend-blacklist'
 import { logAutoBlend, logAutoBlendSendResult } from './auto-blend-events'
 import {
   formatAutoBlendCandidate,
@@ -51,7 +52,6 @@ import {
   autoBlendStatusText,
   autoBlendThreshold,
   autoBlendUseReplacements,
-  autoBlendUserBlacklist,
   autoBlendWindowSec,
   maxLength,
   msgSendInterval,
@@ -295,10 +295,6 @@ function matchesCustomChatEchoEvent(event: CustomChatEvent, target: string, uid:
 
 function matchesDomEchoEvent(event: DanmakuEvent, target: string, uid: string | null): boolean {
   return event.text.trim() === target && (!uid || !event.uid || event.uid === uid)
-}
-
-export function isAutoBlendBlacklistedUid(uid: string | null): boolean {
-  return !!uid && uid in autoBlendUserBlacklist.value
 }
 
 function waitForSentEcho(

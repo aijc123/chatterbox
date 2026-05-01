@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.8.48
+// @version      2.8.49
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -3072,6 +3072,9 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
     } catch {
     }
   }
+  function isAutoBlendBlacklistedUid(uid) {
+    return !!uid && uid in autoBlendUserBlacklist.value;
+  }
   const subscribers = new Set();
   function emitAutoBlendEvent(event) {
     for (const subscriber of subscribers) {
@@ -6008,9 +6011,6 @@ ws;
   }
   function matchesDomEchoEvent(event, target, uid) {
     return event.text.trim() === target && (!uid || !event.uid || event.uid === uid);
-  }
-  function isAutoBlendBlacklistedUid(uid) {
-    return !!uid && uid in autoBlendUserBlacklist.value;
   }
   function waitForSentEcho(text, uid, sinceTs, timeoutMs = SEND_ECHO_TIMEOUT_MS) {
     const target = text.trim();

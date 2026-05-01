@@ -17,7 +17,7 @@ TestXMLHttpRequest.prototype.send = () => {}
 ;(globalThis as unknown as { XMLHttpRequest: typeof TestXMLHttpRequest }).XMLHttpRequest = TestXMLHttpRequest
 
 const { autoBlendUserBlacklist } = await import('../src/lib/store')
-const { isAutoBlendBlacklistedUid } = await import('../src/lib/auto-blend')
+const { isAutoBlendBlacklistedUid } = await import('../src/lib/auto-blend-blacklist')
 
 describe('auto-blend blacklist', () => {
   beforeEach(() => {
