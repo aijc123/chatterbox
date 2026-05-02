@@ -2,20 +2,15 @@
 // `${uid}:${text}` which collided for inputs whose uid or text contained `:`.
 // E.g. uid="1", text="2:hi" produced the same key as uid="1:2", text="hi".
 // The fix uses `\x00` as the separator (cannot appear in either field).
+//
+// Imports from the side-effect-free helpers module so this test never loads
+// `live-ws-source.ts` (which transitively pulls api.ts + the WBI XHR hijack).
+// The full live-ws-source import graph fights with other test files'
+// XMLHttpRequest stubs in CI's bun test ordering.
 
-import { describe, expect, mock, test } from 'bun:test'
+import { describe, expect, test } from 'bun:test'
 
-const gmStore = new Map<string, unknown>()
-
-mock.module('$', () => ({
-  GM_deleteValue: () => {},
-  GM_getValue: <T>(key: string, defaultValue: T): T => (gmStore.has(key) ? (gmStore.get(key) as T) : defaultValue),
-  GM_setValue: () => {},
-  GM_info: { script: { version: 'test' } },
-  unsafeWindow: globalThis,
-}))
-
-const { recentKey, parseAuthUid, computeReconnectDelay } = await import('../src/lib/live-ws-source')
+import { computeReconnectDelay, parseAuthUid, recentKey } from '../src/lib/live-ws-helpers'
 
 describe('computeReconnectDelay (H-logic: jitter + cap)', () => {
   test('grows linearly with attempt count', () => {

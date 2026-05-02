@@ -5454,22 +5454,6 @@ ws;
     const formatted = formatMilliyuanAmount(amount, "");
     return formatted ? `${formatted}元` : "";
   }
-  function getSpmPrefix$1() {
-    const metaTag = document.querySelector('meta[name="spm_prefix"]');
-    return metaTag?.getAttribute("content") ?? "444.8";
-  }
-  let liveConnection = null;
-  let started = false;
-  let consumerCount = 0;
-  let reconnectTimer = null;
-  let lastStartupFailure = "";
-  let lastStartupFailureAt = 0;
-  let addressIndex = 0;
-  let reconnectAttempt = 0;
-  let connectionSerial = 0;
-  let lastWsCloseDetail = "";
-  const recentDanmaku = new Map();
-  const RECENT_DANMAKU_MAX = 500;
   const RECENT_DANMAKU_KEY_SEP = "\0";
   function recentKey(text, uid) {
     return `${uid ?? ""}${RECENT_DANMAKU_KEY_SEP}${text}`;
@@ -5489,6 +5473,22 @@ ws;
     const jitter = Math.floor(random() * baseDelay * RECONNECT_JITTER_RATIO);
     return baseDelay + jitter;
   }
+  function getSpmPrefix$1() {
+    const metaTag = document.querySelector('meta[name="spm_prefix"]');
+    return metaTag?.getAttribute("content") ?? "444.8";
+  }
+  let liveConnection = null;
+  let started = false;
+  let consumerCount = 0;
+  let reconnectTimer = null;
+  let lastStartupFailure = "";
+  let lastStartupFailureAt = 0;
+  let addressIndex = 0;
+  let reconnectAttempt = 0;
+  let connectionSerial = 0;
+  let lastWsCloseDetail = "";
+  const recentDanmaku = new Map();
+  const RECENT_DANMAKU_MAX = 500;
   const STARTUP_FAILURE_LOG_INTERVAL = 6e4;
   function asRecord(value) {
     return typeof value === "object" && value !== null ? value : {};
