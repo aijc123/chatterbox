@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.8.56
+// @version      2.8.57
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -969,6 +969,7 @@
     if (1 === _.push(this)) (l$3.requestAnimationFrame || q)(x);
   }
   const registry = new Map();
+  const validators = new Map();
   const pendingWrites = new Map();
   const lastPersistedValues = new Map();
   const GM_PERSIST_DEBOUNCE_MS = 150;
@@ -996,8 +997,14 @@
   }
   if (typeof window !== "undefined") {
     window.addEventListener("beforeunload", flushPendingWrites);
+    window.addEventListener("pagehide", flushPendingWrites);
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden") flushPendingWrites();
+      });
+    }
   }
-  function gmSignal(key, defaultValue) {
+  function gmSignal(key, defaultValue, options) {
     const initialValue = _GM_getValue(key, defaultValue);
     const s2 = y$1(initialValue);
     registry.set(key, s2);
@@ -1014,11 +1021,26 @@
     });
     return s2;
   }
+  function isValidImportedValue(key, val) {
+    const validator = validators.get(key);
+    if (validator) return validator(val);
+    const s2 = registry.get(key);
+    if (!s2) return false;
+    const current = s2.value;
+    if (val === null || current === null) return val === null && current === null;
+    if (Array.isArray(current)) return Array.isArray(val);
+    return typeof val === typeof current;
+  }
   function applyImportedSettings(data) {
+    let applied2 = 0;
     for (const [key, val] of Object.entries(data)) {
       const s2 = registry.get(key);
-      if (s2) s2.value = val;
+      if (!s2) continue;
+      if (!isValidImportedValue(key, val)) continue;
+      s2.value = val;
+      applied2++;
     }
+    return applied2;
   }
   function getGraphemes(str) {
     const segmenter = new Intl.Segmenter("zh", { granularity: "grapheme" });
@@ -1115,8 +1137,9 @@
   }
   function extractRoomNumber(url) {
     const urlObj = new URL(url);
-    const pathSegments = urlObj.pathname.split("/").filter((segment) => segment !== "");
-    return pathSegments.find((segment) => Number.isInteger(Number(segment)));
+    if (urlObj.hostname !== "live.bilibili.com") return void 0;
+    const match = urlObj.pathname.match(/^\/(?:blanc\/|h5\/)?(\d+)\/?$/);
+    return match ? match[1] : void 0;
   }
   function addRandomCharacter(text) {
     if (!text || text.length === 0) return text;
@@ -1328,16 +1351,17 @@
   (() => {
     try {
       const ResponseProto = _unsafeWindow.Response.prototype;
+      if (ResponseProto.__chatterboxFetchHijackInstalled) return;
+      ResponseProto.__chatterboxFetchHijackInstalled = true;
       const origJson = ResponseProto.json;
       ResponseProto.json = async function() {
         const data = await origJson.call(this);
         const url = this.url;
-        if (url && data && typeof data === "object") {
-          try {
-            applyTransforms(url, data);
-          } catch (err) {
-            console.error("[Chatterbox] fetch-hijack json transform failed:", err);
-          }
+        if (!url || !shouldHijackUrl(url) || !data || typeof data !== "object") return data;
+        try {
+          applyTransforms(url, data);
+        } catch (err) {
+          console.error("[Chatterbox] fetch-hijack json transform failed:", err);
         }
         return data;
       };
@@ -2270,9 +2294,11 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
     if (!Number.isFinite(end) || end <= Date.now()) return null;
     return `${formatDuration((end - Date.now()) / 1e3)}（到 ${dateMatch[1]}）`;
   }
-  function durationFromData(data) {
+  function durationFromData(data, seen2 = new WeakSet()) {
     if (typeof data === "string") return durationFromString(data);
     if (typeof data !== "object" || data === null) return null;
+    if (seen2.has(data)) return null;
+    seen2.add(data);
     for (const [key, value] of Object.entries(data)) {
       const lowerKey = key.toLowerCase();
       if (typeof value === "string") {
@@ -2287,7 +2313,7 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
           if (ms > Date.now()) return `${formatDuration((ms - Date.now()) / 1e3)}（到 ${new Date(ms).toLocaleString()}）`;
         }
       } else {
-        const nested = durationFromData(value);
+        const nested = durationFromData(value, seen2);
         if (nested) return nested;
       }
     }
@@ -2298,16 +2324,18 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
   }
   function scanRestrictionSignals(data, source) {
     const signals = [];
-    scanNode(data, source, signals);
+    scanNode(data, source, signals, "", new WeakSet());
     return signals;
   }
-  function scanNode(data, source, signals, path = "") {
+  function scanNode(data, source, signals, path, seen2) {
     if (typeof data === "string") {
       const kind = classifyText(data);
       if (kind) signals.push({ kind, message: data, duration: describeRestrictionDuration(data, null), source });
       return;
     }
     if (typeof data !== "object" || data === null) return;
+    if (seen2.has(data)) return;
+    seen2.add(data);
     for (const [key, value] of Object.entries(data)) {
       const lowerKey = key.toLowerCase();
       const currentPath = path ? `${path}.${key}` : key;
@@ -2328,7 +2356,7 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
           });
         }
       }
-      scanNode(value, source, signals, currentPath);
+      scanNode(value, source, signals, currentPath, seen2);
     }
   }
   function classifyText(text) {
@@ -2340,6 +2368,8 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
     return null;
   }
   function buildReplacementMap() {
+    const rid = cachedRoomId.value;
+    if (rid === null && replacementMap.value !== null) return;
     const map = new Map();
     const rk = remoteKeywords.value;
     if (rk) {
@@ -2347,9 +2377,8 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
       for (const [from, to] of Object.entries(globalKeywords)) {
         if (from) map.set(from, to);
       }
-      const rid2 = cachedRoomId.value;
-      if (rid2 !== null) {
-        const roomData = rk.rooms?.find((r2) => String(r2.room) === String(rid2));
+      if (rid !== null) {
+        const roomData = rk.rooms?.find((r2) => String(r2.room) === String(rid));
         const roomKeywords = roomData?.keywords ?? {};
         for (const [from, to] of Object.entries(roomKeywords)) {
           if (from) map.set(from, to);
@@ -2359,7 +2388,6 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
     for (const rule of localGlobalRules.value) {
       if (rule.from) map.set(rule.from, rule.to ?? "");
     }
-    const rid = cachedRoomId.value;
     if (rid !== null) {
       const roomRules = localRoomRules.value[String(rid)] ?? [];
       for (const rule of roomRules) {
@@ -2368,6 +2396,13 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
     }
     replacementMap.value = map;
   }
+  j(() => {
+    cachedRoomId.value;
+    remoteKeywords.value;
+    localGlobalRules.value;
+    localRoomRules.value;
+    buildReplacementMap();
+  });
   function applyReplacements(text) {
     if (replacementMap.value === null) {
       buildReplacementMap();
@@ -2516,6 +2551,10 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
     return img_key && sub_key ? { img_key, sub_key } : null;
   }
   (() => {
+    const sentinel = "__chatterboxWbiHijackInstalled";
+    const proto = XMLHttpRequest.prototype;
+    if (proto[sentinel]) return;
+    proto[sentinel] = true;
     const originalOpen = XMLHttpRequest.prototype.open;
     const originalSend = XMLHttpRequest.prototype.send;
     XMLHttpRequest.prototype.open = function(method, url, async, username, password) {
@@ -2726,6 +2765,9 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
     throw new Error("无法获取真实直播间 ID");
   }
   let cachedRoomSlug = null;
+  j(() => {
+    if (cachedRoomId.value === null) cachedRoomSlug = null;
+  });
   async function ensureRoomId() {
     const currentSlug = safeExtractRoomNumber(window.location.href);
     if (cachedRoomId.value !== null && cachedRoomSlug === currentSlug) {
@@ -2843,17 +2885,41 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
       anchorUid
     };
   }
+  const ANCHOR_LOOKUP_TIMEOUT_MS = 8e3;
+  const ANCHOR_LOOKUP_CONCURRENCY = 6;
   async function fetchRoomByAnchorUid(anchor) {
-    const resp = await fetch(`${BASE_URL.BILIBILI_ROOM_INFO_BY_UID}?mid=${anchor.anchorUid}`, {
-      method: "GET",
-      credentials: "include"
+    const controller = new AbortController();
+    const timer2 = setTimeout(() => controller.abort(), ANCHOR_LOOKUP_TIMEOUT_MS);
+    try {
+      const resp = await fetch(`${BASE_URL.BILIBILI_ROOM_INFO_BY_UID}?mid=${anchor.anchorUid}`, {
+        method: "GET",
+        credentials: "include",
+        signal: controller.signal
+      });
+      if (!resp.ok) return null;
+      const json = await resp.json();
+      if (json.code !== 0) return null;
+      const roomId = toNumber(json.data?.roomid) ?? roomIdFromLiveLink(json.data?.link);
+      if (roomId === null || roomId <= 0) return null;
+      return { ...anchor, roomId, source: "anchor-uid" };
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer2);
+    }
+  }
+  async function mapWithConcurrency(items, limit, fn) {
+    const results = new Array(items.length);
+    let cursor = 0;
+    const workers = new Array(Math.min(limit, items.length)).fill(0).map(async () => {
+      while (true) {
+        const idx = cursor++;
+        if (idx >= items.length) return;
+        results[idx] = await fn(items[idx]);
+      }
     });
-    if (!resp.ok) return null;
-    const json = await resp.json();
-    if (json.code !== 0) return null;
-    const roomId = toNumber(json.data?.roomid) ?? roomIdFromLiveLink(json.data?.link);
-    if (roomId === null || roomId <= 0) return null;
-    return { ...anchor, roomId, source: "anchor-uid" };
+    await Promise.all(workers);
+    return results;
   }
   function followEntryToAnchor(entry) {
     if (typeof entry !== "object" || entry === null) return null;
@@ -2895,8 +2961,8 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
     const entries = findMedalEntries(json.data);
     const rooms = entries.map(medalEntryToRoom).filter((room) => room !== null);
     const unresolvedAnchors = entries.filter((entry) => medalEntryToRoom(entry) === null).map(medalEntryToAnchorFallback).filter((anchor) => anchor !== null);
-    for (const anchor of unresolvedAnchors) {
-      const room = await fetchRoomByAnchorUid(anchor);
+    const resolved = await mapWithConcurrency(unresolvedAnchors, ANCHOR_LOOKUP_CONCURRENCY, fetchRoomByAnchorUid);
+    for (const room of resolved) {
       if (room) rooms.push(room);
     }
     const deduped = new Map();
@@ -2913,13 +2979,18 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
       if (items.length < 50) break;
     }
     const rooms = new Map();
-    for (const anchor of anchors) {
-      const room = await fetchRoomByAnchorUid({
+    const resolved = await mapWithConcurrency(
+      anchors,
+      ANCHOR_LOOKUP_CONCURRENCY,
+      (anchor) => fetchRoomByAnchorUid({
         medalName: "",
         anchorName: anchor.anchorName,
         anchorUid: anchor.anchorUid
-      });
-      if (!room) continue;
+      }).then((room) => room ? { room, anchor } : null)
+    );
+    for (const entry of resolved) {
+      if (!entry) continue;
+      const { room, anchor } = entry;
       rooms.set(room.roomId, {
         roomId: room.roomId,
         anchorName: room.anchorName,
@@ -3452,7 +3523,22 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
   const guardRoomWatchlistRooms = y$1([]);
   const guardRoomAppliedProfile = y$1(null);
   function normalizeGuardRoomEndpoint$1(endpoint) {
-    return endpoint.trim().replace(/\/+$/, "");
+    const trimmed = endpoint.trim().replace(/\/+$/, "");
+    if (!trimmed) return "";
+    let parsed;
+    try {
+      parsed = new URL(trimmed);
+    } catch {
+      return "";
+    }
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return "";
+    if (parsed.protocol === "http:") {
+      const host = parsed.hostname;
+      const bare = host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+      const isLoopback = bare === "localhost" || bare === "127.0.0.1" || bare === "::1";
+      if (!isLoopback) return "";
+    }
+    return trimmed;
   }
   function classifyRiskEvent(error, errorData) {
     if (isMutedError(error)) {
@@ -5383,6 +5469,26 @@ ws;
   let connectionSerial = 0;
   let lastWsCloseDetail = "";
   const recentDanmaku = new Map();
+  const RECENT_DANMAKU_MAX = 500;
+  const RECENT_DANMAKU_KEY_SEP = "\0";
+  function recentKey(text, uid) {
+    return `${uid ?? ""}${RECENT_DANMAKU_KEY_SEP}${text}`;
+  }
+  function parseAuthUid(uidCookie) {
+    if (!uidCookie) return 0;
+    const parsed = Number(uidCookie);
+    if (!Number.isSafeInteger(parsed) || parsed < 0) return 0;
+    return parsed;
+  }
+  const RECONNECT_BASE_MS = 3e3;
+  const RECONNECT_STEP_MS = 2e3;
+  const RECONNECT_CAP_MS = 3e4;
+  const RECONNECT_JITTER_RATIO = 0.25;
+  function computeReconnectDelay(attempt, random = Math.random) {
+    const baseDelay = Math.min(RECONNECT_CAP_MS, RECONNECT_BASE_MS + attempt * RECONNECT_STEP_MS);
+    const jitter = Math.floor(random() * baseDelay * RECONNECT_JITTER_RATIO);
+    return baseDelay + jitter;
+  }
   const STARTUP_FAILURE_LOG_INTERVAL = 6e4;
   function asRecord(value) {
     return typeof value === "object" && value !== null ? value : {};
@@ -5402,19 +5508,29 @@ ws;
   function avatarUrl(uid) {
     return uid ? `${BASE_URL.BILIBILI_AVATAR}/${uid}?size=96` : void 0;
   }
+  let recentSweepCounter = 0;
+  const RECENT_SWEEP_INTERVAL = 32;
   function cleanupRecent() {
+    recentSweepCounter++;
+    if (recentDanmaku.size <= RECENT_DANMAKU_MAX && recentSweepCounter < RECENT_SWEEP_INTERVAL) return;
+    recentSweepCounter = 0;
     const now = Date.now();
     for (const [key, ts] of recentDanmaku) {
       if (now - ts > 8e3) recentDanmaku.delete(key);
     }
+    while (recentDanmaku.size > RECENT_DANMAKU_MAX) {
+      const oldest = recentDanmaku.keys().next().value;
+      if (oldest === void 0) break;
+      recentDanmaku.delete(oldest);
+    }
   }
   function hasRecentWsDanmaku(text, uid) {
     cleanupRecent();
-    return recentDanmaku.has(`${uid ?? ""}:${text}`);
+    return recentDanmaku.has(recentKey(text, uid));
   }
   function rememberWsDanmaku(text, uid) {
     cleanupRecent();
-    recentDanmaku.set(`${uid ?? ""}:${text}`, Date.now());
+    recentDanmaku.set(recentKey(text, uid), Date.now());
   }
   function eventId(_cmd, data, fallback) {
     return asString(data.msg_id) || String(data.id ?? data.uid ?? fallback);
@@ -5673,7 +5789,7 @@ ws;
       if (!started || serial !== connectionSerial) return;
       const address = info.addresses[addressIndex % info.addresses.length];
       addressIndex += 1;
-      const uid = Number(getDedeUid() ?? 0) || 0;
+      const uid = parseAuthUid(getDedeUid());
       const buvid = getBuvid();
       const authBody = {
         uid,
@@ -5710,7 +5826,7 @@ ws;
         if (!started || liveConnection !== live) return;
         const suffix = lastWsCloseDetail ? ` (${lastWsCloseDetail})` : "";
         appendStartupFailure(live.live ? `connection closed${suffix}` : `closed before room entered${suffix}`);
-        const delay = Math.min(3e4, 3e3 + reconnectAttempt * 2e3);
+        const delay = computeReconnectDelay(reconnectAttempt);
         reconnectAttempt += 1;
         reconnectTimer = setTimeout(() => void connect(), delay);
       });
@@ -6410,6 +6526,7 @@ ws;
     });
     if (cleanupTimer === null) {
       cleanupTimer = setInterval(() => {
+        if (trendMap.size === 0) return;
         pruneExpired(Date.now());
         updateStatusText();
         maybeScheduleBurstFromCurrentTrends();
@@ -6715,7 +6832,9 @@ ws;
   const CUSTOM_CHAT_MAX_RENDER_BATCH = 36;
   const CUSTOM_CHAT_MAX_RENDER_QUEUE = CUSTOM_CHAT_MAX_MESSAGES;
   function trimRenderQueue(queue2) {
-    while (queue2.length > CUSTOM_CHAT_MAX_RENDER_QUEUE) queue2.shift();
+    if (queue2.length > CUSTOM_CHAT_MAX_RENDER_QUEUE) {
+      queue2.splice(0, queue2.length - CUSTOM_CHAT_MAX_RENDER_QUEUE);
+    }
   }
   function takeRenderBatch(queue2) {
     return queue2.splice(0, CUSTOM_CHAT_MAX_RENDER_BATCH);
@@ -7835,7 +7954,9 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
       nextUserStyleEl.id = userStyleId;
       document.head.appendChild(nextUserStyleEl);
     }
-    nextUserStyleEl.textContent = customCss;
+    if (nextUserStyleEl.textContent !== customCss) {
+      nextUserStyleEl.textContent = customCss;
+    }
     return { styleEl: nextStyleEl, userStyleEl: nextUserStyleEl };
   }
   function buildOffsets(itemCount, rowHeight2) {
@@ -8010,9 +8131,13 @@ u$2(
   function replaceSensitiveWords(text, sensitiveWords) {
     let result = text;
     for (const word of sensitiveWords) {
+      if (!word) continue;
       result = result.split(word).join(processText(word));
     }
     return result;
+  }
+  function isEvadedMessageSendable(evadedMessage) {
+    return evadedMessage.trim().length > 0;
   }
   async function tryAiEvasion(message, roomId, csrfToken, logPrefix) {
     if (!aiEvasion.value) return { success: false };
@@ -8021,6 +8146,11 @@ u$2(
     if (detection.hasSensitiveContent && detection.sensitiveWords && detection.sensitiveWords.length > 0) {
       appendLog(`🤖 ${logPrefix}检测到敏感词：${detection.sensitiveWords.join(", ")}，正在尝试规避…`);
       const evadedMessage = replaceSensitiveWords(message, detection.sensitiveWords);
+      if (!isEvadedMessageSendable(evadedMessage)) {
+        const error = "AI规避后内容为空";
+        appendLog(`❌ ${logPrefix}AI规避失败：替换后内容为空，已跳过发送`);
+        return { success: false, evadedMessage, error };
+      }
       if (isLockedEmoticon(evadedMessage)) {
         const error = "AI规避结果是锁定表情";
         appendLog(formatLockedEmoticonReject(evadedMessage, `${logPrefix}AI规避表情`));
@@ -8181,6 +8311,8 @@ u$2(
   let disposeComposer = null;
   let fallbackMountTimer = null;
   let nativeEventObserver = null;
+  let nativeEventObserverContainer = null;
+  let nativeEventObserverSuspended = false;
   let root = null;
   let rootOutsideHistory = false;
   let rootUsesFallbackHost = false;
@@ -8213,6 +8345,9 @@ u$2(
   const messages = [];
   const messageKeys = new Set();
   const recentEventKeys = new Map();
+  const eventKeyByMessage = new WeakMap();
+  const messageByEventKey = new Map();
+  const RECENT_EVENT_KEYS_GC_THRESHOLD = 512;
   const renderQueue = [];
   let visibleMessages = [];
   const rowHeights = new Map();
@@ -8265,13 +8400,26 @@ u$2(
   function eventKey(event) {
     return `${event.kind}:${event.uid ?? ""}:${compactText(event.text).slice(0, 80)}`;
   }
+  function eventKeyOf(message) {
+    let key = eventKeyByMessage.get(message);
+    if (key === void 0) {
+      key = eventKey(message);
+      eventKeyByMessage.set(message, key);
+    }
+    return key;
+  }
   function messageKey(event) {
     return `${event.source}:${event.id}`;
   }
+  function gcRecentEventKeys(now) {
+    for (const [key, ts] of recentEventKeys) {
+      if (now - ts > 9e3) recentEventKeys.delete(key);
+    }
+  }
   function rememberEvent(event) {
     const now = Date.now();
-    for (const [key2, ts] of recentEventKeys) {
-      if (now - ts > 9e3) recentEventKeys.delete(key2);
+    if (recentEventKeys.size > RECENT_EVENT_KEYS_GC_THRESHOLD) {
+      gcRecentEventKeys(now);
     }
     const key = eventKey(event);
     if (recentEventKeys.has(key)) return false;
@@ -8280,10 +8428,9 @@ u$2(
   }
   function messageIndexByEvent(event) {
     const key = eventKey(event);
-    for (let index = messages.length - 1; index >= 0; index--) {
-      if (eventKey(messages[index]) === key) return index;
-    }
-    return -1;
+    const existing = messageByEventKey.get(key);
+    if (!existing) return -1;
+    return messages.indexOf(existing);
   }
   function chooseBetterName(current, incoming) {
     const currentName = compactText(current);
@@ -8347,18 +8494,27 @@ u$2(
     if (!previous) return;
     const prevKey = messageKey(previous);
     const nextKey = messageKey(next);
+    const prevEventKey = eventKeyOf(previous);
+    const nextEventKey = eventKey(next);
+    eventKeyByMessage.set(next, nextEventKey);
     messages[index] = next;
     if (prevKey !== nextKey) {
       messageKeys.delete(prevKey);
       rowHeights.delete(prevKey);
       messageKeys.add(nextKey);
     }
+    if (messageByEventKey.get(prevEventKey) === previous) {
+      messageByEventKey.delete(prevEventKey);
+    }
+    messageByEventKey.set(nextEventKey, next);
     scheduleRerenderMessages();
   }
   function recordEventStats(event) {
     const now = Date.now();
     eventTicks.push(now);
-    while (eventTicks.length > 0 && now - eventTicks[0] > 1e3) eventTicks.shift();
+    let dropCount = 0;
+    while (dropCount < eventTicks.length && now - eventTicks[dropCount] > 1e3) dropCount++;
+    if (dropCount > 0) eventTicks.splice(0, dropCount);
     sourceCounts[event.source]++;
   }
   function updatePerfDebug() {
@@ -8614,6 +8770,7 @@ u$2(
   }
   function updateWsStatus(status) {
     currentWsStatus = status;
+    syncNativeObserverWithWsStatus();
     if (!wsStatusEl) return;
     wsStatusEl.textContent = wsStatusLabel(status);
     wsStatusEl.dataset.status = nativeDomWarning && (status === "error" || status === "closed" || status === "off") ? "dom-warning" : status === "error" || status === "closed" ? "fallback" : status;
@@ -8693,12 +8850,19 @@ u$2(
     syncAutoFollowFromScroll();
   }
   function pruneMessages() {
-    while (messages.length > MAX_MESSAGES) {
-      const removed = messages.shift();
-      if (removed) {
-        const key = messageKey(removed);
-        messageKeys.delete(key);
-        rowHeights.delete(key);
+    if (messages.length <= MAX_MESSAGES) {
+      updatePerfDebug();
+      return;
+    }
+    const dropCount = messages.length - MAX_MESSAGES;
+    const removed = messages.splice(0, dropCount);
+    for (const message of removed) {
+      const key = messageKey(message);
+      messageKeys.delete(key);
+      rowHeights.delete(key);
+      const ek = eventKeyByMessage.get(message);
+      if (ek !== void 0 && messageByEventKey.get(ek) === message) {
+        messageByEventKey.delete(ek);
       }
     }
     updatePerfDebug();
@@ -8926,6 +9090,7 @@ u$2(
   function clearMessages() {
     messages.length = 0;
     messageKeys.clear();
+    messageByEventKey.clear();
     renderQueue.length = 0;
     visibleMessages = [];
     rowHeights.clear();
@@ -9187,11 +9352,16 @@ u$2(
     searchInput.placeholder = "搜索 user:名 kind:gift -词";
     searchInput.setAttribute("aria-label", "搜索直播聊天消息");
     searchInput.value = searchQuery;
+    let searchInputTimer = null;
     addRootEventListener(searchInput, "input", () => {
-      searchQuery = searchInput?.value ?? "";
-      unread = 0;
-      scheduleRerenderMessages({ refreshFrozenSnapshot: true });
-      updateUnread();
+      if (searchInputTimer !== null) clearTimeout(searchInputTimer);
+      searchInputTimer = setTimeout(() => {
+        searchInputTimer = null;
+        searchQuery = searchInput?.value ?? "";
+        unread = 0;
+        scheduleRerenderMessages({ refreshFrozenSnapshot: true });
+        updateUnread();
+      }, 120);
     });
     const clearBtn = makeButton("lc-chat-pill", "清屏", "清空自定义评论区", clearMessages);
     const filterbar = document.createElement("div");
@@ -9318,6 +9488,8 @@ u$2(
     ensureStyles();
     abortRootEventListeners();
     nativeEventObserver?.disconnect();
+    nativeEventObserverContainer = null;
+    nativeEventObserverSuspended = false;
     root?.remove();
     rootUsesFallbackHost = false;
     fallbackHost?.remove();
@@ -9360,6 +9532,8 @@ u$2(
     abortRootEventListeners();
     nativeEventObserver?.disconnect();
     nativeEventObserver = null;
+    nativeEventObserverContainer = null;
+    nativeEventObserverSuspended = false;
     pendingNativeNodes.clear();
     root?.remove();
     const host = ensureFallbackHost();
@@ -9381,6 +9555,8 @@ u$2(
   }
   function observeNativeEvents(container) {
     nativeEventObserver?.disconnect();
+    nativeEventObserverContainer = null;
+    nativeEventObserverSuspended = false;
     pendingNativeNodes.clear();
     nativeHealthSamples.length = 0;
     nativeDomWarning = false;
@@ -9442,7 +9618,24 @@ u$2(
         }
       }
     });
-    nativeEventObserver.observe(container, { childList: true, subtree: true });
+    nativeEventObserverContainer = container;
+    if (currentWsStatus === "live") {
+      nativeEventObserverSuspended = true;
+    } else {
+      nativeEventObserverSuspended = false;
+      nativeEventObserver.observe(container, { childList: true, subtree: true });
+    }
+  }
+  function syncNativeObserverWithWsStatus() {
+    if (!nativeEventObserver || !nativeEventObserverContainer) return;
+    const shouldSuspend = currentWsStatus === "live";
+    if (shouldSuspend && !nativeEventObserverSuspended) {
+      nativeEventObserver.disconnect();
+      nativeEventObserverSuspended = true;
+    } else if (!shouldSuspend && nativeEventObserverSuspended) {
+      nativeEventObserver.observe(nativeEventObserverContainer, { childList: true, subtree: true });
+      nativeEventObserverSuspended = false;
+    }
   }
   function addDomMessage(ev) {
     const text = ev.text.trim();
@@ -9476,8 +9669,11 @@ u$2(
     if (!rememberEvent(event)) return;
     hasClearedMessages = false;
     recordEventStats(event);
+    const ek = eventKey(event);
+    eventKeyByMessage.set(event, ek);
     messages.push(event);
     messageKeys.add(key);
+    messageByEventKey.set(ek, event);
     pruneMessages();
     scheduleRender(event);
   }
@@ -9531,6 +9727,8 @@ u$2(
     abortRootEventListeners();
     nativeEventObserver?.disconnect();
     nativeEventObserver = null;
+    nativeEventObserverContainer = null;
+    nativeEventObserverSuspended = false;
     pendingNativeNodes.clear();
     if (nativeScanDebounceTimer !== null) {
       clearTimeout(nativeScanDebounceTimer);
@@ -9570,6 +9768,7 @@ u$2(
     debugEl = null;
     messages.length = 0;
     messageKeys.clear();
+    messageByEventKey.clear();
     renderQueue.length = 0;
     visibleMessages = [];
     rowHeights.clear();
@@ -11932,12 +12131,17 @@ u$2(
     if (typeof data !== "object" || data === null || Array.isArray(data)) {
       return { ok: false, error: "数据格式错误，需要 JSON 对象", count: 0 };
     }
+    const version = data.__version;
+    if (typeof version === "number" && version > BACKUP_VERSION) {
+      return { ok: false, error: `导入版本 ${version} 高于当前支持的版本 ${BACKUP_VERSION}`, count: 0 };
+    }
     const allowed = new Set(EXPORT_KEYS);
     const toApply = {};
     let count = 0;
     for (const [key, val] of Object.entries(data)) {
       if (key.startsWith("__")) continue;
       if (!allowed.has(key)) continue;
+      if (!isValidImportedValue(key, val)) continue;
       _GM_setValue(key, val);
       toApply[key] = val;
       count++;
@@ -13130,11 +13334,58 @@ u$2("br", {}),
       )
     ] });
   }
+  const REMOTE_KEYWORDS_MAX_GLOBAL = 1e3;
+  const REMOTE_KEYWORDS_MAX_PER_ROOM = 500;
+  const REMOTE_KEYWORDS_MAX_ROOMS = 200;
+  const REMOTE_KEYWORDS_MAX_KEY_LEN = 200;
+  const REMOTE_KEYWORDS_MAX_VALUE_LEN = 200;
+  function sanitizeKeywordsRecord(input, maxEntries) {
+    if (typeof input !== "object" || input === null || Array.isArray(input)) return {};
+    const out = {};
+    let count = 0;
+    for (const [from, to] of Object.entries(input)) {
+      if (count >= maxEntries) break;
+      if (typeof from !== "string" || typeof to !== "string") continue;
+      if (from.length === 0 || from.length > REMOTE_KEYWORDS_MAX_KEY_LEN) continue;
+      if (to.length > REMOTE_KEYWORDS_MAX_VALUE_LEN) continue;
+      out[from] = to;
+      count++;
+    }
+    return out;
+  }
+  function sanitizeRemoteKeywords(input) {
+    if (typeof input !== "object" || input === null || Array.isArray(input)) return {};
+    const obj = input;
+    const result = {};
+    const globalSection = obj.global;
+    if (typeof globalSection === "object" && globalSection !== null && !Array.isArray(globalSection)) {
+      result.global = {
+        keywords: sanitizeKeywordsRecord(globalSection.keywords, REMOTE_KEYWORDS_MAX_GLOBAL)
+      };
+    }
+    if (Array.isArray(obj.rooms)) {
+      const rooms = [];
+      for (const entry of obj.rooms) {
+        if (rooms.length >= REMOTE_KEYWORDS_MAX_ROOMS) break;
+        if (typeof entry !== "object" || entry === null) continue;
+        const roomEntry = entry;
+        const roomId = typeof roomEntry.room === "string" ? roomEntry.room : String(roomEntry.room ?? "");
+        if (!roomId) continue;
+        rooms.push({
+          room: roomId,
+          keywords: sanitizeKeywordsRecord(roomEntry.keywords, REMOTE_KEYWORDS_MAX_PER_ROOM)
+        });
+      }
+      result.rooms = rooms;
+    }
+    return result;
+  }
   const SYNC_INTERVAL = 10 * 60 * 1e3;
   async function fetchRemoteKeywords() {
     const response = await fetch(BASE_URL.REMOTE_KEYWORDS);
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    return await response.json();
+    const raw = await response.json();
+    return sanitizeRemoteKeywords(raw);
   }
   function ReplacementRuleList({
     rules,
