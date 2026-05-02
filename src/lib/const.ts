@@ -59,9 +59,16 @@ export const BASE_URL = {
 } as const
 
 /**
- * Sentinel header that Chatterbox attaches to its own `/msg/send` requests so
- * the fetch hijack in `fetch-hijack.ts` can distinguish them from native
- * Bilibili UI sends and skip the duplicate verification path.
+ * Sentinel **query parameter** that Chatterbox attaches to its own
+ * `/msg/send` requests so the fetch hijack in `fetch-hijack.ts` can
+ * distinguish them from native Bilibili UI sends and skip the duplicate
+ * verification path.
+ *
+ * NOTE: must use a URL marker, not a custom request header. Custom headers
+ * trigger a CORS preflight on `api.live.bilibili.com`, which B站 rejects,
+ * which would break every Chatterbox-initiated send with `Failed to fetch`.
+ * Unknown query params are ignored by the API and CORS-safelisted.
  */
-export const CHATTERBOX_SEND_HEADER = 'X-Chatterbox-Send'
+export const CHATTERBOX_SEND_PARAM = 'cb_send'
 export const CHATTERBOX_SEND_VALUE = '1'
+export const CHATTERBOX_SEND_MARKER = `${CHATTERBOX_SEND_PARAM}=${CHATTERBOX_SEND_VALUE}`

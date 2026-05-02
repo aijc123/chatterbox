@@ -1,5 +1,5 @@
 import { unsafeWindow } from '$'
-import { BASE_URL, CHATTERBOX_SEND_HEADER, CHATTERBOX_SEND_VALUE } from './const'
+import { BASE_URL, CHATTERBOX_SEND_MARKER } from './const'
 import { appendLog } from './log'
 import { verifyBroadcast } from './send-verification'
 import { unlockForbidLive } from './store'
@@ -61,14 +61,8 @@ function applyTransforms(url: string, data: any): void {
   }
 })()
 
-function isOurOwnSend(init?: RequestInit): boolean {
-  const headers = init?.headers
-  if (!headers) return false
-  if (headers instanceof Headers) return headers.get(CHATTERBOX_SEND_HEADER) === CHATTERBOX_SEND_VALUE
-  if (Array.isArray(headers)) {
-    return headers.some(([k, v]) => k === CHATTERBOX_SEND_HEADER && v === CHATTERBOX_SEND_VALUE)
-  }
-  return (headers as Record<string, string>)[CHATTERBOX_SEND_HEADER] === CHATTERBOX_SEND_VALUE
+function isOurOwnSend(url: string): boolean {
+  return url.includes(CHATTERBOX_SEND_MARKER)
 }
 
 function urlOf(input: RequestInfo | URL): string {
@@ -111,7 +105,7 @@ function extractMsgFromBody(body: BodyInit | null | undefined): string | null {
         const url = urlOf(input)
         const isMsgSend = url.includes(BASE_URL.BILIBILI_MSG_SEND)
         if (!isMsgSend) return origFetch(input, init)
-        if (isOurOwnSend(init)) return origFetch(input, init)
+        if (isOurOwnSend(url)) return origFetch(input, init)
 
         // Snapshot the message text BEFORE awaiting the fetch — the body stream
         // may already have been consumed by the time the response settles.

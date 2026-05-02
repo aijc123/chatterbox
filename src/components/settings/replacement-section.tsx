@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'preact/hooks'
 import { ensureRoomId, getCsrfToken, sendDanmaku } from '../../lib/api'
 import { BASE_URL } from '../../lib/const'
 import { appendLog } from '../../lib/log'
+import { isInfrastructureError } from '../../lib/moderation'
 import { type RemoteKeywords, sanitizeRemoteKeywords } from '../../lib/remote-keywords-sanitize'
 import { buildReplacementMap } from '../../lib/replacement'
 import { cachedRoomId, localGlobalRules, localRoomRules, remoteKeywords, remoteKeywordsLastSync } from '../../lib/store'
@@ -196,9 +197,15 @@ export function CloudReplacementSection({ query = '' }: { query?: string }) {
     },
     replacedKeyword: string
   ): number => {
+    if (result.originalBlocked && isInfrastructureError(result.originalError)) {
+      appendLog(`  ⛔ 测试出错（网络/CORS）：${result.originalError} — 跳过这条`)
+      return 0
+    }
     if (result.originalBlocked) {
       appendLog(`  ✅ 原词被屏蔽 (错误: ${result.originalError})，测试替换词: ${replacedKeyword}`)
-      if (result.replacedBlocked) {
+      if (result.replacedBlocked && isInfrastructureError(result.replacedError)) {
+        appendLog(`  ⛔ 替换词测试出错（网络/CORS）：${result.replacedError}`)
+      } else if (result.replacedBlocked) {
         appendLog(`  ❌ 替换词也被屏蔽 (错误: ${result.replacedError})`)
       } else {
         appendLog('  ✅ 替换词未被屏蔽')
@@ -381,9 +388,15 @@ export function LocalGlobalReplacementSection({ query = '' }: { query?: string }
     },
     replacedKeyword: string
   ): number => {
+    if (result.originalBlocked && isInfrastructureError(result.originalError)) {
+      appendLog(`  ⛔ 测试出错（网络/CORS）：${result.originalError} — 跳过这条`)
+      return 0
+    }
     if (result.originalBlocked) {
       appendLog(`  ✅ 原词被屏蔽 (错误: ${result.originalError})，测试替换词: ${replacedKeyword}`)
-      if (result.replacedBlocked) {
+      if (result.replacedBlocked && isInfrastructureError(result.replacedError)) {
+        appendLog(`  ⛔ 替换词测试出错（网络/CORS）：${result.replacedError}`)
+      } else if (result.replacedBlocked) {
         appendLog(`  ❌ 替换词也被屏蔽 (错误: ${result.replacedError})`)
       } else {
         appendLog('  ✅ 替换词未被屏蔽')

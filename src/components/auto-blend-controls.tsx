@@ -275,6 +275,18 @@ export function AutoBlendControls() {
                 {AUTO_BLEND_PRESETS[preset].label}
               </button>
             ))}
+            <button
+              type='button'
+              aria-pressed={currentPreset === 'custom'}
+              onClick={() => {
+                autoBlendPreset.value = 'custom'
+                autoBlendAdvancedOpen.value = true
+              }}
+              style={modeButtonStyle(currentPreset === 'custom')}
+              title='保留当前数值并切到自定义；点击后会展开高级设置以便调参。'
+            >
+              自定义
+            </button>
           </div>
           <div className='cb-note' style={{ marginTop: '.25em' }}>
             当前：{presetHint}

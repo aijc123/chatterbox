@@ -5,6 +5,7 @@ import {
   durationFromData,
   formatDuration,
   isAccountRestrictedError,
+  isInfrastructureError,
   isMutedError,
   isRateLimitError,
   scanRestrictionSignals,
@@ -49,5 +50,37 @@ describe('moderation', () => {
     expect(() => scanRestrictionSignals(cyclic, 'unit')).not.toThrow()
     const signals = scanRestrictionSignals(cyclic, 'unit')
     expect(signals.some(signal => signal.kind === 'muted')).toBe(true)
+  })
+
+  // Regression: cloud-test 18 false-positive "原词被屏蔽" rows when CORS broke
+  // every sendDanmaku call with `Failed to fetch`. The fix relies on
+  // `isInfrastructureError` to peel network/CORS errors apart from real B站
+  // moderation responses.
+  describe('isInfrastructureError', () => {
+    test('flags fetch / CORS / network errors as infrastructure (not blocked)', () => {
+      expect(isInfrastructureError('Failed to fetch')).toBe(true)
+      expect(isInfrastructureError('failed to fetch')).toBe(true)
+      expect(isInfrastructureError('HTTP 502')).toBe(true)
+      expect(isInfrastructureError('HTTP 403: Forbidden')).toBe(true)
+      expect(isInfrastructureError('NetworkError when attempting to fetch')).toBe(true)
+      expect(isInfrastructureError('TypeError: NetworkError')).toBe(true)
+      expect(isInfrastructureError('AbortError')).toBe(true)
+      expect(isInfrastructureError('发送接口 12s 无响应')).toBe(true)
+    })
+
+    test('does NOT flag real B站 moderation errors as infrastructure', () => {
+      // Common Bilibili error strings — these mean the message was actually
+      // blocked, not a network failure. They MUST go through the "原词被屏蔽"
+      // path so the test reports useful results.
+      expect(isInfrastructureError('f')).toBe(false)
+      expect(isInfrastructureError('k')).toBe(false)
+      expect(isInfrastructureError('包含全局屏蔽词')).toBe(false)
+      expect(isInfrastructureError('包含房间屏蔽词')).toBe(false)
+      expect(isInfrastructureError('你已被禁言')).toBe(false)
+      expect(isInfrastructureError('发送频率过快')).toBe(false)
+      expect(isInfrastructureError('code 11002')).toBe(false)
+      expect(isInfrastructureError(undefined)).toBe(false)
+      expect(isInfrastructureError('')).toBe(false)
+    })
   })
 })

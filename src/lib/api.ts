@@ -3,7 +3,7 @@ import { effect } from '@preact/signals'
 import type { BilibiliGetEmoticonsResponse } from '../types'
 
 import { mapWithConcurrency } from './concurrency'
-import { BASE_URL, CHATTERBOX_SEND_HEADER, CHATTERBOX_SEND_VALUE } from './const'
+import { BASE_URL, CHATTERBOX_SEND_MARKER } from './const'
 import { emitLocalDanmakuEcho } from './custom-chat-events'
 import { findEmoticon, isEmoticonUnique, isLockedEmoticon } from './emoticon'
 import { describeRestrictionDuration, type RestrictionSignal, scanRestrictionSignals } from './moderation'
@@ -572,7 +572,10 @@ export async function sendDanmaku(message: string, roomId: number, csrfToken: st
       )
     }
 
-    const url = `${BASE_URL.BILIBILI_MSG_SEND}?${query}`
+    // Append a CORS-safelisted query marker so `fetch-hijack` can recognize
+    // this request as Chatterbox-initiated and skip the native-input path.
+    // A custom header would trigger a CORS preflight that B站 rejects.
+    const url = `${BASE_URL.BILIBILI_MSG_SEND}?${query ? `${query}&` : ''}${CHATTERBOX_SEND_MARKER}`
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), SEND_DANMAKU_TIMEOUT_MS)
     let resp: Response
@@ -582,7 +585,6 @@ export async function sendDanmaku(message: string, roomId: number, csrfToken: st
         credentials: 'include',
         body: form,
         signal: controller.signal,
-        headers: { [CHATTERBOX_SEND_HEADER]: CHATTERBOX_SEND_VALUE },
       })
     } finally {
       clearTimeout(timeout)

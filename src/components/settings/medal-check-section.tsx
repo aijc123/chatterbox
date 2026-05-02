@@ -1,6 +1,8 @@
-import { useSignal } from '@preact/signals'
+import { useComputed, useSignal } from '@preact/signals'
+import { useEffect } from 'preact/hooks'
 
-import { checkMedalRoomRestriction, fetchMedalRooms, type MedalRestrictionCheck } from '../../lib/api'
+import { GM_deleteValue, GM_getValue } from '$'
+import { checkMedalRoomRestriction, fetchMedalRooms, getDedeUid, type MedalRestrictionCheck } from '../../lib/api'
 import { VERSION } from '../../lib/const'
 import { gmSignal } from '../../lib/gm-signal'
 import {
@@ -21,12 +23,51 @@ import {
   guardRoomWebsiteControlEnabled,
 } from '../../lib/store'
 
-const medalCheckStatus = gmSignal('medalCheckStatus', '尚未巡检 — 点击「检查粉丝牌禁言」开始')
-const medalCheckResults = gmSignal<MedalRestrictionCheck[]>('medalCheckResults', [])
-const medalCheckFilter = gmSignal<'issues' | 'restricted' | 'unknown' | 'deactivated' | 'ok' | 'all'>(
-  'medalCheckFilter',
-  'issues'
-)
+type MedalCheckFilter = 'issues' | 'restricted' | 'unknown' | 'deactivated' | 'ok' | 'all'
+
+const DEFAULT_STATUS = '尚未巡检 — 点击「检查粉丝牌禁言」开始'
+const NOT_LOGGED_IN_STATUS = '未登录 Bilibili — 请先登录再执行巡检'
+
+const medalCheckStatusByUid = gmSignal<Record<string, string>>('medalCheckStatusByUid', {})
+const medalCheckResultsByUid = gmSignal<Record<string, MedalRestrictionCheck[]>>('medalCheckResultsByUid', {})
+const medalCheckFilterByUid = gmSignal<Record<string, MedalCheckFilter>>('medalCheckFilterByUid', {})
+
+// One-time migration: previous versions stored medal-check state as flat
+// globals (medalCheckResults, medalCheckStatus, medalCheckFilter) that were
+// not bound to any account. Move whatever is there into the slot for the
+// account that's currently logged in, so users keep their last results
+// instead of seeing them silently apply to a different account.
+;(() => {
+  const uid = getDedeUid()
+  if (!uid) return
+  const legacyResults = GM_getValue<MedalRestrictionCheck[] | undefined>('medalCheckResults', undefined)
+  const legacyStatus = GM_getValue<string | undefined>('medalCheckStatus', undefined)
+  const legacyFilter = GM_getValue<MedalCheckFilter | undefined>('medalCheckFilter', undefined)
+  let migrated = false
+  if (Array.isArray(legacyResults) && legacyResults.length > 0 && !medalCheckResultsByUid.value[uid]) {
+    medalCheckResultsByUid.value = { ...medalCheckResultsByUid.value, [uid]: legacyResults }
+    migrated = true
+  }
+  if (typeof legacyStatus === 'string' && legacyStatus && !medalCheckStatusByUid.value[uid]) {
+    medalCheckStatusByUid.value = { ...medalCheckStatusByUid.value, [uid]: legacyStatus }
+    migrated = true
+  }
+  if (typeof legacyFilter === 'string' && !medalCheckFilterByUid.value[uid]) {
+    medalCheckFilterByUid.value = { ...medalCheckFilterByUid.value, [uid]: legacyFilter }
+    migrated = true
+  }
+  if (migrated) {
+    try {
+      GM_deleteValue('medalCheckResults')
+    } catch {}
+    try {
+      GM_deleteValue('medalCheckStatus')
+    } catch {}
+    try {
+      GM_deleteValue('medalCheckFilter')
+    } catch {}
+  }
+})()
 
 function getMedalCheckCounts(results: MedalRestrictionCheck[]) {
   return {
@@ -80,10 +121,7 @@ function medalStatusColor(status: MedalRestrictionCheck['status']): string {
   return '#0a7f55'
 }
 
-function getFilteredMedalResults(
-  results: MedalRestrictionCheck[],
-  filter: 'issues' | 'restricted' | 'unknown' | 'deactivated' | 'ok' | 'all'
-): MedalRestrictionCheck[] {
+function getFilteredMedalResults(results: MedalRestrictionCheck[], filter: MedalCheckFilter): MedalRestrictionCheck[] {
   const sorted = sortMedalResults(results)
   if (filter === 'all') return sorted
   if (filter === 'issues') return sorted.filter(result => result.status !== 'ok')
@@ -102,7 +140,7 @@ function formatMedalResultLine(result: MedalRestrictionCheck): string {
   return `${header}\n${details}`
 }
 
-function medalFilterLabel(filter: 'issues' | 'restricted' | 'unknown' | 'deactivated' | 'ok' | 'all'): string {
+function medalFilterLabel(filter: MedalCheckFilter): string {
   if (filter === 'issues') return '异常'
   if (filter === 'restricted') return '限制'
   if (filter === 'unknown') return '未知'
@@ -114,12 +152,14 @@ function medalFilterLabel(filter: 'issues' | 'restricted' | 'unknown' | 'deactiv
 function formatMedalCheckReport(
   results: MedalRestrictionCheck[],
   status: string,
-  filter: 'issues' | 'restricted' | 'unknown' | 'deactivated' | 'ok' | 'all'
+  filter: MedalCheckFilter,
+  uidLabel: string
 ): string {
   const counts = getMedalCheckCounts(results)
   const shown = getFilteredMedalResults(results, filter)
   return [
     '粉丝牌禁言巡检',
+    `登录账号：${uidLabel}`,
     status,
     `统计：限制 ${counts.restricted}，未知 ${counts.unknown}，主播注销 ${counts.deactivated}，正常 ${counts.ok}`,
     `当前复制范围：${medalFilterLabel(filter)}（${shown.length} 条）`,
@@ -165,30 +205,90 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
   const guardRoomSyncing = useSignal(false)
   const guardRoomSyncStatus = useSignal('')
 
+  // Track the cookie-derived B 站 UID reactively so the panel switches to the
+  // active account's cached results whenever the user logs in/out or swaps
+  // accounts in another tab. Cookie reads are cheap; a 5 s tick + visibility
+  // change listener keeps this responsive without observable cost.
+  const currentUid = useSignal<string | null>(getDedeUid() ?? null)
+  useEffect(() => {
+    const tick = () => {
+      const next = getDedeUid() ?? null
+      if (currentUid.value !== next) currentUid.value = next
+    }
+    tick()
+    const id = setInterval(tick, 5000)
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') tick()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [])
+
+  const medalCheckStatus = useComputed(() => {
+    const uid = currentUid.value
+    if (!uid) return NOT_LOGGED_IN_STATUS
+    return medalCheckStatusByUid.value[uid] ?? DEFAULT_STATUS
+  })
+  const medalCheckResults = useComputed<MedalRestrictionCheck[]>(() => {
+    const uid = currentUid.value
+    if (!uid) return []
+    return medalCheckResultsByUid.value[uid] ?? []
+  })
+  const medalCheckFilter = useComputed<MedalCheckFilter>(() => {
+    const uid = currentUid.value
+    if (!uid) return 'issues'
+    return medalCheckFilterByUid.value[uid] ?? 'issues'
+  })
+
+  const writeFilter = (val: MedalCheckFilter) => {
+    const uid = currentUid.value
+    if (!uid) return
+    medalCheckFilterByUid.value = { ...medalCheckFilterByUid.value, [uid]: val }
+  }
+
   const visible =
-    !query || '粉丝牌禁言巡检 禁言 粉丝牌 直播间 巡检 保安室 guard room 同步'.toLowerCase().includes(query)
+    !query ||
+    '粉丝牌禁言巡检 禁言 粉丝牌 直播间 巡检 保安室 guard room 同步 账号 登录 uid'.toLowerCase().includes(query)
   if (!visible) return null
 
   const checkMedalRooms = async () => {
+    // Capture the UID at start so all writes from this run land in the slot
+    // for the account that was logged in when the user clicked the button.
+    // If the cookie changes mid-run we still finish writing under the
+    // original UID — that matches what the API requests actually queried.
+    const uid = currentUid.value
+    if (!uid) {
+      appendLog('禁言巡检：未登录 Bilibili')
+      return
+    }
+    const writeStatus = (val: string) => {
+      medalCheckStatusByUid.value = { ...medalCheckStatusByUid.value, [uid]: val }
+    }
+    const writeResults = (val: MedalRestrictionCheck[]) => {
+      medalCheckResultsByUid.value = { ...medalCheckResultsByUid.value, [uid]: val }
+    }
     checkingMedalRooms.value = true
-    medalCheckResults.value = []
-    medalCheckStatus.value = '正在获取粉丝牌…'
+    writeResults([])
+    writeStatus('正在获取粉丝牌…')
     try {
       const rooms = await fetchMedalRooms()
       if (rooms.length === 0) {
-        medalCheckStatus.value = '没有找到粉丝牌直播间'
+        writeStatus('没有找到粉丝牌直播间')
         appendLog('禁言巡检：没有找到粉丝牌直播间')
         return
       }
 
-      appendLog(`禁言巡检：找到 ${rooms.length} 个粉丝牌直播间，开始检查`)
+      appendLog(`禁言巡检：找到 ${rooms.length} 个粉丝牌直播间，开始检查（账号 UID ${uid}）`)
       const results: MedalRestrictionCheck[] = []
       for (let i = 0; i < rooms.length; i++) {
         const room = rooms[i]
-        medalCheckStatus.value = `检查中 ${i + 1}/${rooms.length}：${room.anchorName}（${room.medalName}）`
+        writeStatus(`检查中 ${i + 1}/${rooms.length}：${room.anchorName}（${room.medalName}）`)
         const result = await checkMedalRoomRestriction(room)
         results.push(result)
-        medalCheckResults.value = [...results]
+        writeResults([...results])
         const label = `${room.anchorName} / ${room.medalName} / ${room.roomId}`
         if (result.status === 'restricted') {
           const detail = result.signals
@@ -206,14 +306,16 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
       }
 
       const counts = getMedalCheckCounts(results)
-      medalCheckStatus.value = `完成：${rooms.length} 个房间，${counts.restricted} 个限制，${counts.deactivated} 个主播注销，${counts.unknown} 个无法确认`
+      writeStatus(
+        `完成：${rooms.length} 个房间，${counts.restricted} 个限制，${counts.deactivated} 个主播注销，${counts.unknown} 个无法确认`
+      )
       appendLog(
         `禁言巡检完成：${rooms.length} 个房间，${counts.restricted} 个限制，${counts.deactivated} 个主播注销，${counts.unknown} 个无法确认`
       )
       if (guardRoomSyncKey.value.trim()) await syncGuardRoomInspection(results)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      medalCheckStatus.value = `检查失败：${msg}`
+      writeStatus(`检查失败：${msg}`)
       appendLog(`禁言巡检失败：${msg}`)
     } finally {
       checkingMedalRooms.value = false
@@ -255,6 +357,8 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
     }
   }
 
+  const uidLabelForReport = () => currentUid.value ?? '未登录'
+
   const copyMedalCheckResults = async () => {
     const results = medalCheckResults.value
     if (results.length === 0) {
@@ -263,7 +367,7 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
     }
     try {
       await navigator.clipboard.writeText(
-        formatMedalCheckReport(results, medalCheckStatus.value, medalCheckFilter.value)
+        formatMedalCheckReport(results, medalCheckStatus.value, medalCheckFilter.value, uidLabelForReport())
       )
       medalCheckCopyStatus.value = `已复制${medalFilterLabel(medalCheckFilter.value)}结果`
       setTimeout(() => {
@@ -280,7 +384,7 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
       medalCheckCopyStatus.value = '还没有巡检结果'
       return
     }
-    const report = formatMedalCheckReport(results, medalCheckStatus.value, 'all')
+    const report = formatMedalCheckReport(results, medalCheckStatus.value, 'all', uidLabelForReport())
     const blob = new Blob([report], { type: 'text/plain;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -307,7 +411,23 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
           粉丝牌禁言巡检
         </div>
         <div className='cb-note' style={{ marginBlock: '.5em', color: '#666' }}>
-          只读取 B 站接口，不发送弹幕。结果会按限制、无法确认、主播注销、正常排序；上次巡检会自动保留。
+          只读取 B 站接口，不发送弹幕。结果会按限制、无法确认、主播注销、正常排序；上次巡检按账号分别保留。
+        </div>
+        <div
+          className='cb-note'
+          role='status'
+          aria-live='polite'
+          style={{
+            marginBlock: '.25em',
+            padding: '.35em .55em',
+            borderRadius: '4px',
+            background: currentUid.value ? 'rgba(10, 127, 85, .08)' : 'rgba(161, 92, 0, .08)',
+            color: currentUid.value ? '#0a7f55' : '#a15c00',
+          }}
+        >
+          {currentUid.value
+            ? `当前账号 UID：${currentUid.value}（巡检与缓存只针对该账号）`
+            : '未登录 Bilibili — 请先登录后再执行巡检'}
         </div>
         <details className='cb-panel cb-stack' style={{ marginBottom: '.5em' }}>
           <summary style={{ cursor: 'pointer', userSelect: 'none', fontWeight: 'bold' }} className='cb-heading'>
@@ -434,7 +554,12 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
           className='cb-row'
           style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.5em' }}
         >
-          <button type='button' disabled={checkingMedalRooms.value} onClick={() => void checkMedalRooms()}>
+          <button
+            type='button'
+            disabled={checkingMedalRooms.value || !currentUid.value}
+            title={!currentUid.value ? '需要先登录 Bilibili 账号' : undefined}
+            onClick={() => void checkMedalRooms()}
+          >
             {checkingMedalRooms.value ? '检查中…' : '检查粉丝牌禁言'}
           </button>
           <button
@@ -483,9 +608,7 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
                     <button
                       type='button'
                       aria-pressed={filter === 'issues'}
-                      onClick={() => {
-                        medalCheckFilter.value = 'issues'
-                      }}
+                      onClick={() => writeFilter('issues')}
                       style={filterButtonStyle(filter === 'issues', '#a15c00')}
                     >
                       异常 {counts.restricted + counts.unknown + counts.deactivated}
@@ -493,9 +616,7 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
                     <button
                       type='button'
                       aria-pressed={filter === 'all'}
-                      onClick={() => {
-                        medalCheckFilter.value = 'all'
-                      }}
+                      onClick={() => writeFilter('all')}
                       style={filterButtonStyle(filter === 'all')}
                     >
                       全部 {medalCheckResults.value.length}
@@ -503,9 +624,7 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
                     <button
                       type='button'
                       aria-pressed={filter === 'restricted'}
-                      onClick={() => {
-                        medalCheckFilter.value = 'restricted'
-                      }}
+                      onClick={() => writeFilter('restricted')}
                       style={filterButtonStyle(filter === 'restricted', '#a15c00')}
                     >
                       限制 {counts.restricted}
@@ -513,9 +632,7 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
                     <button
                       type='button'
                       aria-pressed={filter === 'unknown'}
-                      onClick={() => {
-                        medalCheckFilter.value = 'unknown'
-                      }}
+                      onClick={() => writeFilter('unknown')}
                       style={filterButtonStyle(filter === 'unknown', '#666')}
                     >
                       未知 {counts.unknown}
@@ -523,9 +640,7 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
                     <button
                       type='button'
                       aria-pressed={filter === 'deactivated'}
-                      onClick={() => {
-                        medalCheckFilter.value = 'deactivated'
-                      }}
+                      onClick={() => writeFilter('deactivated')}
                       style={filterButtonStyle(filter === 'deactivated', '#8e8e93')}
                     >
                       注销 {counts.deactivated}
@@ -533,9 +648,7 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
                     <button
                       type='button'
                       aria-pressed={filter === 'ok'}
-                      onClick={() => {
-                        medalCheckFilter.value = 'ok'
-                      }}
+                      onClick={() => writeFilter('ok')}
                       style={filterButtonStyle(filter === 'ok', '#0a7f55')}
                     >
                       正常 {counts.ok}

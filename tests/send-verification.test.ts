@@ -21,12 +21,6 @@ const customChatHistory: RecentEntry[] = []
 let isEmoticonUniqueResult = false
 const appendLogCalls: string[] = []
 const appendLogQuietCalls: string[] = []
-let tryAiEvasionResult: {
-  success: boolean
-  evadedMessage?: string
-  sensitiveWords?: string[]
-} = { success: false }
-const tryAiEvasionCalls: Array<{ message: string; roomId: number; csrfToken: string; logPrefix: string }> = []
 
 // Include ensureRoomId/getCsrfToken even though this test doesn't use them —
 // bun's process-wide module mocks would otherwise leave them undefined for
@@ -50,6 +44,10 @@ mock.module('../src/lib/api', () => ({
 
 mock.module('../src/lib/emoticon', () => ({
   isEmoticonUnique: () => isEmoticonUniqueResult,
+  // Real ai-evasion.ts imports these — provide stubs so the real module
+  // loads cleanly when send-verification triggers tryAiEvasion.
+  isLockedEmoticon: () => false,
+  formatLockedEmoticonReject: () => '',
 }))
 
 mock.module('../src/lib/custom-chat-events', () => ({
@@ -83,22 +81,45 @@ mock.module('../src/lib/log', () => ({
   appendLogQuiet: (msg: string) => appendLogQuietCalls.push(msg),
 }))
 
-// Mock ai-evasion at the boundary. processText is also stubbed because the
-// real shadow-learn (used here without mocking, to avoid bun's process-wide
-// mock.module leak across test files) imports it.
-// Provide ONLY the symbols send-verification.ts and shadow-learn.ts use from
-// ai-evasion. NO spread — spreading would load the real ai-evasion.ts, which
-// imports send-queue, which would lock send-queue's `sendDanmaku` binding to
-// the real impl and break `send-queue.test.ts` later.
-mock.module('../src/lib/ai-evasion', () => ({
-  tryAiEvasion: async (message: string, roomId: number, csrfToken: string, logPrefix: string) => {
-    tryAiEvasionCalls.push({ message, roomId, csrfToken, logPrefix })
-    return tryAiEvasionResult
-  },
-  // shadow-learn calls processText to compute the AI-evaded form when
-  // promoting a sensitive word into a local rule. Mimic the real behavior
-  // (insert U+00AD between graphemes) for tests that check the rule shape.
-  processText: (s: string) => s.split('').join('­'),
+// NOTE: do NOT mock `../src/lib/ai-evasion` — bun's process-wide module mock
+// would leak into `tests/verify-ai-evasion-result.test.ts` (loaded later)
+// and replace the real `tryAiEvasion` it tests. Instead we use the REAL
+// `tryAiEvasion` and control its behavior at its own boundaries:
+//   - Mock global `fetch` for the Laplace detection endpoint, so the test
+//     can decide whether sensitive content was found.
+//   - Mock `send-queue.enqueueDanmaku` so the resend's success/failure is
+//     deterministic without actually hitting B站.
+const laplaceState: { hasSensitiveContent: boolean; sensitiveWords?: string[]; throw?: boolean } = {
+  hasSensitiveContent: false,
+}
+let resendShouldSucceed = true
+
+;(globalThis as typeof globalThis & { fetch: typeof fetch }).fetch = (async (input: RequestInfo) => {
+  if (laplaceState.throw) throw new Error('laplace down')
+  const url = typeof input === 'string' ? input : (input as Request).url
+  if (url.includes('chat-audit')) {
+    return new Response(
+      JSON.stringify({
+        completion: {
+          hasSensitiveContent: laplaceState.hasSensitiveContent,
+          sensitiveWords: laplaceState.sensitiveWords,
+        },
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    )
+  }
+  // Default: 404 for unexpected endpoints so a leak surfaces immediately.
+  return new Response('not found', { status: 404 })
+}) as typeof fetch
+
+mock.module('../src/lib/send-queue', () => ({
+  enqueueDanmaku: async (msg: string) => ({
+    success: resendShouldSucceed,
+    message: msg,
+    isEmoticon: false,
+    error: resendShouldSucceed ? undefined : 'k',
+  }),
+  SendPriority: { MANUAL: 0, AUTO: 1 },
 }))
 
 // NOTE: do NOT mock `guard-room-sync` — that mock would leak into
@@ -161,13 +182,15 @@ beforeEach(() => {
   isEmoticonUniqueResult = false
   mockUid = '42'
   aiEvasion.value = false
+  laplaceState.hasSensitiveContent = false
+  laplaceState.sensitiveWords = undefined
+  laplaceState.throw = false
+  resendShouldSucceed = true
   autoLearnShadowRules.value = true
   shadowBanObservations.value = []
   localRoomRules.value = {}
   guardRoomEndpoint.value = ''
   guardRoomSyncKey.value = ''
-  tryAiEvasionResult = { success: false }
-  tryAiEvasionCalls.length = 0
   clearRecentDomDanmaku()
   clearVerifyBroadcastToastDedupe()
 })
@@ -185,10 +208,14 @@ describe('waitForSentEcho', () => {
     expect(await promise).toBe('ws')
   })
 
-  test('resolves "dom" when a DOM broadcast arrives within timeout', async () => {
+  test('resolves "dom" when a DOM broadcast arrives with stripped uid', async () => {
+    // DOM scrape can fail to recover the sender uid (event.uid === null).
+    // In that case we cannot tell self-insert from broadcast-echo, so we
+    // accept it. When event.uid matches selfUid we reject — see the
+    // self-DOM rejection test below.
     const sinceTs = Date.now()
     const promise = waitForSentEcho('hello', '42', sinceTs, 200)
-    setTimeout(() => emitDomDanmaku('hello', '42'), 10)
+    setTimeout(() => emitDomDanmaku('hello', null), 10)
     expect(await promise).toBe('dom')
   })
 
@@ -227,14 +254,37 @@ describe('waitForSentEcho', () => {
     expect(await promise).toBe('dom')
   })
 
-  test('synchronous backfill from DOM history before subscribing', async () => {
+  test('synchronous backfill from DOM history before subscribing (non-self uid)', async () => {
+    // DOM history with stripped uid → backfill returns 'dom'. With self uid
+    // it would be filtered as a B站 local self-insert (covered separately).
     const sinceTs = Date.now() - 100
-    rememberRecentDomDanmaku('hello', '42', Date.now() - 50)
+    rememberRecentDomDanmaku('hello', null, Date.now() - 50)
     expect(await waitForSentEcho('hello', '42', sinceTs, 1000)).toBe('dom')
   })
 
   test('default timeout constant is 4000ms', () => {
     expect(SEND_ECHO_TIMEOUT_MS).toBe(4000)
+  })
+
+  test('rejects DOM-self echoes (B站 inserts self danmaku locally even when shadow-banned)', async () => {
+    // Self UID is '42'. A DOM event with uid='42' is what B站 client-side
+    // would insert regardless of broadcast — must NOT count as proof.
+    const sinceTs = Date.now()
+    const promise = waitForSentEcho('习近平', '42', sinceTs, 50)
+    setTimeout(() => emitDomDanmaku('习近平', '42'), 5)
+    expect(await promise).toBeNull()
+  })
+
+  test('accepts WS-self echoes (server only pushes DANMU_MSG when broadcast actually happens)', async () => {
+    const sinceTs = Date.now()
+    const promise = waitForSentEcho('普通话', '42', sinceTs, 200)
+    setTimeout(() => emitWsDanmaku({ text: '普通话', uid: '42', source: 'ws' }), 5)
+    expect(await promise).toBe('ws')
+  })
+
+  test('synchronous backfill filter: DOM-self in history is ignored', async () => {
+    rememberRecentDomDanmaku('习近平', '42', Date.now() - 50) // self insert
+    expect(await waitForSentEcho('习近平', '42', Date.now() - 100, 30)).toBeNull()
   })
 })
 
@@ -349,13 +399,11 @@ describe('verifyBroadcast', () => {
 })
 
 describe('verifyBroadcast Layer 1+2+3 integration', () => {
-  test('shadow-ban + enableAiEvasion + aiEvasion.value triggers tryAiEvasion and writes a learned rule', async () => {
+  test('shadow-ban + enableAiEvasion + aiEvasion.value triggers AI evasion and writes a learned rule', async () => {
     aiEvasion.value = true
-    tryAiEvasionResult = {
-      success: true,
-      evadedMessage: '上­车­冲­鸭',
-      sensitiveWords: ['上车冲鸭'],
-    }
+    laplaceState.hasSensitiveContent = true
+    laplaceState.sensitiveWords = ['上车冲鸭']
+    resendShouldSucceed = true
     customChatHistory.push({ text: '上车冲鸭', uid: '42', source: 'local', observedAt: Date.now() })
 
     await verifyBroadcast({
@@ -369,25 +417,18 @@ describe('verifyBroadcast Layer 1+2+3 integration', () => {
       csrfToken: 'csrf-token',
     })
 
-    expect(tryAiEvasionCalls).toHaveLength(1)
-    expect(tryAiEvasionCalls[0].message).toBe('上车冲鸭')
-    expect(tryAiEvasionCalls[0].roomId).toBe(12345)
-    expect(tryAiEvasionCalls[0].logPrefix).toContain('影子屏蔽')
-
     // Real shadow-learn writes the (sensitiveWord → processText(word)) rule.
     const rules = localRoomRules.value['12345']
     expect(rules?.length).toBe(1)
     expect(rules?.[0].from).toBe('上车冲鸭')
     expect(rules?.[0].to).not.toBe('上车冲鸭')
 
-    // Post-evasion verify is fired internally with the rewritten text. It has
-    // no broadcast echo to find → it eventually records an observation as
-    // evadedAlready=true. We just assert no double-AI invocation.
-    await new Promise(r => setTimeout(r, 80))
-    expect(tryAiEvasionCalls.length).toBe(1)
+    // The 🤖 prefix proves real ai-evasion ran (asserts no leaked stub
+    // short-circuited the call).
+    expect(appendLogCalls.some(m => /🤖.*影子屏蔽-AI规避/.test(m))).toBe(true)
   })
 
-  test('aiEvasion.value=false does NOT trigger tryAiEvasion even if enableAiEvasion=true', async () => {
+  test('aiEvasion.value=false skips AI evasion and records observation', async () => {
     aiEvasion.value = false
     customChatHistory.push({ text: 'foo', uid: '42', source: 'local', observedAt: Date.now() })
     await verifyBroadcast({
@@ -400,15 +441,16 @@ describe('verifyBroadcast Layer 1+2+3 integration', () => {
       roomId: 1,
       csrfToken: 'c',
     })
-    expect(tryAiEvasionCalls).toHaveLength(0)
     expect(shadowBanObservations.value).toHaveLength(1)
     expect(shadowBanObservations.value[0].evadedAlready).toBe(false)
     expect(localRoomRules.value['1']).toBeUndefined()
+    // No "🤖 ... AI规避" message when toggle is off.
+    expect(appendLogCalls.some(m => /🤖/.test(m))).toBe(false)
   })
 
-  test('tryAiEvasion failure → records observation with evadedAlready=false', async () => {
+  test('Laplace finds nothing → records observation with evadedAlready=false', async () => {
     aiEvasion.value = true
-    tryAiEvasionResult = { success: false }
+    laplaceState.hasSensitiveContent = false
     customChatHistory.push({ text: 'bar', uid: '42', source: 'local', observedAt: Date.now() })
 
     await verifyBroadcast({
@@ -429,7 +471,8 @@ describe('verifyBroadcast Layer 1+2+3 integration', () => {
 
   test('isPostEvasion=true never triggers AI again, only records observation as evadedAlready', async () => {
     aiEvasion.value = true
-    tryAiEvasionResult = { success: true, evadedMessage: 'never-called', sensitiveWords: ['x'] }
+    laplaceState.hasSensitiveContent = true
+    laplaceState.sensitiveWords = ['x']
     customChatHistory.push({ text: 'shadow', uid: '42', source: 'local', observedAt: Date.now() })
 
     await verifyBroadcast({
@@ -445,15 +488,17 @@ describe('verifyBroadcast Layer 1+2+3 integration', () => {
       surfaceToast: false,
     })
 
-    expect(tryAiEvasionCalls).toHaveLength(0)
     expect(localRoomRules.value['1']).toBeUndefined()
     expect(shadowBanObservations.value).toHaveLength(1)
     expect(shadowBanObservations.value[0].evadedAlready).toBe(true)
+    // No 🤖 message — AI was NOT called on the post-evasion pass.
+    expect(appendLogCalls.some(m => /🤖.*AI规避/.test(m))).toBe(false)
   })
 
   test('confirmed broadcast skips AI evasion and observation', async () => {
     aiEvasion.value = true
-    tryAiEvasionResult = { success: true, evadedMessage: 'x' }
+    laplaceState.hasSensitiveContent = true
+    laplaceState.sensitiveWords = ['anything']
     const promise = verifyBroadcast({
       text: 'good',
       label: '手动',
@@ -466,19 +511,17 @@ describe('verifyBroadcast Layer 1+2+3 integration', () => {
     })
     setTimeout(() => emitWsDanmaku({ text: 'good', uid: '42', source: 'ws' }), 5)
     await promise
-    expect(tryAiEvasionCalls).toHaveLength(0)
     expect(localRoomRules.value).toEqual({})
     expect(shadowBanObservations.value).toHaveLength(0)
+    expect(appendLogCalls.some(m => /🤖/.test(m))).toBe(false)
   })
 
-  test('autoLearnShadowRules=false skips writing learned rules but post-evasion still runs', async () => {
+  test('autoLearnShadowRules=false skips writing learned rules but AI evasion still runs', async () => {
     aiEvasion.value = true
     autoLearnShadowRules.value = false
-    tryAiEvasionResult = {
-      success: true,
-      evadedMessage: 'b­l­o­c­k',
-      sensitiveWords: ['block'],
-    }
+    laplaceState.hasSensitiveContent = true
+    laplaceState.sensitiveWords = ['block']
+    resendShouldSucceed = true
     customChatHistory.push({ text: 'block', uid: '42', source: 'local', observedAt: Date.now() })
 
     await verifyBroadcast({
@@ -492,7 +535,8 @@ describe('verifyBroadcast Layer 1+2+3 integration', () => {
       csrfToken: 'c',
     })
 
-    expect(tryAiEvasionCalls).toHaveLength(1)
+    // AI evasion ran (🤖 prefix logged) but learning was suppressed.
+    expect(appendLogCalls.some(m => /🤖.*影子屏蔽-AI规避/.test(m))).toBe(true)
     expect(localRoomRules.value['7']).toBeUndefined()
   })
 })

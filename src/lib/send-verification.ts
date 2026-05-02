@@ -49,7 +49,22 @@ export function rememberRecentDomDanmaku(text: string, uid: string | null, obser
   recentDomDanmaku.push({ text, uid, observedAt })
 }
 
-function findRecentDomDanmakuSource(text: string, uid: string | null, sinceTs: number): 'dom' | null {
+/**
+ * Find a recent DOM-source danmaku that matches `text`.
+ *
+ * IMPORTANT: B站's native UI inserts the user's OWN sent message into
+ * `.chat-items` even when the message is shadow-banned (the local insert is
+ * unconditional). So a DOM event whose `event.uid` equals the sender's
+ * `selfUid` is NOT proof of broadcast — we ignore it. WS echoes for self
+ * are still trusted because the server only pushes DANMU_MSG when the
+ * message actually broadcast.
+ */
+function findRecentDomDanmakuSource(
+  text: string,
+  uid: string | null,
+  sinceTs: number,
+  selfUid: string | null
+): 'dom' | null {
   const target = text.trim()
   if (!target) return null
   pruneRecentDomDanmaku()
@@ -58,6 +73,7 @@ function findRecentDomDanmakuSource(text: string, uid: string | null, sinceTs: n
     if (event.observedAt < sinceTs) break
     if (event.text !== target) continue
     if (uid && event.uid && event.uid !== uid) continue
+    if (selfUid && event.uid === selfUid) continue // self-insert is not proof
     return 'dom'
   }
   return null
@@ -71,8 +87,11 @@ function matchesCustomChatEchoEvent(event: CustomChatEvent, target: string, uid:
   return event.kind === 'danmaku' && event.text.trim() === target && (!uid || !event.uid || event.uid === uid)
 }
 
-function matchesDomEchoEvent(event: DanmakuEvent, target: string, uid: string | null): boolean {
-  return event.text.trim() === target && (!uid || !event.uid || event.uid === uid)
+function matchesDomEchoEvent(event: DanmakuEvent, target: string, uid: string | null, selfUid: string | null): boolean {
+  if (event.text.trim() !== target) return false
+  if (uid && event.uid && event.uid !== uid) return false
+  if (selfUid && event.uid === selfUid) return false // see findRecentDomDanmakuSource
+  return true
 }
 
 // DOM observer is lazily attached on first `waitForSentEcho` call so that
@@ -91,6 +110,13 @@ function ensureDomTracking(): void {
  * Resolves with the source of the broadcast echo if observed within `timeoutMs`,
  * otherwise resolves to `'local'` (only local API echo seen → likely shadow-ban)
  * or `null` (nothing observed at all).
+ *
+ * `uid` is the sender UID we want to match in the danmaku stream (typically
+ * the current user's own UID). When provided AND the matching event's UID
+ * equals it, **DOM** echoes are rejected: B站 client-side inserts your own
+ * sent message into `.chat-items` even when shadow-banned, so DOM-self is
+ * not proof of broadcast. **WS** echoes for self are still trusted because
+ * the server only pushes DANMU_MSG when the message actually broadcast.
  */
 export function waitForSentEcho(
   text: string,
@@ -101,12 +127,16 @@ export function waitForSentEcho(
   ensureDomTracking()
   const target = text.trim()
   if (!target) return Promise.resolve(null)
+  // The sender UID is also the "self UID" we use to filter unreliable
+  // DOM-self-insert echoes. We pass it as both `uid` (match) and `selfUid`
+  // (filter) so callers don't have to thread it twice.
+  const selfUid = uid
   // Only count real broadcast echoes (ws/dom) as immediate confirmation.
   // 'local' is emitted synchronously inside sendDanmaku and would always
   // short-circuit this check before any WS echo has a chance to arrive.
   const recentCustomSource = findRecentCustomChatDanmakuSource(target, uid, sinceTs)
   if (recentCustomSource && recentCustomSource !== 'local') return Promise.resolve(recentCustomSource)
-  const recentDomSource = findRecentDomDanmakuSource(target, uid, sinceTs)
+  const recentDomSource = findRecentDomDanmakuSource(target, uid, sinceTs, selfUid)
   if (recentDomSource) return Promise.resolve(recentDomSource)
 
   return new Promise(resolve => {
@@ -134,13 +164,13 @@ export function waitForSentEcho(
     })
     unsubscribeDom = subscribeDanmaku({
       onMessage: event => {
-        if (!matchesDomEchoEvent(event, target, uid)) return
+        if (!matchesDomEchoEvent(event, target, uid, selfUid)) return
         finish('dom')
       },
     })
     // Late check: only real broadcast sources.
     const lateCustomSource = findRecentCustomChatDanmakuSource(target, uid, sinceTs)
-    const lateDomSource = findRecentDomDanmakuSource(target, uid, sinceTs)
+    const lateDomSource = findRecentDomDanmakuSource(target, uid, sinceTs, selfUid)
     const lateSource = (lateCustomSource !== 'local' ? lateCustomSource : null) ?? lateDomSource
     if (lateSource) finish(lateSource)
   })

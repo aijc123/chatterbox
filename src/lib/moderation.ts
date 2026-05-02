@@ -28,6 +28,25 @@ export function isRateLimitError(error: string | undefined): boolean {
   return error.includes('频率') || error.includes('过快') || error.toLowerCase().includes('rate')
 }
 
+/**
+ * Returns true when a `sendDanmaku` failure is a network / CORS / fetch-level
+ * problem rather than a real B站 moderation block. Callers (e.g. the
+ * replacement-rule cloud test) must NOT treat these as "原词被屏蔽" — that
+ * misclassification turns "B站 disabled CORS for our header" into 18 bogus
+ * "blocked" rows.
+ *
+ * Real moderation errors come back as `f` / `k` / Chinese error strings or
+ * with a non-zero `errorCode`; those are NOT infrastructure errors.
+ */
+export function isInfrastructureError(error: string | undefined): boolean {
+  if (!error) return false
+  if (/Failed to fetch/i.test(error)) return true
+  if (/^HTTP\s/i.test(error)) return true
+  if (/无响应$/.test(error)) return true
+  if (/NetworkError|TypeError|AbortError/i.test(error)) return true
+  return false
+}
+
 export function isMutedError(error: string | undefined): boolean {
   if (!error) return false
   return error.includes('禁言') || error.includes('被封') || error.toLowerCase().includes('muted')
