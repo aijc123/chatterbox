@@ -111,6 +111,7 @@ let virtualItemsEl: HTMLElement | null = null
 let virtualBottomSpacer: HTMLElement | null = null
 let pauseBtn: HTMLButtonElement | null = null
 let unreadBtn: HTMLButtonElement | null = null
+let jumpBottomBtn: HTMLButtonElement | null = null
 let searchInput: HTMLInputElement | null = null
 let matchCountEl: HTMLElement | null = null
 let wsStatusEl: HTMLElement | null = null
@@ -720,6 +721,17 @@ function updateUnread(): void {
       unreadBtn.title = '恢复自动跟随并跳到底部'
       unreadBtn.style.display = ''
       unreadBtn.dataset.frozen = 'true'
+    }
+  }
+  if (jumpBottomBtn) {
+    if (isFollowing()) {
+      jumpBottomBtn.style.display = 'none'
+      jumpBottomBtn.dataset.unread = '0'
+    } else {
+      jumpBottomBtn.style.display = ''
+      jumpBottomBtn.dataset.unread = unread > 0 ? 'true' : 'false'
+      jumpBottomBtn.textContent = unread > 0 ? `新消息 ${unread} ↓` : '回到最新 ↓'
+      jumpBottomBtn.title = '回到底部并恢复自动跟随'
     }
   }
   updatePerfDebug()
@@ -1504,7 +1516,11 @@ function createRoot(): HTMLElement {
   disposeActionsIsland?.()
   disposeActionsIsland = mountSendActionsIsland(actionsHost, msg => void sendManualDanmaku(msg))
 
-  composer.append(inputWrap, sendRow)
+  jumpBottomBtn = makeButton('lc-chat-jump-bottom', '回到最新 ↓', '回到底部并恢复自动跟随', () => {
+    resumeFollowing()
+  })
+  jumpBottomBtn.style.display = 'none'
+  composer.append(jumpBottomBtn, inputWrap, sendRow)
   panel.append(toolbar, menu, debugEl, listEl, composer)
   updateUnread()
   updateEmptyState()
@@ -1862,6 +1878,7 @@ export function stopCustomChatDom(): void {
   virtualBottomSpacer = null
   pauseBtn = null
   unreadBtn = null
+  jumpBottomBtn = null
   textarea = null
   countEl = null
   searchInput = null

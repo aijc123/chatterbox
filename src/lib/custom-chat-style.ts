@@ -260,8 +260,8 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   padding: 13px 10px 14px;
   scrollbar-width: thin;
   scroll-behavior: auto;
-  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 18px, #000 calc(100% - 18px), transparent);
-  mask-image: linear-gradient(to bottom, transparent, #000 18px, #000 calc(100% - 18px), transparent);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 18px, #000 100%);
+  mask-image: linear-gradient(to bottom, transparent, #000 18px, #000 100%);
 }
 #${ROOT_ID} .lc-chat-virtual-items {
   min-width: 0;
@@ -677,16 +677,16 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
 }
 #${ROOT_ID} .lc-chat-emote {
   display: inline-block;
-  width: 1.7em;
-  height: 1.7em;
-  margin: -.2em .08em;
+  width: 1.35em;
+  height: 1.35em;
+  margin: -.15em .06em;
   vertical-align: middle;
   object-fit: contain;
 }
 #${ROOT_ID} .lc-chat-emote-big {
   display: inline-block;
-  max-width: 160px;
-  max-height: 160px;
+  max-width: 96px;
+  max-height: 96px;
   vertical-align: middle;
   object-fit: contain;
 }
@@ -776,6 +776,38 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   background: color-mix(in srgb, var(--lc-chat-panel) 94%, transparent);
   box-shadow: 0 -10px 24px color-mix(in srgb, var(--lc-chat-bg) 86%, transparent);
   backdrop-filter: blur(16px);
+}
+#${ROOT_ID} .lc-chat-jump-bottom {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  max-width: calc(100% - 24px);
+  height: 28px;
+  padding: 0 14px;
+  border: 1px solid color-mix(in srgb, var(--lc-chat-own) 32%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--lc-chat-panel) 92%, var(--lc-chat-own) 8%);
+  color: var(--lc-chat-text);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--lc-chat-bg) 40%, transparent);
+  backdrop-filter: blur(12px);
+  transition: background-color .14s ease, transform .14s ease, box-shadow .14s ease;
+}
+#${ROOT_ID} .lc-chat-jump-bottom[data-unread="true"] {
+  background: var(--lc-chat-own);
+  color: var(--lc-chat-own-text);
+  border-color: transparent;
+}
+#${ROOT_ID} .lc-chat-jump-bottom:hover {
+  transform: translateX(-50%) translateY(-1px);
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--lc-chat-bg) 50%, transparent);
 }
 #${ROOT_ID} .lc-chat-input-wrap {
   position: relative;

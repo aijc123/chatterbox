@@ -92,15 +92,21 @@ function normalizeMeme(raw: RawSbhzmMeme): SbhzmMeme | null {
 
   const tags = Array.isArray(raw.tags) ? raw.tags.map(normalizeTag).filter(t => t.name) : []
 
+  // sbhzm API 不返回 last_copied_at，但 UI 的「最近使用」排序会按 lastCopiedAt 降序。
+  // 直接用 null 会让所有 sbhzm 条都排到最底（~1700 条堆底）——选了「最近使用」的用户
+  // 几乎看不到任何 sbhzm 内容，体验像"sbhzm 全空"。
+  // 折中方案：用 `created_at` 当 `lastCopiedAt` 的代理。"我们不知道谁最近复制了这条梗，
+  // 但创建时间至少是个时间戳，最新加入的梗相对更可能被频繁使用"。
+  const created = raw.created_at ?? ''
   const meme: SbhzmMeme = {
     id: synthId,
     uid: 0,
     content,
     tags,
     copyCount: raw.copy_count ?? 0,
-    lastCopiedAt: null,
-    createdAt: raw.created_at ?? '',
-    updatedAt: raw.updated_at ?? raw.created_at ?? '',
+    lastCopiedAt: created || null,
+    createdAt: created,
+    updatedAt: raw.updated_at ?? created,
     username: null,
     avatar: null,
     room: null,

@@ -327,6 +327,14 @@ function MemeItem({
 
 const MEME_RELOAD_INTERVAL = 30_000 // 30 seconds
 
+/**
+ * FLIP 动画的最大列表大小。当 LAPLACE + sbhzm 合并后梗数巨大（灰泽满房 ~1800 条），
+ * 在 useLayoutEffect 里同步交替 read (`getBoundingClientRect`) + write (`style.transform`)
+ * 会强制每次都触发整页 layout 回流——~1800 次 = 浏览器主线程冻死。
+ * 超过这个阈值就跳过动画（只换顺序，不做位移过渡）。
+ */
+const FLIP_MAX_ITEMS = 300
+
 export function MemesList() {
   const memes = useSignal<LaplaceMemeWithSource[]>([])
   const sortBy = useSignal<MemeSortBy>('lastCopiedAt')
@@ -397,6 +405,10 @@ export function MemesList() {
     const old = prevRectsRef.current
     if (!el || old.size === 0) return
     prevRectsRef.current = new Map()
+
+    // 大列表（如灰泽满房合并后 1800 条）跳过 FLIP 动画——
+    // read+write 交替会触发 N 次 layout 回流冻死页面。
+    if (el.children.length > FLIP_MAX_ITEMS) return
 
     for (let i = 0; i < el.children.length; i++) {
       const node = el.children[i]
@@ -480,10 +492,22 @@ export function MemesList() {
               href={`https://laplace.live/memes${cachedStreamerUid.value ? `?contribute=${cachedStreamerUid.value}` : ''}`}
               target='_blank'
               rel='noopener'
+              title='打开 LAPLACE 烂梗贡献页（LAPLACE 库供所有直播间共享）'
               style={{ color: '#288bb8', textDecoration: 'none', fontSize: '12px' }}
             >
-              贡献烂梗
+              贡献到 LAPLACE
             </a>
+            {memeSource && (
+              <a
+                href={memeSource.submitPage ?? memeSource.listEndpoint}
+                target='_blank'
+                rel='noopener'
+                title={`打开 ${memeSource.name} 提交页（仅本房间烂梗库；推荐用候选行的「↑ 上传」按钮直接 API 提交）`}
+                style={{ color: '#10b981', textDecoration: 'none', fontSize: '12px' }}
+              >
+                贡献到 {memeSource.name.replace('烂梗库', '')}
+              </a>
+            )}
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '.25em', marginBottom: '.5em' }}>

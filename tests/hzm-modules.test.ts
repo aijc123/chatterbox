@@ -282,4 +282,267 @@ describe('sbhzm-client normalization', () => {
       _setGmXhrForTests(null)
     }
   })
+
+  // sbhzm API 不返回 last_copied_at；为了避免「最近使用」排序时所有 sbhzm 条堆底，
+  // 我们用 created_at 当 lastCopiedAt 的代理。这样和 LAPLACE 的真实 lastCopiedAt
+  // 在同一时间维度上参与排序，混合后的顺序仍然合理。
+  test('sbhzm normalization uses created_at as lastCopiedAt fallback (not null)', async () => {
+    const { _setGmXhrForTests } = await import('../src/lib/gm-fetch')
+    type XhrOpts = {
+      url: string
+      onload?: (r: {
+        status: number
+        statusText: string
+        responseText: string
+        responseHeaders: string
+        finalUrl: string
+      }) => void
+    }
+    _setGmXhrForTests(((opts: XhrOpts) => {
+      const body = opts.url.includes('page=1')
+        ? [
+            { id: 1, content: 'A', copy_count: 5, created_at: '2026-05-01T10:00:00.000000', tags: [] },
+            { id: 2, content: 'B', copy_count: 3, created_at: '2026-04-15T12:00:00.000000', tags: [] },
+            // No created_at provided — should fall back to null lastCopiedAt
+            { id: 3, content: 'C', copy_count: 1, tags: [] },
+          ]
+        : []
+      setTimeout(() => {
+        opts.onload?.({
+          status: 200,
+          statusText: 'OK',
+          responseText: JSON.stringify(body),
+          responseHeaders: '',
+          finalUrl: opts.url,
+        })
+      }, 0)
+      return undefined as unknown as Parameters<typeof _setGmXhrForTests>[0]
+    }) as unknown as Parameters<typeof _setGmXhrForTests>[0])
+
+    try {
+      const { fetchSbhzmMemes, _clearSbhzmCacheForTests } = await import('../src/lib/sbhzm-client')
+      _clearSbhzmCacheForTests()
+      const source = getMemeSourceForRoom(1713546334)
+      if (!source) throw new Error('Expected meme source for room 1713546334')
+      const memes = await fetchSbhzmMemes(source, true)
+
+      const a = memes.find(m => m.content === 'A')
+      const b = memes.find(m => m.content === 'B')
+      const c = memes.find(m => m.content === 'C')
+
+      // created_at present → mirrors into lastCopiedAt (NOT null)
+      expect(a?.lastCopiedAt).toBe('2026-05-01T10:00:00.000000')
+      expect(a?.createdAt).toBe('2026-05-01T10:00:00.000000')
+      expect(b?.lastCopiedAt).toBe('2026-04-15T12:00:00.000000')
+
+      // No created_at → lastCopiedAt stays null (sortMemes pushes to bottom — acceptable)
+      expect(c?.lastCopiedAt).toBeNull()
+      expect(c?.createdAt).toBe('')
+    } finally {
+      _setGmXhrForTests(null)
+    }
+  })
+})
+
+describe('llm-driver testLLMConnection', () => {
+  test('rejects empty API key without HTTP call', async () => {
+    const { _setGmXhrForTests } = await import('../src/lib/gm-fetch')
+    let httpCalled = false
+    _setGmXhrForTests(((_opts: unknown) => {
+      httpCalled = true
+      return undefined as unknown as Parameters<typeof _setGmXhrForTests>[0]
+    }) as unknown as Parameters<typeof _setGmXhrForTests>[0])
+    try {
+      const { testLLMConnection } = await import('../src/lib/llm-driver')
+      const r = await testLLMConnection({ provider: 'anthropic', apiKey: '   ', model: 'haiku' })
+      expect(r.ok).toBe(false)
+      expect(r.error).toMatch(/API key/)
+      expect(httpCalled).toBe(false)
+    } finally {
+      _setGmXhrForTests(null)
+    }
+  })
+
+  test('rejects openai-compat without baseURL', async () => {
+    const { _setGmXhrForTests } = await import('../src/lib/gm-fetch')
+    let httpCalled = false
+    _setGmXhrForTests(((_opts: unknown) => {
+      httpCalled = true
+      return undefined as unknown as Parameters<typeof _setGmXhrForTests>[0]
+    }) as unknown as Parameters<typeof _setGmXhrForTests>[0])
+    try {
+      const { testLLMConnection } = await import('../src/lib/llm-driver')
+      const r = await testLLMConnection({ provider: 'openai-compat', apiKey: 'sk-x', model: 'm', baseURL: '' })
+      expect(r.ok).toBe(false)
+      expect(r.error).toMatch(/base URL/)
+      expect(httpCalled).toBe(false)
+    } finally {
+      _setGmXhrForTests(null)
+    }
+  })
+
+  test('anthropic provider posts to /v1/messages with x-api-key and parses content[]', async () => {
+    const { _setGmXhrForTests } = await import('../src/lib/gm-fetch')
+    type XhrOpts = {
+      url: string
+      method?: string
+      headers?: Record<string, string>
+      data?: string
+      onload?: (r: {
+        status: number
+        statusText: string
+        responseText: string
+        responseHeaders: string
+        finalUrl: string
+      }) => void
+    }
+    const seen: { url?: string; method?: string; headers?: Record<string, string> } = {}
+    _setGmXhrForTests(((opts: XhrOpts) => {
+      seen.url = opts.url
+      seen.method = opts.method
+      seen.headers = opts.headers
+      setTimeout(() => {
+        opts.onload?.({
+          status: 200,
+          statusText: 'OK',
+          responseText: JSON.stringify({ content: [{ text: '1' }] }),
+          responseHeaders: '',
+          finalUrl: opts.url,
+        })
+      }, 0)
+      return undefined as unknown as Parameters<typeof _setGmXhrForTests>[0]
+    }) as unknown as Parameters<typeof _setGmXhrForTests>[0])
+    try {
+      const { testLLMConnection } = await import('../src/lib/llm-driver')
+      const r = await testLLMConnection({
+        provider: 'anthropic',
+        apiKey: 'ant-12345',
+        model: 'claude-haiku-4-5-20251001',
+      })
+      expect(r.ok).toBe(true)
+      expect(r.error).toBeUndefined()
+      expect(seen.url).toContain('api.anthropic.com/v1/messages')
+      expect(seen.method).toBe('POST')
+      expect(seen.headers?.['x-api-key']).toBe('ant-12345')
+      expect(seen.headers?.['anthropic-version']).toBeTruthy()
+    } finally {
+      _setGmXhrForTests(null)
+    }
+  })
+
+  test('openai provider posts to /v1/chat/completions with Bearer + choices parse', async () => {
+    const { _setGmXhrForTests } = await import('../src/lib/gm-fetch')
+    type XhrOpts = {
+      url: string
+      method?: string
+      headers?: Record<string, string>
+      onload?: (r: {
+        status: number
+        statusText: string
+        responseText: string
+        responseHeaders: string
+        finalUrl: string
+      }) => void
+    }
+    const seen: { url?: string; auth?: string } = {}
+    _setGmXhrForTests(((opts: XhrOpts) => {
+      seen.url = opts.url
+      seen.auth = opts.headers?.Authorization
+      setTimeout(() => {
+        opts.onload?.({
+          status: 200,
+          statusText: 'OK',
+          responseText: JSON.stringify({ choices: [{ message: { content: 'pong' } }] }),
+          responseHeaders: '',
+          finalUrl: opts.url,
+        })
+      }, 0)
+      return undefined as unknown as Parameters<typeof _setGmXhrForTests>[0]
+    }) as unknown as Parameters<typeof _setGmXhrForTests>[0])
+    try {
+      const { testLLMConnection } = await import('../src/lib/llm-driver')
+      const r = await testLLMConnection({ provider: 'openai', apiKey: 'sk-abc', model: 'gpt-4o-mini' })
+      expect(r.ok).toBe(true)
+      expect(seen.url).toContain('api.openai.com/v1/chat/completions')
+      expect(seen.auth).toBe('Bearer sk-abc')
+    } finally {
+      _setGmXhrForTests(null)
+    }
+  })
+
+  test('openai-compat routes to user baseURL with /v1/chat/completions appended', async () => {
+    const { _setGmXhrForTests } = await import('../src/lib/gm-fetch')
+    type XhrOpts = {
+      url: string
+      onload?: (r: {
+        status: number
+        statusText: string
+        responseText: string
+        responseHeaders: string
+        finalUrl: string
+      }) => void
+    }
+    let seenUrl = ''
+    _setGmXhrForTests(((opts: XhrOpts) => {
+      seenUrl = opts.url
+      setTimeout(() => {
+        opts.onload?.({
+          status: 200,
+          statusText: 'OK',
+          responseText: JSON.stringify({ choices: [{ message: { content: '1' } }] }),
+          responseHeaders: '',
+          finalUrl: opts.url,
+        })
+      }, 0)
+      return undefined as unknown as Parameters<typeof _setGmXhrForTests>[0]
+    }) as unknown as Parameters<typeof _setGmXhrForTests>[0])
+    try {
+      const { testLLMConnection } = await import('../src/lib/llm-driver')
+      // Trailing slash on baseURL should be trimmed; route should match exactly once.
+      const r = await testLLMConnection({
+        provider: 'openai-compat',
+        apiKey: 'sk-deepseek',
+        model: 'deepseek-chat',
+        baseURL: 'https://api.deepseek.com/',
+      })
+      expect(r.ok).toBe(true)
+      expect(seenUrl).toBe('https://api.deepseek.com/v1/chat/completions')
+    } finally {
+      _setGmXhrForTests(null)
+    }
+  })
+
+  test('non-2xx response surfaces as ok=false with error message', async () => {
+    const { _setGmXhrForTests } = await import('../src/lib/gm-fetch')
+    type XhrOpts = {
+      url: string
+      onload?: (r: {
+        status: number
+        statusText: string
+        responseText: string
+        responseHeaders: string
+        finalUrl: string
+      }) => void
+    }
+    _setGmXhrForTests(((opts: XhrOpts) => {
+      setTimeout(() => {
+        opts.onload?.({
+          status: 401,
+          statusText: 'Unauthorized',
+          responseText: '{"error":"invalid_api_key"}',
+          responseHeaders: '',
+          finalUrl: opts.url,
+        })
+      }, 0)
+      return undefined as unknown as Parameters<typeof _setGmXhrForTests>[0]
+    }) as unknown as Parameters<typeof _setGmXhrForTests>[0])
+    try {
+      const { testLLMConnection } = await import('../src/lib/llm-driver')
+      const r = await testLLMConnection({ provider: 'anthropic', apiKey: 'bad-key', model: 'm' })
+      expect(r.ok).toBe(false)
+      expect(r.error).toMatch(/401/)
+    } finally {
+      _setGmXhrForTests(null)
+    }
+  })
 })

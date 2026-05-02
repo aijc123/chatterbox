@@ -126,6 +126,46 @@ async function callOpenAI(opts: ChooseMemeOptions, urlOverride?: string): Promis
 }
 
 /**
+ * 测试 LLM 配置是否可用——发一个最小请求验证 auth 和路由对了。
+ *
+ * - 不需要真实候选；用一个伪造的最小 candidates，看返回能不能解析出来
+ * - 抛错（HTTP 4xx/5xx、网络问题、超时）→ `{ ok: false, error }`
+ * - 任何 200 + 可解析响应 → `{ ok: true }`，即便模型返回 `-1`（视为弃权也算 API 通）
+ *
+ * 给 UI 用：API key 配好后用户点「测试连接」会调用这个。
+ */
+export async function testLLMConnection(opts: {
+  provider: HzmLlmProvider
+  apiKey: string
+  model: string
+  baseURL?: string
+}): Promise<{ ok: boolean; error?: string }> {
+  if (!opts.apiKey.trim()) return { ok: false, error: 'API key 为空' }
+  const probe: ChooseMemeOptions = {
+    ...opts,
+    roomName: '连接测试',
+    recentChat: ['ping'],
+    candidates: [{ id: '1', content: 'pong', tags: [] }],
+  }
+  try {
+    let parsed: LlmResponseChoice | null = null
+    if (opts.provider === 'anthropic') {
+      parsed = await callAnthropic(probe)
+    } else if (opts.provider === 'openai') {
+      parsed = await callOpenAI(probe)
+    } else {
+      const base = trimBaseURL(opts.baseURL ?? '')
+      if (!base) return { ok: false, error: '需要填 base URL（例如 https://api.deepseek.com）' }
+      parsed = await callOpenAI(probe, `${base}/v1/chat/completions`)
+    }
+    if (parsed === null) return { ok: false, error: '响应里未解析出文本（模型可能返回了空）' }
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/**
  * 选一条最贴合最近公屏的梗。
  *
  * 返回值：

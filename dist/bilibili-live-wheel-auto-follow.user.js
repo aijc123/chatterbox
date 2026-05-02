@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.9.2
+// @version      2.9.3
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -56,7 +56,7 @@
 System.addImportMap({ imports: {"@soniox/speech-to-text-web":"user:@soniox/speech-to-text-web"} });
 System.set("user:@soniox/speech-to-text-web", (()=>{const _=SonioxSpeechToTextWeb;('default' in _)||(_.default=_);return _})());
 
-System.register("./__entry.js", ['./__monkey.entry-BYAnBU5d.js'], (function (exports, module) {
+System.register("./__entry.js", ['./__monkey.entry-7BW_mupv.js'], (function (exports, module) {
 	'use strict';
 	return {
 		setters: [null],
@@ -68,7 +68,7 @@ System.register("./__entry.js", ['./__monkey.entry-BYAnBU5d.js'], (function (exp
 	};
 }));
 
-System.register("./__monkey.entry-BYAnBU5d.js", ['@soniox/speech-to-text-web'], (function (exports, module) {
+System.register("./__monkey.entry-7BW_mupv.js", ['@soniox/speech-to-text-web'], (function (exports, module) {
   'use strict';
   var SonioxClient;
   return {
@@ -7970,8 +7970,8 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID$1} {
   padding: 13px 10px 14px;
   scrollbar-width: thin;
   scroll-behavior: auto;
-  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 18px, #000 calc(100% - 18px), transparent);
-  mask-image: linear-gradient(to bottom, transparent, #000 18px, #000 calc(100% - 18px), transparent);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 18px, #000 100%);
+  mask-image: linear-gradient(to bottom, transparent, #000 18px, #000 100%);
 }
 #${ROOT_ID$1} .lc-chat-virtual-items {
   min-width: 0;
@@ -8387,16 +8387,16 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID$1} {
 }
 #${ROOT_ID$1} .lc-chat-emote {
   display: inline-block;
-  width: 1.7em;
-  height: 1.7em;
-  margin: -.2em .08em;
+  width: 1.35em;
+  height: 1.35em;
+  margin: -.15em .06em;
   vertical-align: middle;
   object-fit: contain;
 }
 #${ROOT_ID$1} .lc-chat-emote-big {
   display: inline-block;
-  max-width: 160px;
-  max-height: 160px;
+  max-width: 96px;
+  max-height: 96px;
   vertical-align: middle;
   object-fit: contain;
 }
@@ -8486,6 +8486,38 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID$1} {
   background: color-mix(in srgb, var(--lc-chat-panel) 94%, transparent);
   box-shadow: 0 -10px 24px color-mix(in srgb, var(--lc-chat-bg) 86%, transparent);
   backdrop-filter: blur(16px);
+}
+#${ROOT_ID$1} .lc-chat-jump-bottom {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  max-width: calc(100% - 24px);
+  height: 28px;
+  padding: 0 14px;
+  border: 1px solid color-mix(in srgb, var(--lc-chat-own) 32%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--lc-chat-panel) 92%, var(--lc-chat-own) 8%);
+  color: var(--lc-chat-text);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--lc-chat-bg) 40%, transparent);
+  backdrop-filter: blur(12px);
+  transition: background-color .14s ease, transform .14s ease, box-shadow .14s ease;
+}
+#${ROOT_ID$1} .lc-chat-jump-bottom[data-unread="true"] {
+  background: var(--lc-chat-own);
+  color: var(--lc-chat-own-text);
+  border-color: transparent;
+}
+#${ROOT_ID$1} .lc-chat-jump-bottom:hover {
+  transform: translateX(-50%) translateY(-1px);
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--lc-chat-bg) 50%, transparent);
 }
 #${ROOT_ID$1} .lc-chat-input-wrap {
   position: relative;
@@ -9613,6 +9645,7 @@ u$2(
       let virtualBottomSpacer = null;
       let pauseBtn = null;
       let unreadBtn = null;
+      let jumpBottomBtn = null;
       let searchInput = null;
       let matchCountEl = null;
       let wsStatusEl = null;
@@ -10103,6 +10136,17 @@ u$2(
             unreadBtn.title = "恢复自动跟随并跳到底部";
             unreadBtn.style.display = "";
             unreadBtn.dataset.frozen = "true";
+          }
+        }
+        if (jumpBottomBtn) {
+          if (isFollowing()) {
+            jumpBottomBtn.style.display = "none";
+            jumpBottomBtn.dataset.unread = "0";
+          } else {
+            jumpBottomBtn.style.display = "";
+            jumpBottomBtn.dataset.unread = unread > 0 ? "true" : "false";
+            jumpBottomBtn.textContent = unread > 0 ? `新消息 ${unread} ↓` : "回到最新 ↓";
+            jumpBottomBtn.title = "回到底部并恢复自动跟随";
           }
         }
         updatePerfDebug();
@@ -10775,7 +10819,11 @@ u$2(
         sendRow.append(actionsHost, sendBtn, hint);
         disposeActionsIsland?.();
         disposeActionsIsland = mountSendActionsIsland(actionsHost, (msg) => void sendManualDanmaku(msg));
-        composer.append(inputWrap, sendRow);
+        jumpBottomBtn = makeButton("lc-chat-jump-bottom", "回到最新 ↓", "回到底部并恢复自动跟随", () => {
+          resumeFollowing();
+        });
+        jumpBottomBtn.style.display = "none";
+        composer.append(jumpBottomBtn, inputWrap, sendRow);
         panel.append(toolbar, menu, debugEl, listEl, composer);
         updateUnread();
         updateEmptyState();
@@ -11098,6 +11146,7 @@ u$2(
         virtualBottomSpacer = null;
         pauseBtn = null;
         unreadBtn = null;
+        jumpBottomBtn = null;
         textarea = null;
         countEl = null;
         searchInput = null;
@@ -13073,15 +13122,16 @@ u$2("div", { className: "cb-body", children: u$2(
           synthId = -Math.abs(h2) - 1e6;
         }
         const tags = Array.isArray(raw.tags) ? raw.tags.map(normalizeTag).filter((t2) => t2.name) : [];
+        const created = raw.created_at ?? "";
         const meme = {
           id: synthId,
           uid: 0,
           content,
           tags,
           copyCount: raw.copy_count ?? 0,
-          lastCopiedAt: null,
-          createdAt: raw.created_at ?? "",
-          updatedAt: raw.updated_at ?? raw.created_at ?? "",
+          lastCopiedAt: created || null,
+          createdAt: created,
+          updatedAt: raw.updated_at ?? created,
           username: null,
           avatar: null,
           room: null,
@@ -13353,7 +13403,7 @@ u$2("div", { className: "cb-body", children: u$2(
         bumpDailyLlmCalls(roomId);
         try {
           const { chooseMemeWithLLM } = await __vitePreload(async () => {
-            const { chooseMemeWithLLM: chooseMemeWithLLM2 } = await module.import('./llm-driver-CqSe_oRs-BIpPJaDO.js');
+            const { chooseMemeWithLLM: chooseMemeWithLLM2 } = await module.import('./llm-driver-Ddax0Vb0-MvhvkKa6.js');
             return { chooseMemeWithLLM: chooseMemeWithLLM2 };
           }, true ? void 0 : void 0);
           const chosenContent = await chooseMemeWithLLM({
@@ -13495,11 +13545,26 @@ u$2("div", { className: "cb-body", children: u$2(
         }
         resetRuntime();
       }
+      const PROVIDER_LABEL = {
+        anthropic: "Anthropic",
+        openai: "OpenAI",
+        "openai-compat": "OpenAI 兼容"
+      };
+      const MODE_LABEL = {
+        heuristic: "启发式",
+        llm: "LLM 智驾"
+      };
+      function maskKey(k2) {
+        const trimmed = k2.trim();
+        if (trimmed.length <= 8) return trimmed ? `${trimmed[0]}***${trimmed.at(-1)}` : "";
+        return `${trimmed.slice(0, 4)}…${trimmed.slice(-4)}`;
+      }
       function HzmDrivePanel({ source, memes }) {
         const roomId = cachedRoomId.value;
         const stats = getDailyStats(roomId);
         const selected = getSelectedTags(roomId);
         const blacklist = getBlacklistTags(roomId);
+        const isRunning = hzmDriveMode.value !== "off";
         const tagOptions = (() => {
           const set = new Set();
           for (const m2 of memes) {
@@ -13517,16 +13582,54 @@ u$2("div", { className: "cb-body", children: u$2(
           void startHzmAutoDrive({ source, getMemes: () => memes });
           return () => stopHzmAutoDrive();
         }, [hzmDriveMode.value, source.roomId]);
+        const testStatus = useSignal("idle");
+        const testError = useSignal("");
+        const toggleDrive = () => {
+          if (isRunning) {
+            hzmDriveMode.value = "off";
+          } else {
+            hzmDriveMode.value = "heuristic";
+          }
+        };
+        const setMode = (m2) => {
+          hzmDriveMode.value = m2;
+        };
+        const handleTestLLM = async () => {
+          if (testStatus.value === "testing") return;
+          testStatus.value = "testing";
+          testError.value = "";
+          try {
+            const { testLLMConnection } = await __vitePreload(async () => {
+              const { testLLMConnection: testLLMConnection2 } = await module.import('./llm-driver-Ddax0Vb0-MvhvkKa6.js');
+              return { testLLMConnection: testLLMConnection2 };
+            }, true ? void 0 : void 0);
+            const r2 = await testLLMConnection({
+              provider: hzmLlmProvider.value,
+              apiKey: hzmLlmApiKey.value,
+              model: hzmLlmModel.value,
+              baseURL: hzmLlmBaseURL.value.trim() || void 0
+            });
+            if (r2.ok) {
+              testStatus.value = "ok";
+            } else {
+              testStatus.value = "fail";
+              testError.value = r2.error ?? "未知错误";
+            }
+          } catch (err) {
+            testStatus.value = "fail";
+            testError.value = err instanceof Error ? err.message : String(err);
+          }
+        };
         const toggleSelectedTag = (tag) => {
           if (roomId === null) return;
-          const next = selected.includes(tag) ? selected.filter((t2) => t2 !== tag) : [...selected, tag];
-          setSelectedTags(roomId, next);
+          setSelectedTags(roomId, selected.includes(tag) ? selected.filter((t2) => t2 !== tag) : [...selected, tag]);
         };
         const toggleBlacklistTag = (tag) => {
           if (roomId === null) return;
-          const next = blacklist.includes(tag) ? blacklist.filter((t2) => t2 !== tag) : [...blacklist, tag];
-          setBlacklistTags(roomId, next);
+          setBlacklistTags(roomId, blacklist.includes(tag) ? blacklist.filter((t2) => t2 !== tag) : [...blacklist, tag]);
         };
+        const apiKeyConfigured = hzmLlmApiKey.value.trim().length > 0;
+        const pauseDefault = (source.pauseKeywords ?? []).join(" / ");
         return u$2(
           "details",
           {
@@ -13538,329 +13641,324 @@ u$2("div", { className: "cb-body", children: u$2(
               background: "var(--bg2, #fafafa)"
             },
             children: [
-u$2(
-                "summary",
-                {
-                  style: {
-                    cursor: "pointer",
-                    userSelect: "none",
-                    fontWeight: "bold",
-                    fontSize: "12px",
-                    color: "#288bb8"
-                  },
-                  children: [
-                    "🤖 智能辅助驾驶（",
-                    source.name,
-                    "）"
-                  ]
-                }
-              ),
-u$2(
-                "div",
-                {
-                  style: {
-                    marginTop: ".4em",
-                    padding: ".3em .4em",
-                    fontSize: "10px",
-                    color: "#a86",
-                    background: "#fff7e6",
-                    border: "1px dashed #d6b86a",
-                    borderRadius: "3px",
-                    lineHeight: 1.5
-                  },
-                  children: "前排提霉：独轮车工具无罪，请合理使用。开启即代表你已阅读并同意：本工具不为 任何独轮车自动驾驶事故负责。建议先用 dryRun 试运行 5 分钟看效果。"
-                }
-              ),
-u$2("div", { style: { display: "flex", alignItems: "center", gap: ".6em", marginTop: ".5em", fontSize: "12px" }, children: [
-u$2("span", { style: { fontWeight: "bold" }, children: "模式：" }),
-                ["off", "heuristic", "llm"].map((m2) => u$2("label", { style: { display: "inline-flex", alignItems: "center", gap: ".15em" }, children: [
-u$2(
-                    "input",
-                    {
-                      type: "radio",
-                      name: "hzmMode",
-                      checked: hzmDriveMode.value === m2,
-                      onChange: () => {
-                        hzmDriveMode.value = m2;
-                      }
-                    }
-                  ),
-                  m2 === "off" ? "关闭" : m2 === "heuristic" ? "启发式" : "LLM 智驾"
-                ] }, m2))
+u$2("summary", { style: { cursor: "pointer", userSelect: "none", fontWeight: "bold" }, children: [
+u$2("span", { children: [
+                  "🤖 智能辅助驾驶（",
+                  source.name,
+                  "）"
+                ] }),
+                isRunning && u$2("span", { className: "cb-soft", children: [
+                  "运行中 · ",
+                  MODE_LABEL[hzmDriveMode.value]
+                ] })
               ] }),
-u$2("div", { style: { display: "flex", alignItems: "center", gap: ".4em", marginTop: ".4em", fontSize: "12px" }, children: [
-u$2(
-                  "input",
-                  {
-                    id: "hzmDryRun",
-                    type: "checkbox",
-                    checked: hzmDryRun.value,
-                    onInput: (e2) => {
-                      hzmDryRun.value = e2.currentTarget.checked;
-                    }
-                  }
-                ),
-u$2("label", { for: "hzmDryRun", children: "dryRun（只在日志显示候选，不真发）" })
-              ] }),
-              hzmDriveMode.value !== "off" && u$2(S$1, { children: [
+u$2("div", { className: "cb-body cb-stack", children: [
 u$2(
                   "div",
                   {
+                    className: "cb-panel",
                     style: {
-                      display: "grid",
-                      gridTemplateColumns: "auto 60px",
-                      alignItems: "center",
-                      gap: ".3em .5em",
-                      marginTop: ".5em",
-                      fontSize: "12px"
+                      background: "#fff7e6",
+                      borderColor: "#d6b86a",
+                      color: "#a86",
+                      fontSize: "11px",
+                      lineHeight: 1.5
                     },
                     children: [
-u$2("label", { for: "hzmInterval", children: "间隔（秒）" }),
-u$2(
-                        "input",
-                        {
-                          id: "hzmInterval",
-                          type: "number",
-                          min: 3,
-                          max: 120,
-                          value: hzmDriveIntervalSec.value,
-                          onInput: (e2) => {
-                            const v2 = Number(e2.currentTarget.value);
-                            if (Number.isFinite(v2) && v2 > 0) hzmDriveIntervalSec.value = v2;
-                          },
-                          style: { width: "60px" }
-                        }
-                      ),
-u$2("label", { for: "hzmRate", children: "每分钟最多" }),
-u$2(
-                        "input",
-                        {
-                          id: "hzmRate",
-                          type: "number",
-                          min: 1,
-                          max: 20,
-                          value: hzmRateLimitPerMin.value,
-                          onInput: (e2) => {
-                            const v2 = Number(e2.currentTarget.value);
-                            if (Number.isFinite(v2) && v2 > 0) hzmRateLimitPerMin.value = v2;
-                          },
-                          style: { width: "60px" }
-                        }
-                      ),
-                      hzmDriveMode.value === "llm" && u$2(S$1, { children: [
-u$2("label", { for: "hzmLlmRatio", children: "LLM 每 N 次" }),
-u$2(
-                          "input",
-                          {
-                            id: "hzmLlmRatio",
-                            type: "number",
-                            min: 1,
-                            max: 10,
-                            value: hzmLlmRatio.value,
-                            onInput: (e2) => {
-                              const v2 = Number(e2.currentTarget.value);
-                              if (Number.isFinite(v2) && v2 >= 1) hzmLlmRatio.value = v2;
-                            },
-                            style: { width: "60px" }
-                          }
-                        )
-                      ] })
+                      "前排提霉：独轮车工具无罪，请合理使用。开启即代表你已同意：本工具不为任何独轮车自动驾驶事故负责。 建议先用",
+                      " ",
+u$2("b", { children: "dryRun" }),
+                      " 试运行 5 分钟看效果。"
                     ]
                   }
                 ),
-                tagOptions.length > 0 && u$2("div", { style: { marginTop: ".5em", fontSize: "12px" }, children: [
-u$2("div", { style: { marginBottom: ".2em", fontWeight: "bold" }, children: "偏好标签（白名单，空 = 全部）：" }),
-u$2("div", { style: { display: "flex", flexWrap: "wrap", gap: ".3em" }, children: tagOptions.map((t2) => u$2(
-                    "label",
-                    {
-                      style: {
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: ".15em",
-                        padding: "0 .35em",
-                        borderRadius: "2px",
-                        background: selected.includes(t2) ? "#10b981" : "transparent",
-                        color: selected.includes(t2) ? "#fff" : "inherit",
-                        border: "1px solid var(--Ga2, #ccc)",
-                        cursor: "pointer",
-                        fontSize: "11px"
-                      },
-                      children: [
+u$2("div", { className: "cb-row", children: [
 u$2(
-                          "input",
-                          {
-                            type: "checkbox",
-                            style: { marginRight: ".15em" },
-                            checked: selected.includes(t2),
-                            onInput: () => toggleSelectedTag(t2)
-                          }
-                        ),
-                        t2
-                      ]
-                    },
-                    t2
-                  )) }),
-u$2("div", { style: { marginTop: ".4em", marginBottom: ".2em", fontWeight: "bold" }, children: "黑名单标签：" }),
-u$2("div", { style: { display: "flex", flexWrap: "wrap", gap: ".3em" }, children: tagOptions.map((t2) => u$2(
-                    "label",
+                    "button",
                     {
+                      type: "button",
+                      className: isRunning ? "cb-danger" : "cb-primary",
+                      onClick: toggleDrive,
+                      title: isRunning ? "点击停止智驾" : "点击启动智驾（默认启发式模式）",
+                      children: isRunning ? "停车" : "开车"
+                    }
+                  ),
+u$2("span", { children: "模式" }),
+                  ["heuristic", "llm"].map((m2) => u$2(
+                    "button",
+                    {
+                      type: "button",
+                      className: hzmDriveMode.value === m2 ? "cb-primary" : "",
                       style: {
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: ".15em",
-                        padding: "0 .35em",
-                        borderRadius: "2px",
-                        background: blacklist.includes(t2) ? "#ef4444" : "transparent",
-                        color: blacklist.includes(t2) ? "#fff" : "inherit",
-                        border: "1px solid var(--Ga2, #ccc)",
-                        cursor: "pointer",
-                        fontSize: "11px"
+                        fontSize: "11px",
+                        padding: ".15em .6em",
+                        opacity: isRunning ? 1 : 0.6
                       },
-                      children: [
-u$2(
-                          "input",
-                          {
-                            type: "checkbox",
-                            style: { marginRight: ".15em" },
-                            checked: blacklist.includes(t2),
-                            onInput: () => toggleBlacklistTag(t2)
-                          }
-                        ),
-                        t2
-                      ]
+                      onClick: () => setMode(m2),
+                      title: m2 === "heuristic" ? "启发式：用关键词正则 + 偏好 tag 选梗，不调用 LLM。免费、稳定。" : "LLM 智驾：每 N 次 tick 用大模型选梗，其余仍走启发式。需要 API key。",
+                      children: MODE_LABEL[m2]
                     },
-                    t2
-                  )) })
+                    m2
+                  )),
+u$2("span", { className: "cb-row", style: { marginLeft: ".5em" }, children: [
+u$2(
+                      "input",
+                      {
+                        id: "hzmDryRun",
+                        type: "checkbox",
+                        checked: hzmDryRun.value,
+                        onInput: (e2) => {
+                          hzmDryRun.value = e2.currentTarget.checked;
+                        }
+                      }
+                    ),
+u$2("label", { for: "hzmDryRun", title: "只在日志显示候选，不真发到弹幕——新手强烈建议先开", children: "dryRun" })
+                  ] })
                 ] }),
-u$2("div", { style: { marginTop: ".5em", fontSize: "12px" }, children: [
-u$2("label", { for: "hzmPause", style: { display: "block", marginBottom: ".2em" }, children: [
-                    "暂停关键词（每行一条正则；空 = 用梗源默认 ",
-                    (source.pauseKeywords ?? []).join(" / "),
-                    "）"
+                isRunning && u$2("div", { className: "cb-panel cb-stack", children: [
+u$2("div", { className: "cb-row", children: [
+u$2("span", { children: "间隔" }),
+u$2(
+                      "input",
+                      {
+                        type: "number",
+                        min: "3",
+                        max: "120",
+                        style: { width: "40px" },
+                        value: hzmDriveIntervalSec.value,
+                        onInput: (e2) => {
+                          const v2 = parseInt(e2.currentTarget.value, 10);
+                          if (Number.isFinite(v2) && v2 > 0) hzmDriveIntervalSec.value = v2;
+                        },
+                        title: "基础 tick 间隔（秒），实际加 0.7-1.5x 的随机抖动。建议 5-15。"
+                      }
+                    ),
+u$2("span", { children: "秒，每分钟最多" }),
+u$2(
+                      "input",
+                      {
+                        type: "number",
+                        min: "1",
+                        max: "20",
+                        style: { width: "40px" },
+                        value: hzmRateLimitPerMin.value,
+                        onInput: (e2) => {
+                          const v2 = parseInt(e2.currentTarget.value, 10);
+                          if (Number.isFinite(v2) && v2 > 0) hzmRateLimitPerMin.value = v2;
+                        },
+                        title: "硬限速。同时开文字独轮车会叠加发送量，建议保持 ≤6 单独使用。"
+                      }
+                    ),
+u$2("span", { children: "条" }),
+                    hzmDriveMode.value === "llm" && u$2(S$1, { children: [
+u$2("span", { style: { marginLeft: ".5em" }, children: "，LLM 每" }),
+u$2(
+                        "input",
+                        {
+                          type: "number",
+                          min: "1",
+                          max: "10",
+                          style: { width: "36px" },
+                          value: hzmLlmRatio.value,
+                          onInput: (e2) => {
+                            const v2 = parseInt(e2.currentTarget.value, 10);
+                            if (Number.isFinite(v2) && v2 >= 1) hzmLlmRatio.value = v2;
+                          },
+                          title: "1=每次都用 LLM；3=每 3 次用 1 次（其它走启发式，省 API 费）"
+                        }
+                      ),
+u$2("span", { children: "次" })
+                    ] })
+                  ] }),
+                  tagOptions.length > 0 && u$2(S$1, { children: [
+u$2("div", { className: "cb-row", style: { flexWrap: "wrap" }, children: [
+u$2("span", { style: { fontWeight: "bold", minWidth: "4em" }, title: "只从勾选 tag 的梗里选；空 = 全部", children: "偏好 tag" }),
+                      tagOptions.map((t2) => u$2(
+                        "button",
+                        {
+                          type: "button",
+                          className: "cb-tag",
+                          onClick: () => toggleSelectedTag(t2),
+                          style: {
+                            padding: ".05em .4em",
+                            background: selected.includes(t2) ? "#10b981" : "#bbb",
+                            border: "none",
+                            borderRadius: "2px",
+                            color: "#fff",
+                            cursor: "pointer",
+                            fontSize: "11px"
+                          },
+                          children: t2
+                        },
+                        t2
+                      ))
+                    ] }),
+u$2("div", { className: "cb-row", style: { flexWrap: "wrap" }, children: [
+u$2("span", { style: { fontWeight: "bold", minWidth: "4em" }, title: "命中即跳过的 tag", children: "黑名单" }),
+                      tagOptions.map((t2) => u$2(
+                        "button",
+                        {
+                          type: "button",
+                          className: "cb-tag",
+                          onClick: () => toggleBlacklistTag(t2),
+                          style: {
+                            padding: ".05em .4em",
+                            background: blacklist.includes(t2) ? "#ef4444" : "#bbb",
+                            border: "none",
+                            borderRadius: "2px",
+                            color: "#fff",
+                            cursor: "pointer",
+                            fontSize: "11px"
+                          },
+                          children: t2
+                        },
+                        t2
+                      ))
+                    ] })
+                  ] }),
+u$2("div", { className: "cb-row", children: [
+u$2("span", { style: { fontWeight: "bold", minWidth: "4em" }, children: "暂停词" }),
+u$2("span", { style: { fontSize: "10px", color: "#888" }, children: [
+                      "每行一条正则；命中后 60s 不发。空 = 用默认（",
+                      pauseDefault || "无",
+                      "）"
+                    ] })
                   ] }),
 u$2(
                     "textarea",
                     {
-                      id: "hzmPause",
                       rows: 2,
                       value: hzmPauseKeywordsOverride.value,
                       onInput: (e2) => {
                         hzmPauseKeywordsOverride.value = e2.currentTarget.value;
                       },
-                      style: { boxSizing: "border-box", width: "100%", fontSize: "11px" },
+                      style: { boxSizing: "border-box", width: "100%", fontSize: "11px", resize: "vertical" },
                       placeholder: (source.pauseKeywords ?? []).join("\n")
+                    }
+                  ),
+u$2("div", { className: "cb-row", style: { fontSize: "11px", color: "#666" }, children: [
+                    "今日已发：",
+u$2("b", { children: stats.sent }),
+                    " 条 · LLM 调用：",
+u$2("b", { children: stats.llmCalls }),
+                    " 次"
+                  ] }),
+                  sendMsg.value && u$2(
+                    "div",
+                    {
+                      className: "cb-soft",
+                      style: {
+                        padding: ".25em .4em",
+                        background: "#fee",
+                        border: "1px dashed #d33",
+                        borderRadius: "3px",
+                        color: "#a30",
+                        fontSize: "11px"
+                      },
+                      children: "⚠️ 文字独轮车正在运行，与智驾叠加可能超出每分钟限速。建议先停一个。"
                     }
                   )
                 ] }),
-u$2("div", { style: { marginTop: ".5em", fontSize: "11px", color: "#666" }, children: [
-                  "今日已发：",
-u$2("b", { children: stats.sent }),
-                  " 条 · LLM 调用：",
-u$2("b", { children: stats.llmCalls }),
-                  " 次"
-                ] }),
-                sendMsg.value && u$2(
-                  "div",
-                  {
-                    style: {
-                      marginTop: ".4em",
-                      padding: ".25em .4em",
-                      fontSize: "11px",
-                      color: "#a30",
-                      background: "#fee",
-                      border: "1px dashed #d33",
-                      borderRadius: "3px"
-                    },
-                    children: "⚠️ 文字独轮车正在运行，与智驾叠加可能超出每分钟限速。建议先停一个。"
-                  }
-                )
-              ] }),
-              hzmDriveMode.value === "llm" && u$2(
-                "fieldset",
-                {
-                  style: { marginTop: ".6em", padding: ".4em", border: "1px solid var(--Ga2, #ccc)", borderRadius: "3px" },
-                  children: [
-u$2("legend", { style: { fontSize: "11px", padding: "0 .3em" }, children: "LLM 设置" }),
-u$2("div", { style: { display: "flex", gap: ".6em", alignItems: "center", fontSize: "12px" }, children: [
-u$2("span", { children: "Provider：" }),
-                      ["anthropic", "openai", "openai-compat"].map((p2) => u$2("label", { style: { display: "inline-flex", alignItems: "center", gap: ".15em" }, children: [
-u$2(
-                          "input",
-                          {
-                            type: "radio",
-                            name: "hzmProvider",
-                            checked: hzmLlmProvider.value === p2,
-                            onChange: () => {
-                              hzmLlmProvider.value = p2;
-                            }
-                          }
-                        ),
-                        p2 === "anthropic" ? "Anthropic" : p2 === "openai" ? "OpenAI" : "OpenAI 兼容"
-                      ] }, p2))
-                    ] }),
-u$2(
-                      "div",
+                hzmDriveMode.value === "llm" && u$2("div", { className: "cb-panel cb-stack", children: [
+u$2("div", { className: "cb-row", style: { fontWeight: "bold", fontSize: "11px" }, children: "LLM 设置" }),
+u$2("div", { className: "cb-row", children: [
+u$2("span", { children: "Provider" }),
+                    ["anthropic", "openai", "openai-compat"].map((p2) => u$2(
+                      "button",
                       {
-                        style: {
-                          display: "grid",
-                          gridTemplateColumns: "auto 1fr",
-                          gap: ".3em .5em",
-                          marginTop: ".4em",
-                          alignItems: "center",
-                          fontSize: "12px"
+                        type: "button",
+                        className: hzmLlmProvider.value === p2 ? "cb-primary" : "",
+                        style: { fontSize: "11px", padding: ".15em .5em" },
+                        onClick: () => {
+                          hzmLlmProvider.value = p2;
+                          testStatus.value = "idle";
                         },
-                        children: [
-u$2("label", { for: "hzmKey", children: "API Key" }),
+                        children: PROVIDER_LABEL[p2]
+                      },
+                      p2
+                    ))
+                  ] }),
+u$2("div", { className: "cb-row", children: [
+u$2("span", { style: { minWidth: "4em" }, children: "API Key" }),
 u$2(
-                            "input",
-                            {
-                              id: "hzmKey",
-                              type: "password",
-                              value: hzmLlmApiKey.value,
-                              onInput: (e2) => {
-                                hzmLlmApiKey.value = e2.currentTarget.value;
-                              },
-                              style: { boxSizing: "border-box" },
-                              placeholder: "sk-... 或 anthropic key"
-                            }
-                          ),
-u$2("label", { for: "hzmModel", children: "模型" }),
-u$2(
-                            "input",
-                            {
-                              id: "hzmModel",
-                              type: "text",
-                              value: hzmLlmModel.value,
-                              onInput: (e2) => {
-                                hzmLlmModel.value = e2.currentTarget.value;
-                              },
-                              style: { boxSizing: "border-box" },
-                              placeholder: "claude-haiku-4-5-20251001 / gpt-4o-mini / deepseek-chat"
-                            }
-                          ),
-                          hzmLlmProvider.value === "openai-compat" && u$2(S$1, { children: [
-u$2("label", { for: "hzmBase", children: "Base URL" }),
-u$2(
-                              "input",
-                              {
-                                id: "hzmBase",
-                                type: "text",
-                                value: hzmLlmBaseURL.value,
-                                onInput: (e2) => {
-                                  hzmLlmBaseURL.value = e2.currentTarget.value;
-                                },
-                                style: { boxSizing: "border-box" },
-                                placeholder: "https://api.deepseek.com"
-                              }
-                            )
-                          ] })
-                        ]
+                      "input",
+                      {
+                        type: "password",
+                        value: hzmLlmApiKey.value,
+                        onInput: (e2) => {
+                          hzmLlmApiKey.value = e2.currentTarget.value;
+                          testStatus.value = "idle";
+                        },
+                        placeholder: "sk-... 或 anthropic key",
+                        style: { flex: 1, minWidth: 0, boxSizing: "border-box" }
                       }
                     ),
-u$2("div", { style: { marginTop: ".4em", fontSize: "10px", color: "#a86", lineHeight: 1.4 }, children: "⚠️ API Key 明文保存在浏览器 GM 存储，泄露风险自担。自定义 base URL 首次调用时 Tampermonkey 可能弹权限确认；同意后才能继续。" })
-                  ]
-                }
-              )
+u$2(
+                      "span",
+                      {
+                        style: {
+                          fontSize: "11px",
+                          color: apiKeyConfigured ? "#0a0" : "#888",
+                          whiteSpace: "nowrap"
+                        },
+                        children: apiKeyConfigured ? `✅ ${maskKey(hzmLlmApiKey.value)}` : "⚪ 未配置"
+                      }
+                    )
+                  ] }),
+u$2("div", { className: "cb-row", children: [
+u$2("span", { style: { minWidth: "4em" }, children: "模型" }),
+u$2(
+                      "input",
+                      {
+                        type: "text",
+                        value: hzmLlmModel.value,
+                        onInput: (e2) => {
+                          hzmLlmModel.value = e2.currentTarget.value;
+                          testStatus.value = "idle";
+                        },
+                        placeholder: "claude-haiku-4-5-20251001 / gpt-4o-mini / deepseek-chat",
+                        title: "Anthropic 推荐 claude-haiku-4-5-20251001；OpenAI 推荐 gpt-4o-mini；DeepSeek 用 deepseek-chat",
+                        style: { flex: 1, minWidth: 0, boxSizing: "border-box" }
+                      }
+                    )
+                  ] }),
+                  hzmLlmProvider.value === "openai-compat" && u$2("div", { className: "cb-row", children: [
+u$2("span", { style: { minWidth: "4em" }, children: "Base URL" }),
+u$2(
+                      "input",
+                      {
+                        type: "text",
+                        value: hzmLlmBaseURL.value,
+                        onInput: (e2) => {
+                          hzmLlmBaseURL.value = e2.currentTarget.value;
+                          testStatus.value = "idle";
+                        },
+                        placeholder: "https://api.deepseek.com（不带尾斜线，自动追加 /v1/chat/completions）",
+                        title: "DeepSeek=https://api.deepseek.com / Moonshot=https://api.moonshot.cn / OpenRouter=https://openrouter.ai/api",
+                        style: { flex: 1, minWidth: 0, boxSizing: "border-box" }
+                      }
+                    )
+                  ] }),
+u$2("div", { className: "cb-row", children: [
+u$2(
+                      "button",
+                      {
+                        type: "button",
+                        disabled: !apiKeyConfigured || testStatus.value === "testing",
+                        onClick: () => void handleTestLLM(),
+                        title: "发一个最小请求验证 key/路由能跑通；不消耗你的实际智驾配额",
+                        children: testStatus.value === "testing" ? "测试中…" : "🧪 测试连接"
+                      }
+                    ),
+                    testStatus.value === "ok" && u$2("span", { style: { color: "#0a0", fontSize: "11px" }, children: "✅ 连接成功" }),
+                    testStatus.value === "fail" && u$2("span", { style: { color: "#c00", fontSize: "11px", wordBreak: "break-all" }, children: [
+                      "❌ ",
+                      testError.value
+                    ] })
+                  ] }),
+u$2("div", { style: { fontSize: "10px", color: "#a86", lineHeight: 1.4 }, children: "⚠️ Key 明文保存在浏览器 GM 存储，泄露风险自担。openai-compat 自定义域首次调用时 Tampermonkey 可能弹权限确认。" })
+                ] })
+              ] })
             ]
           }
         );
@@ -14358,6 +14456,7 @@ u$2(
         );
       }
       const MEME_RELOAD_INTERVAL = 3e4;
+      const FLIP_MAX_ITEMS = 300;
       function MemesList() {
         const memes = useSignal([]);
         const sortBy = useSignal("lastCopiedAt");
@@ -14416,6 +14515,7 @@ u$2(
           const old = prevRectsRef.current;
           if (!el || old.size === 0) return;
           prevRectsRef.current = new Map();
+          if (el.children.length > FLIP_MAX_ITEMS) return;
           for (let i2 = 0; i2 < el.children.length; i2++) {
             const node = el.children[i2];
             if (!(node instanceof HTMLElement)) continue;
@@ -14497,8 +14597,23 @@ u$2(
                   href: `https://laplace.live/memes${cachedStreamerUid.value ? `?contribute=${cachedStreamerUid.value}` : ""}`,
                   target: "_blank",
                   rel: "noopener",
+                  title: "打开 LAPLACE 烂梗贡献页（LAPLACE 库供所有直播间共享）",
                   style: { color: "#288bb8", textDecoration: "none", fontSize: "12px" },
-                  children: "贡献烂梗"
+                  children: "贡献到 LAPLACE"
+                }
+              ),
+              memeSource && u$2(
+                "a",
+                {
+                  href: memeSource.submitPage ?? memeSource.listEndpoint,
+                  target: "_blank",
+                  rel: "noopener",
+                  title: `打开 ${memeSource.name} 提交页（仅本房间烂梗库；推荐用候选行的「↑ 上传」按钮直接 API 提交）`,
+                  style: { color: "#10b981", textDecoration: "none", fontSize: "12px" },
+                  children: [
+                    "贡献到 ",
+                    memeSource.name.replace("烂梗库", "")
+                  ]
                 }
               )
             ] }),
@@ -18329,7 +18444,7 @@ u$2(AlertDialog, {})
   };
 }));
 
-System.register("./llm-driver-CqSe_oRs-BIpPJaDO.js", ['./__monkey.entry-BYAnBU5d.js', '@soniox/speech-to-text-web'], (function (exports, module) {
+System.register("./llm-driver-Ddax0Vb0-MvhvkKa6.js", ['./__monkey.entry-7BW_mupv.js', '@soniox/speech-to-text-web'], (function (exports, module) {
   'use strict';
   var gmFetch, BASE_URL;
   return {
@@ -18339,7 +18454,10 @@ System.register("./llm-driver-CqSe_oRs-BIpPJaDO.js", ['./__monkey.entry-BYAnBU5d
     }, null],
     execute: (function () {
 
-      exports("chooseMemeWithLLM", chooseMemeWithLLM);
+      exports({
+        chooseMemeWithLLM: chooseMemeWithLLM,
+        testLLMConnection: testLLMConnection
+      });
 
       const SYSTEM_PROMPT_TEMPLATE = (roomName) => `你在 ${roomName} 直播间帮观众发弹幕（独轮车）。从下面给出的 candidates 里选 1 条最贴合最近公屏氛围的发出去。
 仅返回该梗的 id（candidates 里的 id 字符串）。如果都不合适，返回 -1。
@@ -18411,6 +18529,31 @@ System.register("./llm-driver-CqSe_oRs-BIpPJaDO.js", ['./__monkey.entry-BYAnBU5d
           throw new Error(`OpenAI HTTP ${resp.status}: ${resp.text().slice(0, 200)}`);
         }
         return parseOpenAIResponse(resp.json());
+      }
+      async function testLLMConnection(opts) {
+        if (!opts.apiKey.trim()) return { ok: false, error: "API key 为空" };
+        const probe = {
+          ...opts,
+          roomName: "连接测试",
+          recentChat: ["ping"],
+          candidates: [{ id: "1", content: "pong", tags: [] }]
+        };
+        try {
+          let parsed = null;
+          if (opts.provider === "anthropic") {
+            parsed = await callAnthropic(probe);
+          } else if (opts.provider === "openai") {
+            parsed = await callOpenAI(probe);
+          } else {
+            const base = trimBaseURL(opts.baseURL ?? "");
+            if (!base) return { ok: false, error: "需要填 base URL（例如 https://api.deepseek.com）" };
+            parsed = await callOpenAI(probe, `${base}/v1/chat/completions`);
+          }
+          if (parsed === null) return { ok: false, error: "响应里未解析出文本（模型可能返回了空）" };
+          return { ok: true };
+        } catch (err) {
+          return { ok: false, error: err instanceof Error ? err.message : String(err) };
+        }
       }
       async function chooseMemeWithLLM(opts) {
         if (!opts.apiKey || opts.candidates.length === 0) return null;
