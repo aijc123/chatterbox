@@ -1,16 +1,40 @@
-# To get started with Dependabot version updates, you'll need to specify which
-# package ecosystems to update and where the package manifests are located.
-# Please see the documentation for all configuration options:
 # https://docs.github.com/github/administering-a-repository/configuration-options-for-dependency-updates
 
 version: 2
 updates:
-  - package-ecosystem: "github-actions"
-    directory: "/"
+  - package-ecosystem: 'github-actions'
+    directory: '/'
     schedule:
-      interval: "daily"
+      interval: 'weekly'
+      day: 'monday'
+    open-pull-requests-limit: 5
 
-  # - package-ecosystem: "bun"
-  #   directory: "/"
-  #   schedule:
-  #     interval: "daily"
+  - package-ecosystem: 'bun'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+      day: 'monday'
+    open-pull-requests-limit: 5
+    groups:
+      dev-dependencies:
+        dependency-type: 'development'
+        update-types:
+          - 'minor'
+          - 'patch'
+      preact:
+        patterns:
+          - 'preact'
+          - '@preact/*'
+    ignore:
+      - dependency-name: 'vite'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'vite-plugin-monkey'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'preact'
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@preact/preset-vite'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'typescript'
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@biomejs/biome'
+        update-types: ['version-update:semver-major']

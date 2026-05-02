@@ -98,6 +98,16 @@ The build output is written to `dist/`. The main userscript output is `dist/bili
 - Soniox SDK is loaded externally to keep the userscript smaller.
 - `public/` assets are copied into `dist/` during build.
 
+## CI and Release Distribution
+
+- `bun run release:check` is the canonical local gate. It runs install, biome ci, tests, version-consistency, build, artifact validation, and bundle-budget. Run it before tagging anything; CI runs the same script.
+- Pull requests and pushes to non-master branches are validated by `.github/workflows/ci.yml` (job name `validate`).
+- Pushes to master that are NOT release commits deploy the GitHub Pages landing page via `.github/workflows/pages-deploy.yml`. Release commits (commit message starts with `Release `) are skipped here and handled by the tag workflow.
+- `.github/workflows/release.yml` is tag-driven — it triggers on `v*` tag pushes and `workflow_dispatch`. It runs `release:check` plus a strict `--mode post --expected-tag` version-consistency check before deploying.
+- Distribution to users is two-stage: GitHub Pages serves `dist/bilibili-live-wheel-auto-follow.user.js` (Tampermonkey/Violentmonkey installs read it directly), and Greasy Fork auto-syncs from the same URL on its own ~24h cycle. There is no Chrome Web Store or app-store review step — this is a userscript, not an extension.
+- To make `scripts/release.ts` print the Greasy Fork URL at the end of a release, add a `"greasyfork": { "scriptId": "<id>" }` field to `package.json`. If the field is absent, the URL is just skipped.
+- Branch protection for `master` is documented in [docs/branch-protection.md](docs/branch-protection.md). The required status check is `validate`.
+
 ## External Services
 
 The script may call these services depending on enabled features:

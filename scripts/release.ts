@@ -1,77 +1,30 @@
 import { unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 
-type ReleaseKind = 'patch' | 'minor' | 'major'
+import {
+  assertSemver,
+  buildUserscriptUrl,
+  bumpVersion,
+  extractCurrentReleaseBullets,
+  type PackageJson,
+  packageJsonUrl,
+  type ReleaseKind,
+  releaseNotesUrl,
+  replaceOrInsertVersionSection,
+  run,
+  waitForUserscriptVersion,
+} from './lib/release-checks.ts'
 
-interface PackageJson {
-  name: string
-  version: string
-  homepage?: string
-  repository?: {
-    type?: string
-    url?: string
-  }
-}
-
-const rootDir = new URL('..', import.meta.url)
-const packageJsonUrl = new URL('../package.json', import.meta.url)
-const releaseNotesUrl = new URL('../GREASYFORK_RELEASE_NOTES.md', import.meta.url)
 const workflowFile = 'release.yml'
-const currentReleaseHeading = '## 当前发布说明'
-const pagesVerifyTimeoutMs = 2 * 60 * 1000
+const runDiscoveryTimeoutMs = 30_000
 
-function decode(output: Uint8Array): string {
-  return new TextDecoder().decode(output).trim()
+interface CliArgs {
+  kind: ReleaseKind
+  nextVersion?: string
 }
 
-function run(
-  cmd: string[],
-  options: {
-    check?: boolean
-    quiet?: boolean
-  } = {}
-): { stdout: string; stderr: string; exitCode: number } {
-  const { check = true, quiet = false } = options
-  if (!quiet) console.log(`> ${cmd.join(' ')}`)
-  const result = Bun.spawnSync({
-    cmd,
-    cwd: fileURLToPath(rootDir),
-    env: process.env,
-    stdin: 'inherit',
-    stdout: 'pipe',
-    stderr: 'pipe',
-  })
-  const stdout = decode(result.stdout)
-  const stderr = decode(result.stderr)
-  if (result.exitCode !== 0 && check) {
-    if (stdout) console.log(stdout)
-    if (stderr) console.error(stderr)
-    throw new Error(`Command failed with exit code ${result.exitCode}: ${cmd.join(' ')}`)
-  }
-  return { stdout, stderr, exitCode: result.exitCode }
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-function assertSemver(version: string): void {
-  if (!/^\d+\.\d+\.\d+$/.test(version)) {
-    throw new Error(`Unsupported version format: ${version}`)
-  }
-}
-
-function bumpVersion(currentVersion: string, kind: ReleaseKind): string {
-  assertSemver(currentVersion)
-  const [major, minor, patch] = currentVersion.split('.').map(Number)
-  if (kind === 'major') return `${major + 1}.0.0`
-  if (kind === 'minor') return `${major}.${minor + 1}.0`
-  return `${major}.${minor}.${patch + 1}`
-}
-
-function parseArgs(argv: string[]): { nextVersion?: string; kind: ReleaseKind } {
+function parseArgs(argv: string[]): CliArgs {
   let kind: ReleaseKind = 'patch'
   let nextVersion: string | undefined
 
@@ -90,74 +43,44 @@ function parseArgs(argv: string[]): { nextVersion?: string; kind: ReleaseKind } 
   }
 
   if (nextVersion) assertSemver(nextVersion)
-  return { nextVersion, kind }
+  return { kind, nextVersion }
 }
 
-function extractCurrentReleaseBullets(content: string): string {
-  const match = content.match(new RegExp(`${escapeRegExp(currentReleaseHeading)}\\s*\\n\\n([\\s\\S]*?)(?=\\n## )`))
-  const bullets = match?.[1]?.trim()
-  if (!bullets?.startsWith('- ')) {
-    throw new Error(`Cannot find release bullets under "${currentReleaseHeading}" in GREASYFORK_RELEASE_NOTES.md`)
-  }
-  return bullets
+interface WorkflowRunSummary {
+  databaseId: number
+  status: string
+  headSha: string
 }
 
-function replaceOrInsertVersionSection(content: string, version: string, bullets: string): string {
-  const versionHeading = `## ${version}`
-  const currentSection = `${currentReleaseHeading}\n\n${bullets}`
-  const versionSection = `${versionHeading}\n\n${bullets}`
-  const contentWithCurrent = content.replace(
-    new RegExp(`${escapeRegExp(currentReleaseHeading)}\\s*\\n\\n([\\s\\S]*?)(?=\\n## )`),
-    currentSection
-  )
-  const versionPattern = new RegExp(`${escapeRegExp(versionHeading)}\\s*\\n\\n([\\s\\S]*?)(?=\\n## |$)`)
-  if (versionPattern.test(contentWithCurrent)) {
-    return contentWithCurrent.replace(versionPattern, versionSection)
-  }
-  return contentWithCurrent.replace(currentSection, `${currentSection}\n\n${versionSection}`)
-}
-
-function buildUserscriptUrl(pkg: PackageJson): string {
-  const repoUrl = pkg.repository?.url ?? pkg.homepage
-  const match = repoUrl?.match(/github\.com[:/](.+?)\/(.+?)(?:\.git)?$/)
-  if (!match) {
-    throw new Error('Cannot infer GitHub Pages userscript URL from package.json')
-  }
-  const [, owner, repo] = match
-  return `https://${owner}.github.io/${repo}/${pkg.name}.user.js`
-}
-
-function extractRunId(stdout: string): string {
-  const match = stdout.match(/\/actions\/runs\/(\d+)/)
-  if (!match) {
-    throw new Error(`Cannot parse workflow run id from output: ${stdout || '(empty output)'}`)
-  }
-  return match[1]
-}
-
-async function waitForUserscriptVersion(url: string, expectedVersion: string): Promise<void> {
-  const deadline = Date.now() + pagesVerifyTimeoutMs
+function findReleaseRunId(commitSha: string): string {
+  const deadline = Date.now() + runDiscoveryTimeoutMs
   while (Date.now() < deadline) {
+    const result = run(
+      [
+        'gh',
+        'run',
+        'list',
+        '--workflow',
+        workflowFile,
+        '--commit',
+        commitSha,
+        '--json',
+        'databaseId,status,headSha',
+        '--limit',
+        '5',
+      ],
+      { quiet: true }
+    )
     try {
-      const response = await fetch(url, { cache: 'no-store' })
-      if (response.ok) {
-        const content = await response.text()
-        if (content.includes(`@version      ${expectedVersion}`)) return
-      }
+      const runs = JSON.parse(result.stdout) as WorkflowRunSummary[]
+      const match = runs.find(r => r.headSha === commitSha)
+      if (match) return String(match.databaseId)
     } catch {
-      // Keep polling while Pages catches up.
+      // GitHub may take a moment to register the run; keep polling.
     }
-    await Bun.sleep(3000)
+    Bun.sleepSync(3000)
   }
-  throw new Error(`GitHub Pages did not publish ${expectedVersion} to ${url} within ${pagesVerifyTimeoutMs / 1000}s`)
-}
-
-function runPreflightChecks(): void {
-  console.log('Running release preflight checks')
-  run(['bun', 'install', '--frozen-lockfile'])
-  run(['bun', 'x', 'biome', 'ci', '.'])
-  run(['bun', 'test'])
-  run(['bun', 'run', 'build'])
+  throw new Error(`No ${workflowFile} run found for commit ${commitSha} within ${runDiscoveryTimeoutMs / 1000}s`)
 }
 
 async function main(): Promise<void> {
@@ -196,7 +119,8 @@ async function main(): Promise<void> {
     throw new Error(`Tag ${tagName} already exists on origin`)
   }
 
-  runPreflightChecks()
+  console.log('Running release:check (mirrors CI gates)')
+  run(['bun', 'run', 'release:check'])
 
   const releaseNotesContent = await Bun.file(releaseNotesUrl).text()
   const bullets = extractCurrentReleaseBullets(releaseNotesContent)
@@ -238,12 +162,10 @@ async function main(): Promise<void> {
     await unlink(tempNotesPath).catch(() => {})
   }
 
-  const workflowRun = run(['gh', 'workflow', 'run', workflowFile, '--ref', 'master'])
-  const workflowRunId = extractRunId(workflowRun.stdout)
+  console.log(`Locating ${workflowFile} run for ${releaseSha}`)
+  const workflowRunId = findReleaseRunId(releaseSha)
   console.log(`Waiting for Pages deploy run ${workflowRunId}`)
-  run(['gh', 'run', 'watch', workflowRunId, '--exit-status'], {
-    quiet: true,
-  })
+  run(['gh', 'run', 'watch', workflowRunId, '--exit-status'], { quiet: true })
 
   const runSummary = JSON.parse(
     run(['gh', 'run', 'view', workflowRunId, '--json', 'status,conclusion,headSha,url,updatedAt'], { quiet: true })
@@ -269,6 +191,9 @@ async function main(): Promise<void> {
   console.log(`Commit: ${releaseSha}`)
   console.log(`Tag: ${tagName}`)
   console.log(`Userscript: ${userscriptUrl}`)
+  if (packageJson.greasyfork?.scriptId) {
+    console.log(`Greasy Fork: https://greasyfork.org/scripts/${packageJson.greasyfork.scriptId}`)
+  }
 }
 
 await main()
