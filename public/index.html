@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>B站独轮车 + 自动跟车 | Bilibili Live Chatterbox</title>
+    <title>B站独轮车 + 自动跟车 | Bilibili Live 弹幕助手</title>
     <meta
       name="description"
-      content="给 B 站/哔哩哔哩直播间使用的精致弹幕助手 userscript，支持独轮车循环发送、自动跟车、Chatterbox Chat 评论区、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。"
+      content="B站独轮车 + 自动跟车是给 B 站/哔哩哔哩直播间使用的 userscript，支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、替换规则、AI 规避候选、同传和烂梗库。"
     >
     <meta
       name="keywords"
@@ -16,31 +16,26 @@
     <meta property="og:title" content="B站独轮车 + 自动跟车">
     <meta
       property="og:description"
-      content="一款给 B 站直播间使用的弹幕助手：独轮车、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库和弹幕替换。"
+      content="一款给 B 站直播间使用的弹幕助手：独轮车、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避候选。"
     >
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://aijc123.github.io/bilibili-live-wheel-auto-follow/">
     <style>
       :root {
         color-scheme: light dark;
+        --page: #f7f8fb;
+        --surface: #ffffff;
+        --surface-soft: #eef5ff;
+        --text: #16181d;
+        --muted: #596170;
+        --line: #dce3ee;
+        --blue: #1677ff;
+        --pink: #df4f84;
+        --amber: #a76a00;
+        --shadow: 0 18px 45px rgba(30, 42, 64, 0.1);
         font-family:
-          -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
-          "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
-          system-ui, sans-serif;
-        background: #f5f5f7;
-        color: #1d1d1f;
-        --page: #f5f5f7;
-        --surface: rgba(255, 255, 255, 0.78);
-        --surface-strong: rgba(255, 255, 255, 0.94);
-        --line: rgba(29, 29, 31, 0.11);
-        --text: #1d1d1f;
-        --muted: #6e6e73;
-        --blue: #0071e3;
-        --cyan: #00a9ce;
-        --pink: #ff6aa2;
-        --violet: #8e7cff;
-        --green: #36c37b;
-        --shadow: 0 26px 70px rgba(23, 35, 57, 0.12);
+          -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
       }
 
       * {
@@ -54,55 +49,49 @@
       body {
         margin: 0;
         background:
-          linear-gradient(135deg, rgba(0, 113, 227, 0.08), transparent 28%),
-          linear-gradient(225deg, rgba(255, 106, 162, 0.09), transparent 30%),
-          linear-gradient(180deg, #fbfbfd 0%, var(--page) 44%, #ffffff 100%);
+          linear-gradient(135deg, rgba(22, 119, 255, 0.12), transparent 32%),
+          linear-gradient(225deg, rgba(223, 79, 132, 0.1), transparent 30%),
+          var(--page);
         color: var(--text);
-      }
-
-      body::before {
-        position: fixed;
-        inset: 0;
-        z-index: -1;
-        pointer-events: none;
-        content: "";
-        background-image:
-          linear-gradient(rgba(29, 29, 31, 0.035) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(29, 29, 31, 0.035) 1px, transparent 1px);
-        background-size: 48px 48px;
-        mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.7), transparent 68%);
+        line-height: 1.72;
       }
 
       a {
-        color: inherit;
+        color: var(--blue);
+        text-decoration-thickness: 0.08em;
+        text-underline-offset: 0.18em;
       }
 
-      main {
-        overflow: hidden;
+      code {
+        padding: 0.12em 0.34em;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        background: rgba(22, 119, 255, 0.08);
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+        font-size: 0.92em;
       }
 
-      .container {
-        width: min(1120px, calc(100% - 40px));
+      .wrap {
+        width: min(1120px, calc(100% - 36px));
         margin: 0 auto;
       }
 
       .hero {
-        min-height: 92vh;
-        display: grid;
-        align-items: center;
-        padding: 64px 0 44px;
+        padding: clamp(48px, 8vw, 92px) 0 clamp(38px, 6vw, 68px);
       }
 
       .hero-grid {
-        max-width: 900px;
+        display: grid;
+        grid-template-columns: minmax(0, 1.14fr) minmax(280px, 0.86fr);
+        gap: clamp(28px, 5vw, 64px);
+        align-items: center;
       }
 
       .eyebrow {
-        margin: 0 0 16px;
+        margin: 0 0 14px;
         color: var(--blue);
-        font-size: 15px;
-        font-weight: 700;
-        letter-spacing: 0;
+        font-size: 0.92rem;
+        font-weight: 750;
       }
 
       h1,
@@ -114,32 +103,23 @@
 
       h1 {
         max-width: 820px;
-        font-size: clamp(46px, 8vw, 92px);
-        font-weight: 760;
-        line-height: 1.03;
+        font-size: clamp(2.7rem, 7vw, 5.5rem);
+        line-height: 1.04;
         letter-spacing: 0;
       }
 
-      .hero-copy {
-        max-width: 650px;
+      .lead {
+        max-width: 730px;
         margin-top: 24px;
         color: var(--muted);
-        font-size: clamp(19px, 2.2vw, 25px);
-        font-weight: 500;
-        line-height: 1.48;
-        letter-spacing: 0;
-      }
-
-      .hero-copy strong {
-        color: var(--text);
-        font-weight: 650;
+        font-size: clamp(1.08rem, 2.2vw, 1.34rem);
       }
 
       .actions {
         display: flex;
         flex-wrap: wrap;
         gap: 12px;
-        margin-top: 32px;
+        margin-top: 30px;
       }
 
       .button {
@@ -147,202 +127,89 @@
         align-items: center;
         justify-content: center;
         min-height: 46px;
-        padding: 0 20px;
-        border: 1px solid rgba(0, 113, 227, 0.22);
+        padding: 0 18px;
+        border: 1px solid var(--blue);
         border-radius: 8px;
-        background: rgba(255, 255, 255, 0.72);
-        box-shadow: 0 12px 30px rgba(16, 24, 40, 0.08);
+        background: transparent;
         color: var(--blue);
-        font-size: 16px;
-        font-weight: 700;
+        font-weight: 750;
         text-decoration: none;
-        transition:
-          transform 180ms ease,
-          box-shadow 180ms ease,
-          background 180ms ease;
-        backdrop-filter: blur(18px);
-      }
-
-      .button::after {
-        margin-left: 8px;
-        content: ">";
-        font-size: 14px;
-        line-height: 1;
       }
 
       .button.primary {
         background: var(--blue);
         color: #ffffff;
-        border-color: var(--blue);
       }
 
-      .button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 18px 38px rgba(16, 24, 40, 0.13);
-      }
-
-      .button:focus-visible {
-        outline: 3px solid rgba(0, 113, 227, 0.28);
-        outline-offset: 3px;
-      }
-
-      .compat {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-        margin-top: 26px;
-        color: var(--muted);
-        font-size: 14px;
-      }
-
-      .pill {
-        display: inline-flex;
-        align-items: center;
-        min-height: 30px;
-        padding: 0 11px;
+      .summary {
         border: 1px solid var(--line);
         border-radius: 8px;
-        background: rgba(255, 255, 255, 0.56);
-        backdrop-filter: blur(16px);
+        background: rgba(255, 255, 255, 0.76);
+        box-shadow: var(--shadow);
+        padding: 22px;
+      }
+
+      .summary h2 {
+        margin-bottom: 10px;
+        font-size: 1.12rem;
+      }
+
+      .summary ul,
+      .plain-list {
+        display: grid;
+        gap: 10px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .summary li,
+      .plain-list li {
+        color: var(--muted);
       }
 
       .section {
-        padding: clamp(74px, 10vw, 124px) 0;
+        padding: clamp(44px, 7vw, 78px) 0;
         border-top: 1px solid var(--line);
       }
 
-      .section-heading {
-        display: grid;
-        gap: 14px;
-        max-width: 760px;
-        margin-bottom: 34px;
-      }
-
-      h2 {
-        font-size: clamp(34px, 5vw, 58px);
-        font-weight: 760;
-        line-height: 1.06;
+      .section h2 {
+        margin-bottom: 16px;
+        font-size: clamp(1.9rem, 4vw, 3.05rem);
+        line-height: 1.12;
         letter-spacing: 0;
       }
 
-      .section-heading p,
-      .install-copy {
+      .section-intro {
+        max-width: 820px;
+        margin-bottom: 24px;
         color: var(--muted);
-        font-size: clamp(17px, 2vw, 21px);
-        line-height: 1.58;
+        font-size: 1.08rem;
       }
 
-      .feature-grid {
+      .grid {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 14px;
       }
 
-      .feature {
-        min-height: 238px;
-        padding: 22px;
-        border: 1px solid rgba(255, 255, 255, 0.72);
+      .card {
+        min-height: 178px;
+        border: 1px solid var(--line);
         border-radius: 8px;
         background: var(--surface);
-        box-shadow: 0 18px 42px rgba(16, 24, 40, 0.07);
-        backdrop-filter: blur(22px);
+        box-shadow: 0 12px 28px rgba(30, 42, 64, 0.07);
+        padding: 20px;
       }
 
-      .icon {
-        position: relative;
-        width: 38px;
-        height: 38px;
-        margin-bottom: 20px;
-        border: 1px solid rgba(0, 113, 227, 0.16);
-        border-radius: 8px;
-        background:
-          linear-gradient(145deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.36)),
-          linear-gradient(135deg, rgba(0, 169, 206, 0.24), rgba(255, 106, 162, 0.16));
+      .card h3 {
+        margin-bottom: 8px;
+        font-size: 1.08rem;
       }
 
-      .icon::before,
-      .icon::after {
-        position: absolute;
-        content: "";
-      }
-
-      .icon-loop::before {
-        inset: 10px 8px;
-        border: 2px solid var(--blue);
-        border-left-color: transparent;
-        border-radius: 50%;
-      }
-
-      .icon-follow::before {
-        top: 13px;
-        left: 8px;
-        width: 20px;
-        height: 3px;
-        border-radius: 8px;
-        background: var(--cyan);
-        box-shadow: 6px 7px 0 var(--pink);
-      }
-
-      .icon-chat::before {
-        inset: 10px 8px 12px;
-        border: 2px solid var(--blue);
-        border-radius: 8px;
-      }
-
-      .icon-chat::after {
-        right: 10px;
-        bottom: 8px;
-        border-top: 7px solid var(--blue);
-        border-left: 7px solid transparent;
-      }
-
-      .icon-shield::before {
-        top: 8px;
-        left: 11px;
-        width: 16px;
-        height: 20px;
-        background: linear-gradient(180deg, var(--cyan), var(--green));
-        clip-path: polygon(50% 0, 100% 18%, 86% 76%, 50% 100%, 14% 76%, 0 18%);
-      }
-
-      .icon-rule::before {
-        top: 10px;
-        left: 9px;
-        width: 20px;
-        height: 4px;
-        border-radius: 8px;
-        background: var(--pink);
-        box-shadow: 0 8px 0 var(--blue), 0 16px 0 var(--cyan);
-      }
-
-      .icon-voice::before {
-        top: 8px;
-        left: 16px;
-        width: 6px;
-        height: 18px;
-        border-radius: 8px;
-        background: var(--violet);
-        box-shadow: -8px 6px 0 -1px var(--cyan), 8px 6px 0 -1px var(--pink);
-      }
-
-      .feature h3 {
-        margin-bottom: 10px;
-        font-size: 20px;
-        font-weight: 760;
-        letter-spacing: 0;
-      }
-
-      .feature p {
+      .card p,
+      .card li {
         color: var(--muted);
-        font-size: 15px;
-        line-height: 1.72;
-      }
-
-      .install {
-        display: grid;
-        grid-template-columns: 0.9fr 1.1fr;
-        gap: clamp(28px, 5vw, 66px);
-        align-items: start;
       }
 
       .steps {
@@ -356,88 +223,65 @@
 
       .step {
         display: grid;
-        grid-template-columns: 46px 1fr;
-        gap: 16px;
-        padding: 20px;
-        border: 1px solid rgba(255, 255, 255, 0.72);
+        grid-template-columns: 42px 1fr;
+        gap: 14px;
+        border: 1px solid var(--line);
         border-radius: 8px;
-        background: var(--surface-strong);
-        box-shadow: 0 14px 34px rgba(16, 24, 40, 0.06);
+        background: var(--surface);
+        padding: 18px;
       }
 
       .step::before {
         display: grid;
         place-items: center;
-        width: 34px;
-        height: 34px;
+        width: 32px;
+        height: 32px;
         border-radius: 8px;
-        background: #1d1d1f;
-        color: #ffffff;
-        content: counter(step, decimal-leading-zero);
+        background: var(--text);
+        color: var(--surface);
+        content: counter(step);
         counter-increment: step;
-        font-size: 12px;
         font-weight: 800;
       }
 
-      .step h3 {
-        margin-bottom: 6px;
-        font-size: 18px;
+      .two-col {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px;
       }
 
-      .step p {
+      .note {
+        border-left: 4px solid var(--amber);
+        background: rgba(167, 106, 0, 0.08);
+        padding: 14px 16px;
         color: var(--muted);
-        font-size: 15px;
-        line-height: 1.65;
       }
 
-      .search-terms {
-        padding-top: 34px;
+      .footer {
+        padding: 36px 0 52px;
+        border-top: 1px solid var(--line);
         color: var(--muted);
-        font-size: 13px;
-        line-height: 1.8;
+        font-size: 0.94rem;
       }
 
-      .search-terms strong {
-        color: var(--text);
-      }
-
-      @media (prefers-reduced-motion: reduce) {
-        html {
-          scroll-behavior: auto;
-        }
-
-        *,
-        *::before,
-        *::after {
-          animation-duration: 1ms;
-          animation-iteration-count: 1;
-          scroll-behavior: auto;
-          transition-duration: 1ms;
-        }
-      }
-
-      @media (max-width: 900px) {
-        .hero {
-          min-height: auto;
-          padding-top: 42px;
-        }
-
-        .install {
+      @media (max-width: 920px) {
+        .hero-grid,
+        .two-col {
           grid-template-columns: 1fr;
         }
 
-        .feature-grid {
+        .grid {
           grid-template-columns: repeat(2, minmax(0, 1fr));
         }
       }
 
       @media (max-width: 640px) {
-        .container {
+        .wrap {
           width: min(100% - 28px, 1120px);
         }
 
-        h1 {
-          font-size: clamp(42px, 13vw, 58px);
+        .grid {
+          grid-template-columns: 1fr;
         }
 
         .actions {
@@ -447,70 +291,28 @@
         .button {
           width: 100%;
         }
-
-        .feature-grid {
-          grid-template-columns: 1fr;
-        }
-
-        .feature {
-          min-height: auto;
-        }
-
-        .step {
-          grid-template-columns: 40px 1fr;
-          padding: 16px;
-        }
       }
 
       @media (prefers-color-scheme: dark) {
         :root {
-          background: #080a0f;
-          color: #f5f5f7;
-          --page: #080a0f;
-          --surface: rgba(20, 24, 34, 0.76);
-          --surface-strong: rgba(20, 24, 34, 0.92);
-          --line: rgba(245, 245, 247, 0.12);
-          --text: #f5f5f7;
-          --muted: #a1a1a6;
-          --shadow: 0 26px 70px rgba(0, 0, 0, 0.36);
+          --page: #0b0f17;
+          --surface: #141a24;
+          --surface-soft: #102033;
+          --text: #f4f7fb;
+          --muted: #a7b0bf;
+          --line: #283244;
+          --blue: #66a8ff;
+          --pink: #ff80ae;
+          --amber: #e0aa45;
+          --shadow: 0 18px 45px rgba(0, 0, 0, 0.28);
         }
 
-        body {
-          background:
-            linear-gradient(135deg, rgba(0, 113, 227, 0.16), transparent 30%),
-            linear-gradient(225deg, rgba(255, 106, 162, 0.13), transparent 34%),
-            linear-gradient(180deg, #0d1018 0%, #080a0f 54%, #11131a 100%);
+        .summary {
+          background: rgba(20, 26, 36, 0.78);
         }
 
-        body::before {
-          background-image:
-            linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
-        }
-
-        .button {
-          background: rgba(20, 24, 34, 0.72);
-        }
-
-        .pill {
-          border-color: rgba(255, 255, 255, 0.12);
-          background-color: rgba(20, 24, 34, 0.72);
-        }
-
-        .feature,
-        .step {
-          border-color: rgba(255, 255, 255, 0.1);
-        }
-
-        .icon {
-          background:
-            linear-gradient(145deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.04)),
-            linear-gradient(135deg, rgba(0, 169, 206, 0.24), rgba(255, 106, 162, 0.14));
-        }
-
-        .step::before {
-          background: #f5f5f7;
-          color: #11131a;
+        code {
+          background: rgba(102, 168, 255, 0.12);
         }
       }
     </style>
@@ -519,10 +321,10 @@
         "@context": "https://schema.org",
         "@type": "SoftwareApplication",
         "name": "B站独轮车 + 自动跟车",
-        "alternateName": "Bilibili Live Chatterbox",
+        "alternateName": "Bilibili Live Auto Follow",
         "applicationCategory": "BrowserApplication",
         "operatingSystem": "Chrome, Edge, Firefox",
-        "description": "给 B 站/哔哩哔哩直播间用的弹幕助手 userscript，支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。",
+        "description": "给 B 站/哔哩哔哩直播间用的弹幕助手 userscript，支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避候选。",
         "url": "https://aijc123.github.io/bilibili-live-wheel-auto-follow/",
         "downloadUrl": "https://greasyfork.org/zh-CN/scripts/574939-b%E7%AB%99%E7%8B%AC%E8%BD%AE%E8%BD%A6-%E8%87%AA%E5%8A%A8%E8%B7%9F%E8%BD%A6",
         "codeRepository": "https://github.com/aijc123/bilibili-live-wheel-auto-follow",
@@ -537,106 +339,217 @@
   <body>
     <main>
       <section class="hero">
-        <div class="container hero-grid">
+        <div class="wrap hero-grid">
           <div>
             <p class="eyebrow">Bilibili Live userscript</p>
             <h1>B站独轮车 + 自动跟车</h1>
-            <p class="hero-copy">
-              把直播间弹幕助手做得更像一件精密工具。<strong>自动跟车</strong>、循环发送与
-              <strong>Chatterbox Chat</strong> 被收进一个清爽、克制、带一点二次元光感的体验里。
+            <p class="lead">
+              给 B 站直播间使用的弹幕助手：循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、
+              替换规则、影子屏蔽候选、同传和烂梗库都收在一个面板里。
             </p>
             <div class="actions" aria-label="项目链接">
-              <a class="button primary" href="https://greasyfork.org/zh-CN/scripts/574939-b%E7%AB%99%E7%8B%AC%E8%BD%AE%E8%BD%A6-%E8%87%AA%E5%8A%A8%E8%B7%9F%E8%BD%A6">Greasy Fork 安装</a>
+              <a class="button primary" href="https://greasyfork.org/zh-CN/scripts/574939-b%E7%AB%99%E7%8B%AC%E8%BD%AE%E8%BD%A6-%E8%87%AA%E5%8A%A8%E8%B7%9F%E8%BD%A6">从 Greasy Fork 安装</a>
               <a class="button" href="https://github.com/aijc123/bilibili-live-wheel-auto-follow">GitHub 源码</a>
+              <a class="button" href="https://github.com/aijc123/bilibili-live-wheel-auto-follow/issues">反馈问题</a>
             </div>
-            <div class="compat" aria-label="兼容性">
-              <span class="pill">Tampermonkey</span>
-              <span class="pill">Violentmonkey</span>
-              <span class="pill">Bilibili Live</span>
-            </div>
+          </div>
+
+          <aside class="summary" aria-label="项目摘要">
+            <h2>适合这些场景</h2>
+            <ul>
+              <li>提前准备多句弹幕，按节奏循环发送。</li>
+              <li>直播间刷屏气氛起来时，带冷却自动跟一句。</li>
+              <li>把右侧评论区换成更清爽的 Chatterbox Chat。</li>
+              <li>巡检粉丝牌房间是否存在禁言、屏蔽、风控或主播注销。</li>
+              <li>维护替换规则和影子屏蔽候选，减少手动改字。</li>
+            </ul>
+          </aside>
+        </div>
+      </section>
+
+      <section class="section" id="what-it-does">
+        <div class="wrap">
+          <h2>项目做什么</h2>
+          <p class="section-intro">
+            安装后，B 站直播间右下角会出现 <code>弹幕助手</code> 按钮。它面向直播间弹幕互动，
+            提供发送、跟车、评论区增强、巡检、替换和同传等能力。
+          </p>
+          <div class="note">
+            这是民间自用/自制插件，不是 B 站官方功能。使用自动发送、自动跟车、+1、自动重发等功能时，请控制频率。
           </div>
         </div>
       </section>
 
-      <section class="section">
-        <div class="container">
-          <div class="section-heading">
-            <h2>把高频操作收得更优雅。</h2>
-            <p>从刷屏节奏到评论区观感，页面只展示脚本已有能力；二次元气质主要体现在官网的弹幕光感、留白和玻璃质感里。</p>
-          </div>
-
-          <div class="feature-grid">
-            <article class="feature">
-              <div class="icon icon-loop" aria-hidden="true"></div>
-              <h3>独轮车循环发送</h3>
-              <p>多套模板、每行一句、按间隔发送，支持随机颜色、随机间隔、随机字符和长弹幕自动拆分。</p>
-            </article>
-            <article class="feature">
-              <div class="icon icon-follow" aria-hidden="true"></div>
-              <h3>自动跟车</h3>
-              <p>观察短时间内重复出现的弹幕，达到阈值后自动跟一句，内置稳一点、正常、热闹三档预设。</p>
-            </article>
-            <article class="feature">
-              <div class="icon icon-chat" aria-hidden="true"></div>
-              <h3>Chatterbox Chat</h3>
-              <p>可替换右侧评论区显示，提供气泡式聊天视图，支持礼物、醒目留言、舰队事件和自定义 CSS。</p>
-            </article>
-            <article class="feature">
-              <div class="icon icon-shield" aria-hidden="true"></div>
-              <h3>粉丝牌禁言巡检</h3>
-              <p>读取粉丝牌关联房间并分类展示限制、无法确认、主播注销和正常结果，可复制报告或同步摘要。</p>
-            </article>
-            <article class="feature">
-              <div class="icon icon-rule" aria-hidden="true"></div>
-              <h3>替换与 AI 规避</h3>
-              <p>支持云端和本地替换规则，发送失败时可检测敏感词并尝试替换后重试。</p>
-            </article>
-            <article class="feature">
-              <div class="icon icon-voice" aria-hidden="true"></div>
-              <h3>同传和烂梗库</h3>
-              <p>接入 Soniox 语音识别，可自动发送识别或翻译结果，也能搜索、复制和发送常用梗。</p>
-            </article>
-          </div>
-        </div>
-      </section>
-
-      <section class="section">
-        <div class="container install">
-          <div>
-            <p class="eyebrow">Install</p>
-            <h2>三步进入直播间。</h2>
-            <p class="install-copy">
-              仍然是熟悉的用户脚本安装方式，只是落地页更像一个认真打磨过的产品入口。
-            </p>
-          </div>
-
+      <section class="section" id="installation">
+        <div class="wrap">
+          <h2>安装步骤</h2>
           <ol class="steps">
             <li class="step">
               <div>
                 <h3>安装脚本管理器</h3>
-                <p>先安装 Tampermonkey 或 Violentmonkey，用来管理浏览器 userscript。</p>
+                <p>先安装 Tampermonkey 或 Violentmonkey。</p>
               </div>
             </li>
             <li class="step">
               <div>
                 <h3>打开 Greasy Fork</h3>
-                <p>进入脚本页面并点击安装，浏览器会自动交给脚本管理器确认。</p>
+                <p>进入脚本页面，点击安装，并在脚本管理器弹窗里确认。</p>
               </div>
             </li>
             <li class="step">
               <div>
-                <h3>进入 B 站直播间</h3>
-                <p>打开直播间，点击右下角「弹幕助手」。需要接管评论区时，在「设置」里开启 Chatterbox Chat。</p>
+                <h3>打开 B 站直播间</h3>
+                <p>访问 <code>https://live.bilibili.com/</code>，点击右下角 <code>弹幕助手</code>。</p>
+              </div>
+            </li>
+            <li class="step">
+              <div>
+                <h3>按需开启功能</h3>
+                <p>自动跟车、Chatterbox Chat、AI 规避、保安室同步和同传都是可选功能。</p>
               </div>
             </li>
           </ol>
         </div>
+      </section>
 
-        <div class="container search-terms">
-          <strong>搜索词：</strong>
-          B站独轮车、B站自动跟车、哔哩哔哩直播弹幕助手、Bilibili Live Auto Follow、Chatterbox Chat、Tampermonkey bilibili userscript。
+      <section class="section" id="features">
+        <div class="wrap">
+          <h2>主要功能</h2>
+          <div class="grid">
+            <article class="card">
+              <h3>独轮车循环发送</h3>
+              <p>多套模板、每行一句，支持固定/随机间隔、随机颜色、随机字符和长弹幕拆分。</p>
+            </article>
+            <article class="card">
+              <h3>自动跟车</h3>
+              <p>识别短时间内被多人重复发送的弹幕，达到阈值后带冷却跟一句，可忽略黑名单用户。</p>
+            </article>
+            <article class="card">
+              <h3>Chatterbox Chat</h3>
+              <p>接管右侧评论区，展示弹幕、礼物、醒目留言、舰队、进场等事件，支持偷弹幕、+1 和复制。</p>
+            </article>
+            <article class="card">
+              <h3>粉丝牌禁言巡检</h3>
+              <p>读取粉丝牌关联房间，分类展示限制、未知、主播注销和正常状态，并支持复制报告。</p>
+            </article>
+            <article class="card">
+              <h3>替换和影子屏蔽候选</h3>
+              <p>支持云端、本地全局和房间规则。疑似影子屏蔽时默认只展示候选改写，不自动发送。</p>
+            </article>
+            <article class="card">
+              <h3>同传、翻译和烂梗库</h3>
+              <p>接入 Soniox 语音识别，可发送识别或翻译结果，也能搜索、复制和发送常用梗。</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="permissions">
+        <div class="wrap">
+          <h2>权限说明</h2>
+          <div class="two-col">
+            <article class="card">
+              <h3>页面和网络范围</h3>
+              <ul class="plain-list">
+                <li><code>@match *://live.bilibili.com/*</code>：只在 B 站直播间运行。</li>
+                <li><code>@require</code>：加载 Soniox 浏览器端语音识别客户端。</li>
+                <li><code>@connect bilibili-guard-room.vercel.app</code>：允许可选的直播间保安室同步。</li>
+                <li><code>@connect localhost</code>：用于本地开发和自托管测试。</li>
+              </ul>
+            </article>
+            <article class="card">
+              <h3>脚本管理器能力</h3>
+              <ul class="plain-list">
+                <li><code>GM_addStyle</code>：注入面板和评论区样式。</li>
+                <li><code>GM_getValue</code>、<code>GM_setValue</code>、<code>GM_deleteValue</code>：本地保存设置、模板、规则和缓存。</li>
+                <li><code>GM_info</code>：读取脚本元信息。</li>
+                <li><code>unsafeWindow</code>：必要时与 B 站页面上下文交互。</li>
+                <li><code>@run-at document-start</code>：尽早准备 UI、样式和聊天适配。</li>
+              </ul>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="privacy">
+        <div class="wrap">
+          <h2>隐私和数据流说明</h2>
+          <p class="section-intro">
+            大部分数据只保存在你的浏览器里，包括弹幕模板、发送设置、自动跟车配置、替换规则、
+            Chatterbox Chat 偏好、粉丝牌巡检缓存和影子屏蔽观察记录。
+          </p>
+          <div class="grid">
+            <article class="card">
+              <h3>B 站接口和 WebSocket</h3>
+              <p>用于读取直播间事件、发送弹幕、获取当前账号相关粉丝牌房间信息和判断房间状态。</p>
+            </article>
+            <article class="card">
+              <h3>可选服务</h3>
+              <p>Soniox 仅在启用同传/语音识别时使用；直播间保安室只在你开启同步时接收摘要或选定规则。</p>
+            </article>
+            <article class="card">
+              <h3>托管资源</h3>
+              <p>GitHub Pages 和 Greasy Fork 用于官网、安装和发布；unpkg 用于加载 Soniox 浏览器端客户端。</p>
+            </article>
+          </div>
+          <p class="note" style="margin-top: 18px;">
+            不要在 issue、截图或导出配置里公开 cookie、csrf token、账号密钥、localStorage dump、私人规则或私有同步地址。
+          </p>
+        </div>
+      </section>
+
+      <section class="section" id="troubleshooting">
+        <div class="wrap">
+          <h2>常见问题和排障</h2>
+          <ul class="plain-list">
+            <li><strong>看不到按钮：</strong>确认脚本已安装并启用，然后刷新 B 站直播间页面。</li>
+            <li><strong>安装后没有更新：</strong>在脚本管理器里手动检查更新，或从 Greasy Fork 重新安装。</li>
+            <li><strong>弹幕发送失败：</strong>检查登录状态、直播间权限、弹幕长度、锁定表情权限和风控提示。</li>
+            <li><strong>自动跟车不触发：</strong>检查预设、阈值、冷却、唯一用户判断和融入黑名单。</li>
+            <li><strong>Chatterbox Chat 空白：</strong>刷新页面，确认直播间有弹幕，临时关闭自定义 CSS。</li>
+            <li><strong>粉丝牌巡检未知：</strong>可能是登录状态、接口限流、主播注销、网络错误或 B 站接口变动，稍后重试。</li>
+            <li><strong>同传不可用：</strong>检查麦克风权限、浏览器支持，以及 unpkg/Soniox 资源能否加载。</li>
+            <li><strong>候选改写没有自动发送：</strong>默认“只给候选”模式不会自动重发，需要明确开启自动重发和 AI 规避。</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section" id="limitations">
+        <div class="wrap">
+          <h2>已知限制</h2>
+          <ul class="plain-list">
+            <li>B 站页面结构、接口、风控策略和 WebSocket 数据格式可能随时变化。</li>
+            <li>高流量直播间里，DOM 兜底解析可能漏掉部分事件。</li>
+            <li>自动发送、自动跟车和自动重发都可能被 B 站限流、屏蔽或风控。</li>
+            <li>影子屏蔽检测是启发式判断，不能百分百区分网络延迟、房间行为和真实屏蔽。</li>
+            <li>替换规则和 AI 规避不能保证每条弹幕都能通过审核。</li>
+            <li>同传准确率受麦克风质量、浏览器支持和 Soniox 服务可用性影响。</li>
+            <li>主要测试路径是桌面浏览器加 Tampermonkey/Violentmonkey。</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section" id="bugs">
+        <div class="wrap">
+          <h2>如何反馈 bug</h2>
+          <p class="section-intro">
+            请到 GitHub Issues 提交问题，并尽量包含脚本版本、浏览器、脚本管理器、直播间 URL 或房间号、
+            复现步骤、预期结果、实际结果，以及控制台报错或截图。
+          </p>
+          <div class="actions">
+            <a class="button primary" href="https://github.com/aijc123/bilibili-live-wheel-auto-follow/issues">打开 GitHub Issues</a>
+            <a class="button" href="https://github.com/aijc123/bilibili-live-wheel-auto-follow/blob/master/README.md">查看 README</a>
+          </div>
         </div>
       </section>
     </main>
+
+    <footer class="footer">
+      <div class="wrap">
+        <p>
+          AGPL-3.0。本项目是面向 B 站直播间的非官方 userscript，基于 LAPLACE Chatterbox 相关工作继续维护。
+        </p>
+      </div>
+    </footer>
   </body>
 </html>
