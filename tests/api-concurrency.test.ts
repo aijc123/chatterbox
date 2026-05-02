@@ -3,18 +3,16 @@
 // stall the settings UI indefinitely. The fix runs them through
 // `mapWithConcurrency` (capped at 6 in the call site) and wraps each fetch
 // with an AbortController timeout.
+//
+// Imports from `concurrency.ts` directly rather than `api.ts` so that test
+// isolation across files (e.g. other suites that stub `globalThis.XMLHttpRequest`
+// for WBI hijack) doesn't poison the shared module cache before this file
+// loads. CI's bun test ordering surfaced that pollution; the local order
+// happened not to.
 
-import { describe, expect, mock, test } from 'bun:test'
+import { describe, expect, test } from 'bun:test'
 
-mock.module('$', () => ({
-  GM_deleteValue: () => {},
-  GM_getValue: <T>(_key: string, defaultValue: T): T => defaultValue,
-  GM_info: { script: { version: 'test' } },
-  GM_setValue: () => {},
-  unsafeWindow: globalThis,
-}))
-
-const { mapWithConcurrency } = await import('../src/lib/api')
+import { mapWithConcurrency } from '../src/lib/concurrency'
 
 describe('mapWithConcurrency', () => {
   test('processes every item exactly once and preserves order', async () => {

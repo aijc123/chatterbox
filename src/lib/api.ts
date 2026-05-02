@@ -2,6 +2,7 @@ import { effect } from '@preact/signals'
 
 import type { BilibiliGetEmoticonsResponse } from '../types'
 
+import { mapWithConcurrency } from './concurrency'
 import { BASE_URL } from './const'
 import { emitLocalDanmakuEcho } from './custom-chat-events'
 import { findEmoticon, isEmoticonUnique, isLockedEmoticon } from './emoticon'
@@ -336,24 +337,6 @@ async function fetchRoomByAnchorUid(anchor: Omit<MedalRoom, 'roomId' | 'source'>
   } finally {
     clearTimeout(timer)
   }
-}
-
-export async function mapWithConcurrency<T, R>(
-  items: readonly T[],
-  limit: number,
-  fn: (item: T) => Promise<R>
-): Promise<R[]> {
-  const results = new Array<R>(items.length)
-  let cursor = 0
-  const workers = new Array(Math.min(limit, items.length)).fill(0).map(async () => {
-    while (true) {
-      const idx = cursor++
-      if (idx >= items.length) return
-      results[idx] = await fn(items[idx])
-    }
-  })
-  await Promise.all(workers)
-  return results
 }
 
 interface FollowingEntry {

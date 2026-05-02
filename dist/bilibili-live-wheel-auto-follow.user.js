@@ -2094,6 +2094,19 @@
     document.head.appendChild(style);
     return () => style.remove();
   }
+  async function mapWithConcurrency(items, limit, fn) {
+    const results = new Array(items.length);
+    let cursor = 0;
+    const workers = new Array(Math.min(limit, items.length)).fill(0).map(async () => {
+      while (true) {
+        const idx = cursor++;
+        if (idx >= items.length) return;
+        results[idx] = await fn(items[idx]);
+      }
+    });
+    await Promise.all(workers);
+    return results;
+  }
   const VERSION = _GM_info.script.version;
   const BASE_URL = {
 BILIBILI_ROOM_INIT: "https://api.live.bilibili.com/room/v1/Room/room_init",
@@ -2907,19 +2920,6 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
     } finally {
       clearTimeout(timer2);
     }
-  }
-  async function mapWithConcurrency(items, limit, fn) {
-    const results = new Array(items.length);
-    let cursor = 0;
-    const workers = new Array(Math.min(limit, items.length)).fill(0).map(async () => {
-      while (true) {
-        const idx = cursor++;
-        if (idx >= items.length) return;
-        results[idx] = await fn(items[idx]);
-      }
-    });
-    await Promise.all(workers);
-    return results;
   }
   function followEntryToAnchor(entry) {
     if (typeof entry !== "object" || entry === null) return null;
