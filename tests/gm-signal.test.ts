@@ -43,4 +43,55 @@ describe('gmSignal persistence', () => {
     await new Promise(resolve => setTimeout(resolve, 180))
     expect(getWritesForKey(key)).toEqual([{ key, value: 4 }])
   })
+
+  // Regression: M-fix. Pre-fix, only `beforeunload` was wired up. Mobile
+  // browsers and bfcache transitions don't fire beforeunload reliably, so
+  // pending writes were lost when the tab was backgrounded or closed. We
+  // verify the underlying `flushPendingWrites` (which all three listeners
+  // ultimately call) drains the debounce window synchronously.
+  test('flushPendingWrites synchronously persists outstanding writes', async () => {
+    const { flushPendingWrites } = await import('../src/lib/gm-signal')
+    const key = 'flush-test'
+    const value = gmSignal(key, 0)
+    value.value = 99
+    expect(getWritesForKey(key)).toHaveLength(0)
+    flushPendingWrites()
+    expect(getWritesForKey(key)).toEqual([{ key, value: 99 }])
+  })
+
+  test('the source wires pagehide and visibilitychange listeners (not just beforeunload)', async () => {
+    // Lock in the contract so a refactor that drops one of the events would
+    // fail this test instead of silently losing data on mobile bfcache.
+    const src = await Bun.file(`${import.meta.dir}/../src/lib/gm-signal.ts`).text()
+    expect(src).toContain('beforeunload')
+    expect(src).toContain('pagehide')
+    expect(src).toContain('visibilitychange')
+  })
+})
+
+describe('isValidImportedValue (gm-signal validator)', () => {
+  test('coarse typeof check passes for matching types and rejects mismatches', async () => {
+    const { isValidImportedValue } = await import('../src/lib/gm-signal')
+    gmSignal('typecheck-num', 5)
+    gmSignal('typecheck-bool', false)
+    gmSignal('typecheck-arr', [1, 2])
+
+    expect(isValidImportedValue('typecheck-num', 9)).toBe(true)
+    expect(isValidImportedValue('typecheck-num', '9')).toBe(false)
+    expect(isValidImportedValue('typecheck-bool', true)).toBe(true)
+    expect(isValidImportedValue('typecheck-bool', 1)).toBe(false)
+    expect(isValidImportedValue('typecheck-arr', [3])).toBe(true)
+    expect(isValidImportedValue('typecheck-arr', { 0: 1 })).toBe(false)
+    expect(isValidImportedValue('not-registered', 0)).toBe(false)
+  })
+
+  test('custom validate option overrides the typeof check', async () => {
+    const { isValidImportedValue } = await import('../src/lib/gm-signal')
+    gmSignal('strict-positive', 5, {
+      validate: (val): val is number => typeof val === 'number' && val > 0,
+    })
+    expect(isValidImportedValue('strict-positive', 7)).toBe(true)
+    expect(isValidImportedValue('strict-positive', -1)).toBe(false)
+    expect(isValidImportedValue('strict-positive', 'x')).toBe(false)
+  })
 })

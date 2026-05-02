@@ -987,7 +987,13 @@ export function ensureCustomChatStyles({
     nextUserStyleEl.id = userStyleId
     document.head.appendChild(nextUserStyleEl)
   }
-  nextUserStyleEl.textContent = customCss
+  // Avoid clobbering textContent unless the CSS string actually changed —
+  // reassigning forces a full stylesheet recompute even when the value is
+  // identical, and this runs from a Preact `effect` that fires whenever any
+  // of its tracked signals tick.
+  if (nextUserStyleEl.textContent !== customCss) {
+    nextUserStyleEl.textContent = customCss
+  }
 
   return { styleEl: nextStyleEl, userStyleEl: nextUserStyleEl }
 }

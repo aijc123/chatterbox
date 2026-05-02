@@ -1,5 +1,5 @@
 import { GM_getValue, GM_setValue } from '$'
-import { applyImportedSettings } from './gm-signal'
+import { applyImportedSettings, isValidImportedValue } from './gm-signal'
 
 const BACKUP_VERSION = 1
 
@@ -98,12 +98,22 @@ export function importSettings(json: string): { ok: boolean; error?: string; cou
   if (typeof data !== 'object' || data === null || Array.isArray(data)) {
     return { ok: false, error: '数据格式错误，需要 JSON 对象', count: 0 }
   }
+  // Reject backups produced by a newer schema we don't understand. Backups
+  // missing __version are accepted (legacy export).
+  const version = data.__version
+  if (typeof version === 'number' && version > BACKUP_VERSION) {
+    return { ok: false, error: `导入版本 ${version} 高于当前支持的版本 ${BACKUP_VERSION}`, count: 0 }
+  }
   const allowed = new Set<string>(EXPORT_KEYS)
   const toApply: Record<string, unknown> = {}
   let count = 0
   for (const [key, val] of Object.entries(data)) {
     if (key.startsWith('__')) continue
     if (!allowed.has(key)) continue
+    // Drop entries whose imported value doesn't match the in-memory shape.
+    // Without this, a malformed backup could write `msgSendInterval = "5"`
+    // and break the auto-send loop until the user resets the setting.
+    if (!isValidImportedValue(key, val)) continue
     GM_setValue(key, val)
     toApply[key] = val
     count++

@@ -75,9 +75,11 @@ export function durationFromString(text: string): string | null {
   return `${formatDuration((end - Date.now()) / 1000)}（到 ${dateMatch[1]}）`
 }
 
-export function durationFromData(data: unknown): string | null {
+export function durationFromData(data: unknown, seen: WeakSet<object> = new WeakSet()): string | null {
   if (typeof data === 'string') return durationFromString(data)
   if (typeof data !== 'object' || data === null) return null
+  if (seen.has(data)) return null
+  seen.add(data)
 
   for (const [key, value] of Object.entries(data)) {
     const lowerKey = key.toLowerCase()
@@ -106,7 +108,7 @@ export function durationFromData(data: unknown): string | null {
         if (ms > Date.now()) return `${formatDuration((ms - Date.now()) / 1000)}（到 ${new Date(ms).toLocaleString()}）`
       }
     } else {
-      const nested = durationFromData(value)
+      const nested = durationFromData(value, seen)
       if (nested) return nested
     }
   }
@@ -120,17 +122,28 @@ export function describeRestrictionDuration(error: string | undefined, data: unk
 
 export function scanRestrictionSignals(data: unknown, source: string): RestrictionSignal[] {
   const signals: RestrictionSignal[] = []
-  scanNode(data, source, signals)
+  scanNode(data, source, signals, '', new WeakSet<object>())
   return signals
 }
 
-function scanNode(data: unknown, source: string, signals: RestrictionSignal[], path = ''): void {
+function scanNode(
+  data: unknown,
+  source: string,
+  signals: RestrictionSignal[],
+  path: string,
+  seen: WeakSet<object>
+): void {
   if (typeof data === 'string') {
     const kind = classifyText(data)
     if (kind) signals.push({ kind, message: data, duration: describeRestrictionDuration(data, null), source })
     return
   }
   if (typeof data !== 'object' || data === null) return
+  // Guard against cyclic JSON (the fetch-hijack runs before this and could in
+  // principle hand back a mutated object with a back-reference) so we don't
+  // blow the stack.
+  if (seen.has(data)) return
+  seen.add(data)
 
   for (const [key, value] of Object.entries(data)) {
     const lowerKey = key.toLowerCase()
@@ -157,7 +170,7 @@ function scanNode(data: unknown, source: string, signals: RestrictionSignal[], p
         })
       }
     }
-    scanNode(value, source, signals, currentPath)
+    scanNode(value, source, signals, currentPath, seen)
   }
 }
 

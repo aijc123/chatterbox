@@ -148,12 +148,21 @@ export function splitTextSmart(
 }
 
 /**
- * Extracts the room number from a Bilibili live room URL.
+ * Extracts the room number from a Bilibili live room URL. Returns undefined
+ * for non-live hosts or paths that don't end in a numeric room id (e.g.
+ * `/p/eden/area-tags/12345` should not be treated as room 12345).
+ *
+ * Recognized shapes:
+ *   live.bilibili.com/12345
+ *   live.bilibili.com/blanc/12345
+ *   live.bilibili.com/h5/12345
+ * with optional trailing slash, query string, or hash.
  */
 export function extractRoomNumber(url: string): string | undefined {
   const urlObj = new URL(url)
-  const pathSegments = urlObj.pathname.split('/').filter(segment => segment !== '')
-  return pathSegments.find(segment => Number.isInteger(Number(segment)))
+  if (urlObj.hostname !== 'live.bilibili.com') return undefined
+  const match = urlObj.pathname.match(/^\/(?:blanc\/|h5\/)?(\d+)\/?$/)
+  return match ? match[1] : undefined
 }
 
 /**

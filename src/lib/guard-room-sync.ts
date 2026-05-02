@@ -66,8 +66,35 @@ export interface LiveDeskHeartbeatInput {
   riskLevel: RiskEventLevel
 }
 
-function normalizeGuardRoomEndpoint(endpoint: string): string {
-  return endpoint.trim().replace(/\/+$/, '')
+/**
+ * Returns a normalized endpoint (trailing slashes stripped) only if it's a
+ * usable URL. Rejects:
+ *  - non-http(s) schemes (e.g. `javascript:`, `file:`, `data:`)
+ *  - `http://` for any host other than localhost / loopback
+ *
+ * The watchlist payload includes the user's medal/follow list and the sync
+ * key, so we don't want a typo in settings to send those to a plaintext or
+ * unexpected origin.
+ */
+export function normalizeGuardRoomEndpoint(endpoint: string): string {
+  const trimmed = endpoint.trim().replace(/\/+$/, '')
+  if (!trimmed) return ''
+  let parsed: URL
+  try {
+    parsed = new URL(trimmed)
+  } catch {
+    return ''
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return ''
+  if (parsed.protocol === 'http:') {
+    const host = parsed.hostname
+    // IPv6 hostnames come back wrapped in `[…]`, e.g. "[::1]" — strip
+    // brackets before comparison.
+    const bare = host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host
+    const isLoopback = bare === 'localhost' || bare === '127.0.0.1' || bare === '::1'
+    if (!isLoopback) return ''
+  }
+  return trimmed
 }
 
 export function classifyRiskEvent(

@@ -18,6 +18,13 @@ function extractWbiKeys(data: { data?: { wbi_img?: { img_url?: string; sub_url?:
 }
 
 ;(() => {
+  // Sentinel: avoid double-wrapping the prototype if this module is re-imported
+  // (e.g. when the userscript runs in both the top frame and a nested iframe).
+  const sentinel = '__chatterboxWbiHijackInstalled' as const
+  const proto = XMLHttpRequest.prototype as XMLHttpRequest & { [sentinel]?: boolean }
+  if (proto[sentinel]) return
+  proto[sentinel] = true
+
   const originalOpen = XMLHttpRequest.prototype.open
   const originalSend = XMLHttpRequest.prototype.send
 
