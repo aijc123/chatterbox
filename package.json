@@ -1,7 +1,7 @@
 {
   "name": "bilibili-live-wheel-auto-follow",
   "private": true,
-  "version": "2.9.0",
+  "version": "2.9.1",
   "description": "B站/哔哩哔哩直播间独轮车、自动跟车、Chatterbox Chat 和粉丝牌禁言巡检弹幕助手 userscript",
   "homepage": "https://github.com/aijc123/bilibili-live-wheel-auto-follow",
   "repository": {
@@ -49,6 +49,7 @@
     "@laplace.live/internal": "^1.3.10",
     "@preact/preset-vite": "^2.10.5",
     "@types/bun": "^1.3.13",
+    "happy-dom": "^20.9.0",
     "typescript": "^6.0.3",
     "unocss": "^66.6.8",
     "vite": "^7.3.2",

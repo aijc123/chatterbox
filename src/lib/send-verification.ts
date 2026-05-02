@@ -13,7 +13,7 @@
  * when the API succeeded but no broadcast echo arrived within the timeout.
  */
 
-import { tryAiEvasion } from './ai-evasion'
+import { requestAiSuggestion, tryAiEvasion } from './ai-evasion'
 import { getDedeUid } from './api'
 import {
   type CustomChatEvent,
@@ -24,7 +24,8 @@ import { type DanmakuEvent, subscribeDanmaku } from './danmaku-stream'
 import { isEmoticonUnique } from './emoticon'
 import { appendLog, appendLogQuiet } from './log'
 import { learnShadowRules, recordShadowBanObservation } from './shadow-learn'
-import { aiEvasion } from './store'
+import { formatCandidatesForLog, generateHeuristicCandidates, type ShadowBypassCandidate } from './shadow-suggestion'
+import { aiEvasion, shadowBanMode } from './store'
 
 export const SEND_ECHO_TIMEOUT_MS = 4000
 export type EchoSource = 'ws' | 'dom' | 'local' | null
@@ -246,28 +247,63 @@ export async function verifyBroadcast(input: VerifyBroadcastInput): Promise<void
     appendLogQuiet(message)
   }
 
-  // Layer 1+2+3 — only when this is the FIRST verifyBroadcast pass for this
-  // text. The post-evasion verify pass shares the same code path but skips
-  // re-triggering AI evasion to avoid an infinite loop.
+  // Post-evasion follow-up: AI already ran AND the rewritten send still
+  // didn't broadcast. Record without re-triggering anything.
   if (input.isPostEvasion) {
-    // AI evasion already ran AND the rewritten send still didn't broadcast.
     recordShadowBanObservation({ text: input.text, roomId: input.roomId, evadedAlready: true })
     return
   }
 
-  const canRunAiEvasion =
-    input.enableAiEvasion === true &&
-    aiEvasion.value &&
+  // ---- Bypass suggestions ----
+  // Always generate heuristic candidates (no network) so the user has
+  // something to copy even when AI evasion is off.
+  const heuristic = generateHeuristicCandidates(input.text)
+  const candidates: ShadowBypassCandidate[] = [...heuristic]
+
+  // If aiEvasion is on, also fetch the AI variant — but ALWAYS as a
+  // suggestion (no enqueue). The actual auto-resend path below decides
+  // whether to act on it.
+  let aiSuggestion: { evadedMessage: string; sensitiveWords: string[] } | null = null
+  if (input.enableAiEvasion && aiEvasion.value) {
+    try {
+      aiSuggestion = await requestAiSuggestion(input.text)
+    } catch {
+      aiSuggestion = null
+    }
+    if (aiSuggestion) {
+      candidates.push({
+        strategy: 'ai',
+        label: 'AI改写',
+        text: aiSuggestion.evadedMessage,
+      })
+    }
+  }
+
+  const formatted = formatCandidatesForLog(candidates)
+  if (formatted) appendLogQuiet(formatted)
+
+  // Always record the observation, with candidates attached so the panel
+  // can render copy / fill buttons.
+  recordShadowBanObservation({
+    text: input.text,
+    roomId: input.roomId,
+    evadedAlready: false,
+    candidates,
+  })
+
+  // ---- Optional auto-resend (gated, opt-in) ----
+  // Only act on AI suggestion when ALL conditions hold:
+  //   - shadowBanMode is explicitly 'auto-resend' (default is 'suggest')
+  //   - AI suggestion was produced
+  //   - room id + csrf token are available for the resend
+  const canAutoResend =
+    shadowBanMode.value === 'auto-resend' &&
+    aiSuggestion !== null &&
     input.roomId !== undefined &&
     typeof input.csrfToken === 'string' &&
     input.csrfToken.length > 0
+  if (!canAutoResend) return
 
-  if (!canRunAiEvasion) {
-    recordShadowBanObservation({ text: input.text, roomId: input.roomId, evadedAlready: false })
-    return
-  }
-
-  // input.roomId / input.csrfToken are guaranteed defined by canRunAiEvasion.
   const roomId = input.roomId as number
   const csrfToken = input.csrfToken as string
   const result = await tryAiEvasion(input.text, roomId, csrfToken, `${input.label}·影子屏蔽-`)
@@ -281,8 +317,7 @@ export async function verifyBroadcast(input: VerifyBroadcastInput): Promise<void
         originalMessage: input.text,
       })
     }
-    // Re-verify the AI-rewritten message once. No further retry / no toast —
-    // the user already saw the first warning, this just adds an honest follow-up.
+    // Post-evasion verify: one-shot, no further retry / toast.
     void verifyBroadcast({
       text: result.evadedMessage,
       label: `${input.label}·AI`,
@@ -291,8 +326,5 @@ export async function verifyBroadcast(input: VerifyBroadcastInput): Promise<void
       isPostEvasion: true,
       surfaceToast: false,
     })
-  } else {
-    // Laplace returned no usable rewrite — record for manual review.
-    recordShadowBanObservation({ text: input.text, roomId: input.roomId, evadedAlready: false })
   }
 }

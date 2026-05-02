@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.9.0
+// @version      2.9.1
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -1336,6 +1336,7 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
   const remoteKeywordsLastSync = gmSignal("remoteKeywordsLastSync", null);
   const replacementMap = y$1(null);
   const autoLearnShadowRules = gmSignal("autoLearnShadowRules", true);
+  const shadowBanMode = gmSignal("shadowBanMode", "suggest");
   const shadowBanObservations = gmSignal("shadowBanObservations", []);
   const sonioxApiKey = gmSignal("sonioxApiKey", "");
   const sonioxLanguageHints = gmSignal("sonioxLanguageHints", ["zh"]);
@@ -1533,8 +1534,26 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
       })).filter((field) => field.key && field.label && field.value)
     };
   }
+  const prewarmedAvatars = new Set();
+  const PREWARM_AVATAR_CAP = 2e3;
+  function prewarmAvatar(url) {
+    if (!url) return;
+    if (prewarmedAvatars.has(url)) return;
+    if (prewarmedAvatars.size >= PREWARM_AVATAR_CAP) {
+      const oldest = prewarmedAvatars.values().next().value;
+      if (oldest) prewarmedAvatars.delete(oldest);
+    }
+    prewarmedAvatars.add(url);
+    const img = new Image();
+    img.referrerPolicy = "no-referrer";
+    img.decoding = "async";
+    img.src = url;
+    img.decode().catch(() => {
+    });
+  }
   function emitCustomChatEvent(event) {
     const normalized = normalizeCustomChatEvent(event);
+    prewarmAvatar(normalized.avatarUrl);
     rememberRecentDanmaku(normalized);
     for (const handler of handlers) {
       handler(normalized);
@@ -2607,6 +2626,17 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
   function isEvadedMessageSendable(evadedMessage) {
     return evadedMessage.trim().length > 0;
   }
+  async function requestAiSuggestion(text) {
+    if (!aiEvasion.value) return null;
+    const trimmed = text.trim();
+    if (!trimmed) return null;
+    const detection = await detectSensitiveWords(trimmed);
+    if (!detection.hasSensitiveContent || !detection.sensitiveWords?.length) return null;
+    const evadedMessage = replaceSensitiveWords(trimmed, detection.sensitiveWords);
+    if (!isEvadedMessageSendable(evadedMessage)) return null;
+    if (evadedMessage === trimmed) return null;
+    return { evadedMessage, sensitiveWords: detection.sensitiveWords };
+  }
   async function tryAiEvasion(message, roomId, csrfToken, logPrefix) {
     if (!aiEvasion.value) return { success: false };
     appendLog(`🤖 ${logPrefix}AI规避：正在检测敏感词…`);
@@ -3057,7 +3087,9 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
         ...prev,
         ts: now,
         count: prev.count + 1,
-        evadedAlready: prev.evadedAlready || input.evadedAlready
+        evadedAlready: prev.evadedAlready || input.evadedAlready,
+
+candidates: input.candidates ?? prev.candidates
       };
       shadowBanObservations.value = updated;
       return;
@@ -3067,7 +3099,8 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
       roomId: input.roomId,
       ts: now,
       count: 1,
-      evadedAlready: input.evadedAlready
+      evadedAlready: input.evadedAlready,
+      candidates: input.candidates
     };
     let next = [...list, entry];
     if (next.length > OBSERVATION_CAP) {
@@ -3100,6 +3133,33 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
       sourceText: trimmedText
     });
     return true;
+  }
+  const KOU_SEPARATOR = "口";
+  const FULLWIDTH_SPACE = "　";
+  function joinWith(text, separator) {
+    const graphemes = getGraphemes(text);
+    return graphemes.join(separator);
+  }
+  function generateHeuristicCandidates(text) {
+    const trimmed = text.trim();
+    if (!trimmed) return [];
+    const candidates = [
+      { strategy: "invisible", label: "隐形字符", text: processText(trimmed) },
+      { strategy: "kou", label: "口分隔", text: joinWith(trimmed, KOU_SEPARATOR) },
+      { strategy: "space", label: "全角空格", text: joinWith(trimmed, FULLWIDTH_SPACE) }
+    ];
+    const seen2 = new Set([trimmed]);
+    return candidates.filter((c2) => {
+      if (c2.text === trimmed) return false;
+      if (seen2.has(c2.text)) return false;
+      seen2.add(c2.text);
+      return true;
+    });
+  }
+  function formatCandidatesForLog(candidates) {
+    if (candidates.length === 0) return null;
+    const lines = candidates.map((c2) => `   • ${c2.label}: ${c2.text}`);
+    return ["🛠 改写候选（不自动发送，可复制粘贴）：", ...lines].join("\n");
   }
   const SEND_ECHO_TIMEOUT_MS = 4e3;
   const RECENT_DOM_DANMAKU_HISTORY_MS = 15e3;
@@ -3220,11 +3280,33 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
       recordShadowBanObservation({ text: input.text, roomId: input.roomId, evadedAlready: true });
       return;
     }
-    const canRunAiEvasion = input.enableAiEvasion === true && aiEvasion.value && input.roomId !== void 0 && typeof input.csrfToken === "string" && input.csrfToken.length > 0;
-    if (!canRunAiEvasion) {
-      recordShadowBanObservation({ text: input.text, roomId: input.roomId, evadedAlready: false });
-      return;
+    const heuristic = generateHeuristicCandidates(input.text);
+    const candidates = [...heuristic];
+    let aiSuggestion = null;
+    if (input.enableAiEvasion && aiEvasion.value) {
+      try {
+        aiSuggestion = await requestAiSuggestion(input.text);
+      } catch {
+        aiSuggestion = null;
+      }
+      if (aiSuggestion) {
+        candidates.push({
+          strategy: "ai",
+          label: "AI改写",
+          text: aiSuggestion.evadedMessage
+        });
+      }
     }
+    const formatted = formatCandidatesForLog(candidates);
+    if (formatted) appendLogQuiet(formatted);
+    recordShadowBanObservation({
+      text: input.text,
+      roomId: input.roomId,
+      evadedAlready: false,
+      candidates
+    });
+    const canAutoResend = shadowBanMode.value === "auto-resend" && aiSuggestion !== null && input.roomId !== void 0 && typeof input.csrfToken === "string" && input.csrfToken.length > 0;
+    if (!canAutoResend) return;
     const roomId = input.roomId;
     const csrfToken = input.csrfToken;
     const result = await tryAiEvasion(input.text, roomId, csrfToken, `${input.label}·影子屏蔽-`);
@@ -3245,8 +3327,6 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
         isPostEvasion: true,
         surfaceToast: false
       });
-    } else {
-      recordShadowBanObservation({ text: input.text, roomId: input.roomId, evadedAlready: false });
     }
   }
   const GET_INFO_BY_USER_PATTERN = "/xlive/web-room/v1/index/getInfoByUser";
@@ -7096,6 +7176,7 @@ ws;
   const NATIVE_HEALTH_MIN_SCANS = 24;
   const NATIVE_HEALTH_MAX_EVENTS = 0;
   const MAX_NATIVE_SCAN_BATCH = 48;
+  const MAX_NATIVE_INITIAL_SCAN = 80;
   const NATIVE_SCAN_DEBOUNCE_MS = 16;
   function shouldScanNativeEventNode(node, rootId) {
     if (node.closest(`#${rootId}`)) return false;
@@ -7918,15 +7999,36 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID$1} {
   color: var(--lc-chat-muted);
 }
 #${ROOT_ID$1} .lc-chat-avatar {
+  position: relative;
   grid-row: 1 / 3;
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  object-fit: cover;
+  overflow: hidden;
   background: var(--lc-chat-chip);
   align-self: end;
   margin-bottom: 3px;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, .5), 0 2px 7px var(--lc-chat-shadow);
+}
+#${ROOT_ID$1} .lc-chat-avatar-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+  opacity: 0;
+  filter: blur(4px);
+  /* Slow, gentle ease-out so a late-arriving avatar fades into focus rather
+     than popping in. >250ms keeps the change below the eye's "motion" gate
+     so it doesn't draw attention. Cache hits set data-loaded=1 BEFORE the
+     element is mounted, so the transition never fires for them — they
+     paint at opacity:1 from the first frame. */
+  transition: opacity .32s cubic-bezier(.4, 0, .2, 1), filter .32s cubic-bezier(.4, 0, .2, 1);
+}
+#${ROOT_ID$1} .lc-chat-avatar-img[data-loaded="1"] {
+  opacity: 1;
+  filter: none;
 }
 #${ROOT_ID$1} .lc-chat-avatar-fallback {
   display: grid;
@@ -8554,6 +8656,31 @@ u$2(
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
     return true;
+  }
+  function fillIntoComposer(text) {
+    fasongText.value = text;
+    if (focusCustomChatComposer()) return "custom-chat";
+    const native = document.querySelector(
+      [
+        ".chat-control-panel-vm textarea",
+        ".bottom-actions textarea",
+        ".brush-input textarea",
+        "textarea.chat-input"
+      ].join(", ")
+    );
+    if (native) {
+      native.value = text;
+      native.dispatchEvent(new Event("input", { bubbles: true }));
+      native.focus();
+      try {
+        native.setSelectionRange(text.length, text.length);
+      } catch {
+      }
+      return "native";
+    }
+    activeTab.value = "fasong";
+    dialogOpen.value = true;
+    return "send-tab";
   }
   async function repeatDanmaku(msg, options = {}) {
     if (options.confirm) {
@@ -9567,21 +9694,26 @@ u$2(
     return fallback;
   }
   function createAvatar(message) {
-    const fallback = document.createElement("div");
-    fallback.className = "lc-chat-avatar lc-chat-avatar-fallback";
-    fallback.textContent = message.uname.slice(0, 1).toUpperCase() || "?";
-    fallback.title = message.uid ? `UID ${message.uid}` : message.uname;
+    const wrap = document.createElement("div");
+    wrap.className = "lc-chat-avatar lc-chat-avatar-fallback";
+    wrap.textContent = message.uname.slice(0, 1).toUpperCase() || "?";
+    wrap.title = message.uid ? `UID ${message.uid}` : message.uname;
     const avatar = message.avatarUrl || resolveAvatarUrl(message.uid);
-    if (!avatar) return fallback;
+    if (!avatar) return wrap;
     const img = document.createElement("img");
-    img.className = "lc-chat-avatar";
-    img.src = avatar;
-    img.alt = "头像";
+    img.className = "lc-chat-avatar-img";
+    img.alt = "";
     img.referrerPolicy = "no-referrer";
-    img.loading = "lazy";
-    img.title = fallback.title;
-    addRootEventListener(img, "error", () => img.replaceWith(fallback), { once: true });
-    return img;
+    img.decoding = "sync";
+    img.src = avatar;
+    if (img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
+      img.dataset.loaded = "1";
+    } else {
+      addRootEventListener(img, "load", () => img.setAttribute("data-loaded", "1"), { once: true });
+    }
+    addRootEventListener(img, "error", () => img.remove(), { once: true });
+    wrap.append(img);
+    return wrap;
   }
   function recordNativeHealth(parsed) {
     const now = Date.now();
@@ -10396,6 +10528,14 @@ u$2(
     styleEl$1 = styles.styleEl;
     userStyleEl = styles.userStyleEl;
   }
+  function bootstrapPrewarmFromNative(container) {
+    const nodes = container.querySelectorAll(NATIVE_EVENT_SELECTOR);
+    const limit = Math.min(nodes.length, MAX_NATIVE_INITIAL_SCAN);
+    for (let i2 = 0; i2 < limit; i2++) {
+      const url = nativeAvatar(nodes[i2]);
+      if (url) prewarmAvatar(url);
+    }
+  }
   function mount$1(container) {
     ensureStyles();
     abortRootEventListeners();
@@ -10415,6 +10555,7 @@ u$2(
     host.appendChild(root);
     updateNativeVisibility();
     observeNativeEvents(container);
+    bootstrapPrewarmFromNative(container);
     rerenderMessages();
   }
   function ensureFallbackHost() {
@@ -10521,7 +10662,7 @@ u$2(
       pendingNativeNodes.add(node);
       scheduleNativeScan();
     };
-    const existing = Array.from(container.querySelectorAll(NATIVE_EVENT_SELECTOR)).filter((node) => !node.classList.contains("danmaku-item")).slice(-80);
+    const existing = Array.from(container.querySelectorAll(NATIVE_EVENT_SELECTOR)).filter((node) => !node.classList.contains("danmaku-item")).slice(-MAX_NATIVE_INITIAL_SCAN);
     for (const node of existing) queueScan(node);
     nativeEventObserver = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
@@ -10589,9 +10730,23 @@ u$2(
     pruneMessages();
     scheduleRender(event);
   }
+  function ensureAvatarPreconnect() {
+    const head = document.head;
+    if (!head) return;
+    for (const host of ["https://workers.vrp.moe", "https://i0.hdslb.com"]) {
+      const id = `lc-avatar-preconnect-${host.replace(/[^a-z0-9]/gi, "-")}`;
+      if (document.getElementById(id)) continue;
+      const link = document.createElement("link");
+      link.id = id;
+      link.rel = "preconnect";
+      link.href = host;
+      head.append(link);
+    }
+  }
   function startCustomChatDom() {
     if (unsubscribeDom) return;
     ensureStyles();
+    ensureAvatarPreconnect();
     scheduleFallbackMount();
     void refreshCurrentRoomEmoticons();
     disposeSettings = j$1(() => {
@@ -12920,10 +13075,11 @@ u$2(
     return u$2("details", { open: true, children: [
 u$2("summary", { style: { cursor: "pointer", userSelect: "none", fontWeight: "bold" }, children: u$2("span", { children: "常规发送" }) }),
 u$2("div", { className: "cb-body cb-stack", children: [
-u$2("div", { style: { position: "relative" }, children: [
+u$2("div", { style: { position: "relative" }, "data-cb-send-tab-anchor": true, children: [
 u$2(
             "textarea",
             {
+              "data-cb-send-tab-textarea": true,
               value: fasongText.value,
               onInput: (e2) => {
                 fasongText.value = e2.currentTarget.value;
@@ -15193,13 +15349,71 @@ u$2(
       )
     ] });
   }
-  const SECTION_KEYWORDS = "影子屏蔽 屏蔽观察 自动学习 shadow ban";
+  const SECTION_KEYWORDS = "影子屏蔽 屏蔽观察 自动学习 shadow ban 改写 候选";
   function formatRelative(ts) {
     const diff = Date.now() - ts;
     if (diff < 6e4) return "刚刚";
     if (diff < 36e5) return `${Math.floor(diff / 6e4)} 分钟前`;
     if (diff < 864e5) return `${Math.floor(diff / 36e5)} 小时前`;
     return `${Math.floor(diff / 864e5)} 天前`;
+  }
+  function CandidateRow$1({ candidate }) {
+    return u$2(
+      "div",
+      {
+        className: "cb-row",
+        style: {
+          display: "flex",
+          gap: ".4em",
+          alignItems: "baseline",
+          flexWrap: "wrap",
+          padding: ".15em 0"
+        },
+        children: [
+u$2("span", { style: { color: "#888", fontSize: "0.85em", minWidth: "4.5em" }, children: candidate.label }),
+u$2(
+            "code",
+            {
+              style: {
+                flex: 1,
+                minWidth: 0,
+                overflowWrap: "anywhere",
+                background: "var(--Ga0, #f5f5f5)",
+                padding: ".1em .3em",
+                borderRadius: ".2em"
+              },
+              children: candidate.text
+            }
+          ),
+u$2(
+            "button",
+            {
+              type: "button",
+              style: { fontSize: "0.85em" },
+              onClick: async () => {
+                const ok = await copyText(candidate.text);
+                appendLog(ok ? `📋 已复制（${candidate.label}）` : `⚠️ 复制失败（${candidate.label}）`);
+              },
+              children: "复制"
+            }
+          ),
+u$2(
+            "button",
+            {
+              type: "button",
+              style: { fontSize: "0.85em" },
+              title: "填入弹幕输入框，但不会自动发送 — 你确认无误后再按发送/回车",
+              onClick: () => {
+                const target = fillIntoComposer(candidate.text);
+                const where = target === "custom-chat" ? "Chatterbox 输入框" : target === "native" ? "B站原生输入框" : "发送 Tab";
+                appendLog(`📝 已填入${where}（${candidate.label}），请检查后再发送`);
+              },
+              children: "填入输入框"
+            }
+          )
+        ]
+      }
+    );
   }
   function ShadowObservationSection({ query = "" }) {
     const visible = !query || SECTION_KEYWORDS.toLowerCase().includes(query);
@@ -15216,7 +15430,43 @@ u$2(
           className: "cb-section cb-stack",
           style: { margin: ".5em 0", paddingBottom: "1em", borderBottom: "1px solid var(--Ga2, #eee)" },
           children: [
-u$2("div", { className: "cb-row", children: [
+u$2("div", { className: "cb-row", style: { flexWrap: "wrap", gap: ".4em", alignItems: "baseline" }, children: [
+u$2("span", { className: "cb-label", children: "检测到影子封禁后：" }),
+u$2("label", { children: [
+u$2(
+                  "input",
+                  {
+                    type: "radio",
+                    name: "shadowBanMode",
+                    value: "suggest",
+                    checked: shadowBanMode.value === "suggest",
+                    onInput: () => {
+                      shadowBanMode.value = "suggest";
+                    }
+                  }
+                ),
+                " ",
+                "只给候选改写（推荐）"
+              ] }),
+u$2("label", { children: [
+u$2(
+                  "input",
+                  {
+                    type: "radio",
+                    name: "shadowBanMode",
+                    value: "auto-resend",
+                    checked: shadowBanMode.value === "auto-resend",
+                    onInput: () => {
+                      shadowBanMode.value = "auto-resend";
+                    }
+                  }
+                ),
+                " ",
+                "自动 AI 改写并重发"
+              ] })
+            ] }),
+u$2("div", { className: "cb-note", style: { color: "#666", fontSize: "0.85em", paddingLeft: "1.4em" }, children: "「只给候选」模式下脚本不会自动再发任何消息，只是把改写候选列在日志和下方观察列表里，由你决定是否复制/填入输入框。 「自动重发」模式需要同时打开「AI 规避」开关，会把 AI 改写后的弹幕自动重发并写入本地房间规则。" }),
+u$2("div", { className: "cb-row", style: { marginTop: ".4em" }, children: [
 u$2(
                 "input",
                 {
@@ -15232,12 +15482,12 @@ u$2(
                 "label",
                 {
                   for: "autoLearnShadowRules",
-                  title: "当 verifyBroadcast 检测到影子封禁、AI 规避又成功改写之后，自动把（敏感词→改写后）写入当前房间的本地替换规则。",
-                  children: "自动学习屏蔽词（AI 规避成功后写入本地房间规则）"
+                  title: "仅在「自动重发」模式下生效：AI 改写成功后把（敏感词→改写后）写入当前房间的本地替换规则。",
+                  children: "自动学习屏蔽词（仅自动重发模式生效，写入本地房间规则）"
                 }
               )
             ] }),
-u$2("div", { className: "cb-note", style: { color: "#666", fontSize: "0.85em", paddingLeft: "1.4em" }, children: "学到的规则会作为本地房间规则保存，下次发送同样文本会先走替换。如果配置了 Guard Room，每条新规则会上报到云端供跨设备同步。" }),
+u$2("div", { className: "cb-note", style: { color: "#666", fontSize: "0.85em", paddingLeft: "1.4em" }, children: "学到的规则保存为本地房间规则，下次发送同样文本会先走替换。如果配置了 Guard Room，每条新规则会上报到云端供跨设备同步。" }),
 u$2("div", { className: "cb-heading", style: { fontWeight: "bold", marginTop: ".6em" }, children: [
               "影子封禁观察列表",
 u$2("span", { style: { color: "#999", fontWeight: "normal", marginLeft: ".4em" }, children: [
@@ -15260,10 +15510,11 @@ u$2("span", { style: { color: "#999", fontWeight: "normal", marginLeft: ".4em" }
                 }
               )
             ] }),
-            top.length === 0 ? u$2("div", { className: "cb-empty", style: { color: "#999" }, children: "暂无观察记录。当 AI 规避未开、或开了但 Laplace 没识别敏感词、或改写后仍未广播时，原句会出现在这里。" }) : u$2("div", { className: "cb-rule-list", children: top.map((obs) => {
+            top.length === 0 ? u$2("div", { className: "cb-empty", style: { color: "#999" }, children: "暂无观察记录。被影子封禁的弹幕会出现在这里，附带候选改写以供你复制或填入输入框。" }) : u$2("div", { className: "cb-rule-list", children: top.map((obs) => {
               const k2 = keyOf(obs.text, obs.roomId);
               const editing = replaceTo.value[k2];
               const showInput = typeof editing === "string";
+              const candidates = obs.candidates ?? [];
               return u$2(
                 "div",
                 {
@@ -15283,6 +15534,10 @@ u$2("span", { style: { color: "#999", fontSize: "0.85em" }, children: [
                         formatRelative(obs.ts),
                         obs.evadedAlready && u$2(S$1, { children: " · AI改写后仍未广播" })
                       ] })
+                    ] }),
+                    candidates.length > 0 && u$2("div", { className: "cb-stack", style: { paddingLeft: ".5em", borderLeft: "2px solid var(--Ga2, #ddd)" }, children: [
+u$2("div", { style: { color: "#888", fontSize: "0.8em" }, children: "候选改写（不自动发送）" }),
+                      candidates.map((c2) => u$2(CandidateRow$1, { candidate: c2 }, `${k2}|${c2.strategy}`))
                     ] }),
                     showInput && u$2("div", { className: "cb-row", style: { gap: ".4em", alignItems: "center" }, children: [
 u$2("span", { className: "cb-label", style: { color: "#999", fontSize: "0.85em" }, children: "改成" }),
@@ -16066,6 +16321,217 @@ u$2("button", { type: "button", className: "cb-btn", onClick: () => finish("👋
       }
     );
   }
+  const SHADOW_CHIP_RECENT_WINDOW_MS = 6e4;
+  const ANCHOR_REFRESH_MS = 500;
+  const CHIP_GAP_PX = 6;
+  const CHIP_MAX_WIDTH = 420;
+  function obsKey(text, roomId) {
+    return `${roomId ?? "global"}\0${text}`;
+  }
+  function pickActiveObservation(observations, dismissedKeys, now = Date.now()) {
+    let best = null;
+    for (const o2 of observations) {
+      if (!o2.candidates || o2.candidates.length === 0) continue;
+      if (now - o2.ts >= SHADOW_CHIP_RECENT_WINDOW_MS) continue;
+      if (dismissedKeys.has(obsKey(o2.text, o2.roomId))) continue;
+      if (best === null || o2.ts > best.ts) best = o2;
+    }
+    return best;
+  }
+  function computeChipPlacement(anchorRect, viewport, candidateCount) {
+    const estimatedHeight = 60 + candidateCount * 24;
+    let top = anchorRect.top - CHIP_GAP_PX - estimatedHeight;
+    if (top < 8) top = anchorRect.bottom + CHIP_GAP_PX;
+    if (top + estimatedHeight > viewport.innerHeight - 8) {
+      top = Math.max(8, viewport.innerHeight - estimatedHeight - 8);
+    }
+    const width = Math.min(CHIP_MAX_WIDTH, Math.max(260, anchorRect.width));
+    let left = anchorRect.left;
+    if (left + width > viewport.innerWidth - 8) {
+      left = Math.max(8, viewport.innerWidth - width - 8);
+    }
+    return { top, left, width };
+  }
+  const ANCHOR_SELECTORS = [
+    { sel: "#laplace-custom-chat textarea", source: "custom-chat" },
+{
+      sel: [
+        ".chat-control-panel-vm textarea",
+        ".bottom-actions textarea",
+        ".brush-input textarea",
+        "textarea.chat-input"
+      ].join(", "),
+      source: "native"
+    },
+    { sel: "[data-cb-send-tab-textarea]", source: "send-tab" }
+  ];
+  function findComposerAnchor(doc = document) {
+    for (const { sel, source } of ANCHOR_SELECTORS) {
+      const el = doc.querySelector(sel);
+      if (!el) continue;
+      if (el.offsetParent === null && el.getClientRects().length === 0) continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) continue;
+      return { rect, source };
+    }
+    return null;
+  }
+  function CandidateRow({ candidate }) {
+    return u$2(
+      "div",
+      {
+        style: {
+          display: "flex",
+          gap: "4px",
+          alignItems: "center",
+          padding: "2px 0",
+          fontSize: "12px"
+        },
+        children: [
+u$2("span", { style: { minWidth: "4em", color: "#888", fontSize: "11px" }, children: candidate.label }),
+u$2(
+            "code",
+            {
+              style: {
+                flex: 1,
+                minWidth: 0,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                background: "#f5f5f5",
+                padding: "1px 6px",
+                borderRadius: "3px",
+                fontFamily: "monospace"
+              },
+              title: candidate.text,
+              children: candidate.text
+            }
+          ),
+u$2(
+            "button",
+            {
+              type: "button",
+              style: { fontSize: "11px", padding: "2px 6px" },
+              onClick: async () => {
+                const ok = await copyText(candidate.text);
+                appendLog(ok ? `📋 已复制（${candidate.label}）` : `⚠️ 复制失败（${candidate.label}）`);
+              },
+              children: "复制"
+            }
+          ),
+u$2(
+            "button",
+            {
+              type: "button",
+              style: { fontSize: "11px", padding: "2px 6px" },
+              title: "填入弹幕输入框，但不会自动发送 — 你确认后再按发送/回车",
+              onClick: () => {
+                const target = fillIntoComposer(candidate.text);
+                const where = target === "custom-chat" ? "Chatterbox 输入框" : target === "native" ? "B站原生输入框" : "发送 Tab";
+                appendLog(`📝 已填入${where}（${candidate.label}），请检查后再发送`);
+              },
+              children: "填入"
+            }
+          )
+        ]
+      }
+    );
+  }
+  function ShadowBypassChip() {
+    const dismissedKeys = useSignal( new Set());
+    const anchor = useSignal(null);
+    y$2(() => {
+      const tick2 = () => {
+        anchor.value = findComposerAnchor();
+      };
+      tick2();
+      const handle = window.setInterval(tick2, ANCHOR_REFRESH_MS);
+      window.addEventListener("resize", tick2);
+      return () => {
+        window.clearInterval(handle);
+        window.removeEventListener("resize", tick2);
+      };
+    }, [anchor]);
+    const target = pickActiveObservation(shadowBanObservations.value, dismissedKeys.value);
+    if (!target || !anchor.value) return null;
+    const { top, left, width } = computeChipPlacement(
+      anchor.value.rect,
+      { innerWidth: window.innerWidth, innerHeight: window.innerHeight },
+      target.candidates?.length ?? 0
+    );
+    const dismiss = () => {
+      const k2 = obsKey(target.text, target.roomId);
+      dismissedKeys.value = new Set([...dismissedKeys.value, k2]);
+    };
+    return u$2(
+      "div",
+      {
+        role: "dialog",
+        "aria-label": "影子封禁改写候选",
+        style: {
+          position: "fixed",
+          top: `${top}px`,
+          left: `${left}px`,
+          width: `${width}px`,
+          zIndex: 2147483600,
+          background: "white",
+          color: "#333",
+          border: "1px solid #ddd",
+          borderRadius: "6px",
+          boxShadow: "0 4px 14px rgba(0,0,0,0.18)",
+          padding: "8px 10px",
+          fontSize: "12px",
+          lineHeight: 1.4
+        },
+        children: [
+u$2(
+            "div",
+            {
+              style: {
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: "8px",
+                marginBottom: "4px"
+              },
+              children: [
+u$2("strong", { style: { color: "#d93025", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: [
+                  "⚠️ 疑似屏蔽：",
+                  target.text
+                ] }),
+u$2("div", { style: { display: "flex", gap: "4px" }, children: [
+u$2(
+                    "button",
+                    {
+                      type: "button",
+                      style: { fontSize: "11px", padding: "2px 6px" },
+                      title: "从观察列表删除这一条",
+                      onClick: () => {
+                        removeShadowBanObservation(target.text, target.roomId);
+                      },
+                      children: "删除"
+                    }
+                  ),
+u$2(
+                    "button",
+                    {
+                      type: "button",
+                      style: { fontSize: "14px", lineHeight: 1, padding: "0 6px" },
+                      title: "关闭这个提示（不删除观察记录，下次还能从设置里找到）",
+                      onClick: dismiss,
+                      children: "×"
+                    }
+                  )
+                ] })
+              ]
+            }
+          ),
+u$2("div", { style: { color: "#666", fontSize: "11px", marginBottom: "4px" }, children: "候选改写（不自动发送，点「填入」会替换你的输入框文本）：" }),
+          target.candidates?.map((c2) => u$2(CandidateRow, { candidate: c2 }, c2.strategy))
+        ]
+      }
+    );
+  }
   function ToggleButton() {
     const btnRef = A(null);
     const toggle = q$2(() => {
@@ -16230,6 +16696,7 @@ u$2(ErrorBoundary, { children: [
 u$2(Configurator, {}),
 u$2(Onboarding, {}),
 u$2(UserNotice, {}),
+u$2(ShadowBypassChip, {}),
 u$2(AlertDialog, {})
       ] })
     ] });

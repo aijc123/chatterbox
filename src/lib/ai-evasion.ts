@@ -74,6 +74,31 @@ export interface TryAiEvasionResult {
 }
 
 /**
+ * Detects sensitive words via Laplace and returns the rewritten text WITHOUT
+ * resending. Used by `verifyBroadcast` in suggest-only mode so the user can
+ * copy/paste the AI variant into their input box without the script taking
+ * an autonomous send action on their behalf.
+ *
+ * Returns:
+ *   - `null` if `aiEvasion` is off, Laplace finds nothing, or the rewrite
+ *     would produce empty / whitespace-only text.
+ *   - `{ evadedMessage, sensitiveWords }` otherwise.
+ */
+export async function requestAiSuggestion(
+  text: string
+): Promise<{ evadedMessage: string; sensitiveWords: string[] } | null> {
+  if (!aiEvasion.value) return null
+  const trimmed = text.trim()
+  if (!trimmed) return null
+  const detection = await detectSensitiveWords(trimmed)
+  if (!detection.hasSensitiveContent || !detection.sensitiveWords?.length) return null
+  const evadedMessage = replaceSensitiveWords(trimmed, detection.sensitiveWords)
+  if (!isEvadedMessageSendable(evadedMessage)) return null
+  if (evadedMessage === trimmed) return null
+  return { evadedMessage, sensitiveWords: detection.sensitiveWords }
+}
+
+/**
  * Attempts AI evasion for a failed message by detecting and replacing sensitive words, then resending.
  */
 export async function tryAiEvasion(

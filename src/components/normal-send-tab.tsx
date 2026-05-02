@@ -18,8 +18,9 @@ export function NormalSendTab() {
         <span>常规发送</span>
       </summary>
       <div className='cb-body cb-stack'>
-        <div style={{ position: 'relative' }}>
+        <div style={{ position: 'relative' }} data-cb-send-tab-anchor>
           <textarea
+            data-cb-send-tab-textarea
             value={fasongText.value}
             onInput={e => {
               fasongText.value = e.currentTarget.value

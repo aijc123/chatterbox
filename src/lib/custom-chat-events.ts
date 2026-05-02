@@ -154,8 +154,28 @@ export function normalizeCustomChatEvent(event: CustomChatEvent): CustomChatEven
   }
 }
 
+const prewarmedAvatars = new Set<string>()
+const PREWARM_AVATAR_CAP = 2000
+
+export function prewarmAvatar(url: string | undefined): void {
+  if (!url) return
+  if (prewarmedAvatars.has(url)) return
+  if (prewarmedAvatars.size >= PREWARM_AVATAR_CAP) {
+    const oldest = prewarmedAvatars.values().next().value
+    if (oldest) prewarmedAvatars.delete(oldest)
+  }
+  prewarmedAvatars.add(url)
+  const img = new Image()
+  img.referrerPolicy = 'no-referrer'
+  img.decoding = 'async'
+  img.src = url
+  // Eagerly decode so the bitmap (not just bytes) is in cache; ignore any errors.
+  img.decode().catch(() => {})
+}
+
 export function emitCustomChatEvent(event: CustomChatEvent): void {
   const normalized = normalizeCustomChatEvent(event)
+  prewarmAvatar(normalized.avatarUrl)
   rememberRecentDanmaku(normalized)
   for (const handler of handlers) {
     handler(normalized)

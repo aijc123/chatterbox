@@ -13,6 +13,8 @@
  * unconditionally — gating lives here, not at every callsite.
  */
 
+import type { ShadowBypassCandidate } from './shadow-suggestion'
+
 import { processText } from './ai-evasion'
 import { syncGuardRoomShadowRule } from './guard-room-sync'
 import { appendLog } from './log'
@@ -91,6 +93,12 @@ export interface RecordShadowBanObservationInput {
   text: string
   roomId?: number
   evadedAlready: boolean
+  /**
+   * Optional rewrite candidates to attach. When provided, they overwrite the
+   * stored candidates for this entry — the freshest generation wins, so
+   * users always see the most recent strategies in the panel.
+   */
+  candidates?: ShadowBypassCandidate[]
 }
 
 /**
@@ -112,6 +120,9 @@ export function recordShadowBanObservation(input: RecordShadowBanObservationInpu
       ts: now,
       count: prev.count + 1,
       evadedAlready: prev.evadedAlready || input.evadedAlready,
+      // Replace candidates if a fresh batch came in (e.g. AI candidate now
+      // available because the user just turned aiEvasion on).
+      candidates: input.candidates ?? prev.candidates,
     }
     shadowBanObservations.value = updated
     return
@@ -123,6 +134,7 @@ export function recordShadowBanObservation(input: RecordShadowBanObservationInpu
     ts: now,
     count: 1,
     evadedAlready: input.evadedAlready,
+    candidates: input.candidates,
   }
   let next = [...list, entry]
   if (next.length > OBSERVATION_CAP) {

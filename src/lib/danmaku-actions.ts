@@ -49,6 +49,52 @@ function focusCustomChatComposer(): boolean {
   return true
 }
 
+/**
+ * Try to populate the user's danmaku composer with `text` WITHOUT sending it.
+ * The user reviews the suggestion and can hit Enter / Send themselves.
+ *
+ * Order of preference:
+ *   1. Chatterbox custom chat textarea (when the feature is on)
+ *   2. The Send tab's textarea (`fasongText` signal — opens the panel)
+ *   3. Bilibili's native chat input (best-effort DOM query)
+ *
+ * Returns the first target that succeeded, or `null` if no composer was
+ * reachable. Always sets `fasongText` as a side-effect so the user can paste
+ * from the Send tab even when both DOM targets fail.
+ */
+export function fillIntoComposer(text: string): 'custom-chat' | 'native' | 'send-tab' | null {
+  fasongText.value = text
+  if (focusCustomChatComposer()) return 'custom-chat'
+
+  // Bilibili's native chat input. The page has rearranged its DOM many times
+  // — this query covers the layouts we've seen across the 2024–2025 versions.
+  const native = document.querySelector<HTMLTextAreaElement>(
+    [
+      '.chat-control-panel-vm textarea',
+      '.bottom-actions textarea',
+      '.brush-input textarea',
+      'textarea.chat-input',
+    ].join(', ')
+  )
+  if (native) {
+    native.value = text
+    native.dispatchEvent(new Event('input', { bubbles: true }))
+    native.focus()
+    try {
+      native.setSelectionRange(text.length, text.length)
+    } catch {
+      // Some implementations of <textarea> don't support setSelectionRange when
+      // the field is hidden / not yet rendered. Ignore.
+    }
+    return 'native'
+  }
+
+  // Fallback: pop the panel open so the user can see the prefilled Send tab.
+  activeTab.value = 'fasong'
+  dialogOpen.value = true
+  return 'send-tab'
+}
+
 export async function repeatDanmaku(
   msg: string,
   options: { confirm?: boolean; anchor?: { x: number; y: number } } = {}

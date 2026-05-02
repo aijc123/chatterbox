@@ -526,15 +526,36 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   color: var(--lc-chat-muted);
 }
 #${ROOT_ID} .lc-chat-avatar {
+  position: relative;
   grid-row: 1 / 3;
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  object-fit: cover;
+  overflow: hidden;
   background: var(--lc-chat-chip);
   align-self: end;
   margin-bottom: 3px;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, .5), 0 2px 7px var(--lc-chat-shadow);
+}
+#${ROOT_ID} .lc-chat-avatar-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+  opacity: 0;
+  filter: blur(4px);
+  /* Slow, gentle ease-out so a late-arriving avatar fades into focus rather
+     than popping in. >250ms keeps the change below the eye's "motion" gate
+     so it doesn't draw attention. Cache hits set data-loaded=1 BEFORE the
+     element is mounted, so the transition never fires for them — they
+     paint at opacity:1 from the first frame. */
+  transition: opacity .32s cubic-bezier(.4, 0, .2, 1), filter .32s cubic-bezier(.4, 0, .2, 1);
+}
+#${ROOT_ID} .lc-chat-avatar-img[data-loaded="1"] {
+  opacity: 1;
+  filter: none;
 }
 #${ROOT_ID} .lc-chat-avatar-fallback {
   display: grid;

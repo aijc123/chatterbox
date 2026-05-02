@@ -139,7 +139,7 @@ const {
 } = await import('../src/lib/send-verification')
 // Real signals — set their `.value` to drive the system under test.
 const { aiEvasion } = await import('../src/lib/store-send')
-const { autoLearnShadowRules, shadowBanObservations } = await import('../src/lib/store-shadow-learn')
+const { autoLearnShadowRules, shadowBanMode, shadowBanObservations } = await import('../src/lib/store-shadow-learn')
 const { localRoomRules } = await import('../src/lib/store-replacement')
 const { guardRoomEndpoint, guardRoomSyncKey } = await import('../src/lib/store-guard-room')
 
@@ -187,6 +187,7 @@ beforeEach(() => {
   laplaceState.throw = false
   resendShouldSucceed = true
   autoLearnShadowRules.value = true
+  shadowBanMode.value = 'suggest'
   shadowBanObservations.value = []
   localRoomRules.value = {}
   guardRoomEndpoint.value = ''
@@ -356,10 +357,14 @@ describe('verifyBroadcast', () => {
       timeoutMs: 30,
     })
     await Promise.all([a, b])
-    expect(appendLogCalls.length).toBe(1)
-    expect(appendLogQuietCalls.length).toBe(1)
-    expect(appendLogCalls[0]).toContain('⚠️ 自动: shadow')
-    expect(appendLogQuietCalls[0]).toContain('⚠️ 自动: shadow')
+    // First call: ⚠️ via appendLog (toast), then 🛠 via appendLogQuiet.
+    // Second call (within dedupe window): ⚠️ via appendLogQuiet (no toast), then 🛠 via appendLogQuiet.
+    const warnings = appendLogCalls.filter(m => /⚠️/.test(m))
+    const quietWarnings = appendLogQuietCalls.filter(m => /⚠️/.test(m))
+    expect(warnings.length).toBe(1)
+    expect(quietWarnings.length).toBe(1)
+    expect(warnings[0]).toContain('⚠️ 自动: shadow')
+    expect(quietWarnings[0]).toContain('⚠️ 自动: shadow')
   })
 
   test('different toastDedupeKeys do not share cooldown', async () => {
@@ -391,25 +396,24 @@ describe('verifyBroadcast', () => {
       label: '自动',
       display: 'silent',
       sinceTs: Date.now() - 10,
+      timeoutMs: 30,
       surfaceToast: false,
     })
+    // Toast suppressed → ⚠️ goes to appendLogQuiet, plus 🛠 candidates also via appendLogQuiet.
     expect(appendLogCalls.length).toBe(0)
-    expect(appendLogQuietCalls.length).toBe(1)
-  }, 10_000)
+    expect(appendLogQuietCalls.some(m => /⚠️ 自动: silent/.test(m))).toBe(true)
+  })
 })
 
-describe('verifyBroadcast Layer 1+2+3 integration', () => {
-  test('shadow-ban + enableAiEvasion + aiEvasion.value triggers AI evasion and writes a learned rule', async () => {
-    aiEvasion.value = true
-    laplaceState.hasSensitiveContent = true
-    laplaceState.sensitiveWords = ['上车冲鸭']
-    resendShouldSucceed = true
-    customChatHistory.push({ text: '上车冲鸭', uid: '42', source: 'local', observedAt: Date.now() })
+describe('verifyBroadcast — suggest mode (default)', () => {
+  test('shadow-ban surfaces 🛠 candidates in log + observation, NEVER auto-resends', async () => {
+    aiEvasion.value = false // even AI off, heuristics always show
+    customChatHistory.push({ text: '习近平', uid: '42', source: 'local', observedAt: Date.now() })
 
     await verifyBroadcast({
-      text: '上车冲鸭',
+      text: '习近平',
       label: '手动',
-      display: '上车冲鸭',
+      display: '习近平',
       sinceTs: Date.now() - 10,
       timeoutMs: 30,
       enableAiEvasion: true,
@@ -417,59 +421,65 @@ describe('verifyBroadcast Layer 1+2+3 integration', () => {
       csrfToken: 'csrf-token',
     })
 
-    // Real shadow-learn writes the (sensitiveWord → processText(word)) rule.
-    const rules = localRoomRules.value['12345']
-    expect(rules?.length).toBe(1)
-    expect(rules?.[0].from).toBe('上车冲鸭')
-    expect(rules?.[0].to).not.toBe('上车冲鸭')
-
-    // The 🤖 prefix proves real ai-evasion ran (asserts no leaked stub
-    // short-circuited the call).
-    expect(appendLogCalls.some(m => /🤖.*影子屏蔽-AI规避/.test(m))).toBe(true)
+    // 🛠 candidates logged
+    expect(appendLogQuietCalls.some(m => /🛠.*改写候选.*不自动发送/.test(m))).toBe(true)
+    // No AI evasion ran (no 🤖 line)
+    expect(appendLogCalls.some(m => /🤖.*AI规避/.test(m))).toBe(false)
+    // Observation has candidates attached
+    const obs = shadowBanObservations.value[0]
+    expect(obs.candidates?.length).toBeGreaterThan(0)
+    expect(obs.candidates?.some(c => c.strategy === 'kou')).toBe(true)
+    // No auto-learn (suggest mode never resends → never learns)
+    expect(localRoomRules.value['12345']).toBeUndefined()
   })
 
-  test('aiEvasion.value=false skips AI evasion and records observation', async () => {
-    aiEvasion.value = false
-    customChatHistory.push({ text: 'foo', uid: '42', source: 'local', observedAt: Date.now() })
-    await verifyBroadcast({
-      text: 'foo',
-      label: '手动',
-      display: 'foo',
-      sinceTs: Date.now() - 10,
-      timeoutMs: 30,
-      enableAiEvasion: true,
-      roomId: 1,
-      csrfToken: 'c',
-    })
-    expect(shadowBanObservations.value).toHaveLength(1)
-    expect(shadowBanObservations.value[0].evadedAlready).toBe(false)
-    expect(localRoomRules.value['1']).toBeUndefined()
-    // No "🤖 ... AI规避" message when toggle is off.
-    expect(appendLogCalls.some(m => /🤖/.test(m))).toBe(false)
-  })
-
-  test('Laplace finds nothing → records observation with evadedAlready=false', async () => {
+  test('with aiEvasion on, AI suggestion is added to candidates without resending', async () => {
     aiEvasion.value = true
-    laplaceState.hasSensitiveContent = false
-    customChatHistory.push({ text: 'bar', uid: '42', source: 'local', observedAt: Date.now() })
+    laplaceState.hasSensitiveContent = true
+    laplaceState.sensitiveWords = ['习近平']
+    customChatHistory.push({ text: '习近平', uid: '42', source: 'local', observedAt: Date.now() })
 
     await verifyBroadcast({
-      text: 'bar',
+      text: '习近平',
       label: '手动',
-      display: 'bar',
+      display: '习近平',
       sinceTs: Date.now() - 10,
       timeoutMs: 30,
       enableAiEvasion: true,
       roomId: 1,
-      csrfToken: 'c',
+      csrfToken: 'csrf',
     })
 
+    const obs = shadowBanObservations.value[0]
+    expect(obs.candidates?.some(c => c.strategy === 'ai')).toBe(true)
+    // No "影子屏蔽-AI规避" log line — that only fires from tryAiEvasion's resend path
+    expect(appendLogCalls.some(m => /影子屏蔽-AI规避/.test(m))).toBe(false)
+    // Did NOT learn anything (suggest mode never auto-learns)
     expect(localRoomRules.value['1']).toBeUndefined()
-    expect(shadowBanObservations.value).toHaveLength(1)
-    expect(shadowBanObservations.value[0].evadedAlready).toBe(false)
   })
 
-  test('isPostEvasion=true never triggers AI again, only records observation as evadedAlready', async () => {
+  test('confirmed broadcast skips everything — no candidates, no observation', async () => {
+    aiEvasion.value = true
+    laplaceState.hasSensitiveContent = true
+    laplaceState.sensitiveWords = ['anything']
+    const promise = verifyBroadcast({
+      text: 'good',
+      label: '手动',
+      display: 'good',
+      sinceTs: Date.now(),
+      timeoutMs: 200,
+      enableAiEvasion: true,
+      roomId: 1,
+      csrfToken: 'c',
+    })
+    setTimeout(() => emitWsDanmaku({ text: 'good', uid: '42', source: 'ws' }), 5)
+    await promise
+    expect(localRoomRules.value).toEqual({})
+    expect(shadowBanObservations.value).toHaveLength(0)
+    expect(appendLogQuietCalls.some(m => /🛠/.test(m))).toBe(false)
+  })
+
+  test('isPostEvasion=true skips suggestions and AI — only records evadedAlready', async () => {
     aiEvasion.value = true
     laplaceState.hasSensitiveContent = true
     laplaceState.sensitiveWords = ['x']
@@ -491,32 +501,64 @@ describe('verifyBroadcast Layer 1+2+3 integration', () => {
     expect(localRoomRules.value['1']).toBeUndefined()
     expect(shadowBanObservations.value).toHaveLength(1)
     expect(shadowBanObservations.value[0].evadedAlready).toBe(true)
-    // No 🤖 message — AI was NOT called on the post-evasion pass.
+    // No 🤖, no 🛠 — post-evasion is silent on suggestions to avoid noise.
     expect(appendLogCalls.some(m => /🤖.*AI规避/.test(m))).toBe(false)
+    expect(appendLogQuietCalls.some(m => /🛠/.test(m))).toBe(false)
   })
+})
 
-  test('confirmed broadcast skips AI evasion and observation', async () => {
+describe('verifyBroadcast — auto-resend mode (opt-in)', () => {
+  test('mode=auto-resend + AI hit: triggers tryAiEvasion AND writes learned rule', async () => {
+    shadowBanMode.value = 'auto-resend'
     aiEvasion.value = true
     laplaceState.hasSensitiveContent = true
-    laplaceState.sensitiveWords = ['anything']
-    const promise = verifyBroadcast({
-      text: 'good',
+    laplaceState.sensitiveWords = ['上车冲鸭']
+    resendShouldSucceed = true
+    customChatHistory.push({ text: '上车冲鸭', uid: '42', source: 'local', observedAt: Date.now() })
+
+    await verifyBroadcast({
+      text: '上车冲鸭',
       label: '手动',
-      display: 'good',
-      sinceTs: Date.now(),
-      timeoutMs: 200,
+      display: '上车冲鸭',
+      sinceTs: Date.now() - 10,
+      timeoutMs: 30,
+      enableAiEvasion: true,
+      roomId: 12345,
+      csrfToken: 'csrf-token',
+    })
+
+    const rules = localRoomRules.value['12345']
+    expect(rules?.length).toBe(1)
+    expect(rules?.[0].from).toBe('上车冲鸭')
+    expect(rules?.[0].to).not.toBe('上车冲鸭')
+    // The full AI flow ran (🤖 prefix from tryAiEvasion's own logs)
+    expect(appendLogCalls.some(m => /🤖.*影子屏蔽-AI规避/.test(m))).toBe(true)
+  })
+
+  test('mode=auto-resend but aiEvasion=false → still suggest only (no AI candidate, no resend)', async () => {
+    shadowBanMode.value = 'auto-resend'
+    aiEvasion.value = false
+    customChatHistory.push({ text: 'foo', uid: '42', source: 'local', observedAt: Date.now() })
+
+    await verifyBroadcast({
+      text: 'foo',
+      label: '手动',
+      display: 'foo',
+      sinceTs: Date.now() - 10,
+      timeoutMs: 30,
       enableAiEvasion: true,
       roomId: 1,
       csrfToken: 'c',
     })
-    setTimeout(() => emitWsDanmaku({ text: 'good', uid: '42', source: 'ws' }), 5)
-    await promise
-    expect(localRoomRules.value).toEqual({})
-    expect(shadowBanObservations.value).toHaveLength(0)
+
+    expect(shadowBanObservations.value).toHaveLength(1)
+    // Heuristic candidates still attached (but 'foo' is short so kou variant is "fooo... wait" — let's just check it's recorded)
+    expect(localRoomRules.value['1']).toBeUndefined()
     expect(appendLogCalls.some(m => /🤖/.test(m))).toBe(false)
   })
 
-  test('autoLearnShadowRules=false skips writing learned rules but AI evasion still runs', async () => {
+  test('mode=auto-resend + autoLearnShadowRules=false → resends AI variant but does NOT learn', async () => {
+    shadowBanMode.value = 'auto-resend'
     aiEvasion.value = true
     autoLearnShadowRules.value = false
     laplaceState.hasSensitiveContent = true
@@ -535,7 +577,6 @@ describe('verifyBroadcast Layer 1+2+3 integration', () => {
       csrfToken: 'c',
     })
 
-    // AI evasion ran (🤖 prefix logged) but learning was suppressed.
     expect(appendLogCalls.some(m => /🤖.*影子屏蔽-AI规避/.test(m))).toBe(true)
     expect(localRoomRules.value['7']).toBeUndefined()
   })

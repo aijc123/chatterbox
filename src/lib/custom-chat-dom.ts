@@ -9,6 +9,7 @@ import {
   type CustomChatWsStatus,
   chatEventTime,
   emitCustomChatEvent,
+  prewarmAvatar,
   subscribeCustomChatEvents,
   subscribeCustomChatWsStatus,
 } from './custom-chat-events'
@@ -28,6 +29,7 @@ import {
   NATIVE_HEALTH_WINDOW,
   NATIVE_SCAN_DEBOUNCE_MS,
   type NativeParseContext,
+  nativeAvatar,
   parseBadgeLevel,
   parseNativeEvent,
   resolveAvatarUrl,
@@ -523,24 +525,35 @@ function cardFields(
   return fallback
 }
 
-function createAvatar(message: CustomChatEvent): HTMLElement {
-  const fallback = document.createElement('div')
-  fallback.className = 'lc-chat-avatar lc-chat-avatar-fallback'
-  fallback.textContent = message.uname.slice(0, 1).toUpperCase() || '?'
-  fallback.title = message.uid ? `UID ${message.uid}` : message.uname
+/** @internal Exported for tests; not part of the public API. */
+export function createAvatar(message: CustomChatEvent): HTMLElement {
+  const wrap = document.createElement('div')
+  wrap.className = 'lc-chat-avatar lc-chat-avatar-fallback'
+  wrap.textContent = message.uname.slice(0, 1).toUpperCase() || '?'
+  wrap.title = message.uid ? `UID ${message.uid}` : message.uname
 
   const avatar = message.avatarUrl || resolveAvatarUrl(message.uid)
-  if (!avatar) return fallback
+  if (!avatar) return wrap
 
   const img = document.createElement('img')
-  img.className = 'lc-chat-avatar'
-  img.src = avatar
-  img.alt = '头像'
+  img.className = 'lc-chat-avatar-img'
+  img.alt = ''
   img.referrerPolicy = 'no-referrer'
-  img.loading = 'lazy'
-  img.title = fallback.title
-  addRootEventListener(img, 'error', () => img.replaceWith(fallback), { once: true })
-  return img
+  // Sync decoding so a cache hit paints in the same frame as the message
+  // text — that's the whole point of prewarmAvatar. For a 96px avatar the
+  // sync decode path is sub-millisecond even on a miss, so it doesn't slow
+  // message rendering. (Mutating decoding after src is set is undefined in
+  // some engines; we set it before src and never touch it again.)
+  img.decoding = 'sync'
+  img.src = avatar
+  if (img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
+    img.dataset.loaded = '1'
+  } else {
+    addRootEventListener(img, 'load', () => img.setAttribute('data-loaded', '1'), { once: true })
+  }
+  addRootEventListener(img, 'error', () => img.remove(), { once: true })
+  wrap.append(img)
+  return wrap
 }
 
 function recordNativeHealth(parsed: boolean): void {
@@ -1496,6 +1509,19 @@ function ensureStyles(): void {
   userStyleEl = styles.userStyleEl
 }
 
+/** @internal Exported for tests; not part of the public API. */
+export function bootstrapPrewarmFromNative(container: HTMLElement): void {
+  // One-shot scrape: the native panel already paid the network cost for the
+  // recent ~50 messages' avatars. Feed those URLs into prewarmAvatar so any
+  // of those users speaking again hits the same-frame cache path.
+  const nodes = container.querySelectorAll<HTMLElement>(NATIVE_EVENT_SELECTOR)
+  const limit = Math.min(nodes.length, MAX_NATIVE_INITIAL_SCAN)
+  for (let i = 0; i < limit; i++) {
+    const url = nativeAvatar(nodes[i])
+    if (url) prewarmAvatar(url)
+  }
+}
+
 function mount(container: HTMLElement): void {
   ensureStyles()
   abortRootEventListeners()
@@ -1515,6 +1541,7 @@ function mount(container: HTMLElement): void {
   host.appendChild(root)
   updateNativeVisibility()
   observeNativeEvents(container)
+  bootstrapPrewarmFromNative(container)
   rerenderMessages()
 }
 
@@ -1700,10 +1727,26 @@ function addEvent(event: CustomChatEvent): void {
   scheduleRender(event)
 }
 
+/** @internal Exported for tests; not part of the public API. */
+export function ensureAvatarPreconnect(): void {
+  const head = document.head
+  if (!head) return
+  for (const host of ['https://workers.vrp.moe', 'https://i0.hdslb.com']) {
+    const id = `lc-avatar-preconnect-${host.replace(/[^a-z0-9]/gi, '-')}`
+    if (document.getElementById(id)) continue
+    const link = document.createElement('link')
+    link.id = id
+    link.rel = 'preconnect'
+    link.href = host
+    head.append(link)
+  }
+}
+
 export function startCustomChatDom(): void {
   if (unsubscribeDom) return
 
   ensureStyles()
+  ensureAvatarPreconnect()
   scheduleFallbackMount()
   void refreshCurrentRoomEmoticons()
   disposeSettings = signalEffect(() => {

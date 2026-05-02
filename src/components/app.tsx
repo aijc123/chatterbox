@@ -15,6 +15,7 @@ import { startUserBlacklistHijack, stopUserBlacklistHijack } from '../lib/user-b
 import { Configurator } from './configurator'
 import { ErrorBoundary } from './error-boundary'
 import { Onboarding } from './onboarding'
+import { ShadowBypassChip } from './shadow-bypass-chip'
 import { ToggleButton } from './toggle-button'
 import { AlertDialog } from './ui/alert-dialog'
 import { UserNotice } from './user-notice'
@@ -98,6 +99,7 @@ export function App() {
         <Configurator />
         <Onboarding />
         <UserNotice />
+        <ShadowBypassChip />
         <AlertDialog />
       </ErrorBoundary>
     </>
