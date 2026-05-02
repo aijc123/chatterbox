@@ -39,4 +39,15 @@ describe('moderation', () => {
     expect(signals.map(signal => signal.kind)).toContain('muted')
     expect(signals.map(signal => signal.kind)).toContain('rate-limit')
   })
+
+  // Regression: H-logic audit fix. Cyclic input previously stack-overflowed.
+  test('does not stack-overflow on cyclic JSON', () => {
+    const cyclic: Record<string, unknown> = { silent: true }
+    cyclic.self = cyclic
+    cyclic.nested = { back: cyclic }
+
+    expect(() => scanRestrictionSignals(cyclic, 'unit')).not.toThrow()
+    const signals = scanRestrictionSignals(cyclic, 'unit')
+    expect(signals.some(signal => signal.kind === 'muted')).toBe(true)
+  })
 })

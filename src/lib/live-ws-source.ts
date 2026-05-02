@@ -46,6 +46,51 @@ let reconnectAttempt = 0
 let connectionSerial = 0
 let lastWsCloseDetail = ''
 const recentDanmaku = new Map<string, number>()
+// Hard cap so a misbehaving feed can't grow this map forever between cleanups.
+const RECENT_DANMAKU_MAX = 500
+// Use a NUL separator that can't appear in `uid` (digits) or chat `text` (Bilibili
+// strips control chars). Avoids `${uid}:${text}` collisions like
+// `uid="1", text="2:hi"` matching `uid="1:2", text="hi"`.
+const RECENT_DANMAKU_KEY_SEP = '\x00'
+
+// Exported for unit-test reach so we can verify the key shape doesn't
+// collide on values that contain the legacy `:` separator.
+export function recentKey(text: string, uid: string | null): string {
+  return `${uid ?? ''}${RECENT_DANMAKU_KEY_SEP}${text}`
+}
+
+/**
+ * Parses the value of the DedeUserID cookie into a numeric Bilibili LiveWS
+ * `uid` field. Bilibili expects a number. We fall back to anonymous (`0`) if:
+ *  - the cookie is missing/empty
+ *  - the value is not a finite integer
+ *  - the value is negative
+ *  - the value exceeds `Number.MAX_SAFE_INTEGER` (forward-compat against
+ *    future UID growth — sending a precision-lost number would be silently
+ *    wrong)
+ */
+export function parseAuthUid(uidCookie: string | null | undefined): number {
+  if (!uidCookie) return 0
+  const parsed = Number(uidCookie)
+  if (!Number.isSafeInteger(parsed) || parsed < 0) return 0
+  return parsed
+}
+
+const RECONNECT_BASE_MS = 3000
+const RECONNECT_STEP_MS = 2000
+const RECONNECT_CAP_MS = 30_000
+const RECONNECT_JITTER_RATIO = 0.25
+
+/**
+ * Computes the next reconnect delay with capped linear backoff plus 0–25%
+ * jitter. The jitter prevents multiple Chatterbox tabs from reconnecting in
+ * lockstep against Bilibili's WS endpoints.
+ */
+export function computeReconnectDelay(attempt: number, random: () => number = Math.random): number {
+  const baseDelay = Math.min(RECONNECT_CAP_MS, RECONNECT_BASE_MS + attempt * RECONNECT_STEP_MS)
+  const jitter = Math.floor(random() * baseDelay * RECONNECT_JITTER_RATIO)
+  return baseDelay + jitter
+}
 const STARTUP_FAILURE_LOG_INTERVAL = 60_000
 
 function asRecord(value: unknown): UnknownRecord {
@@ -72,21 +117,38 @@ function avatarUrl(uid: string | null): string | undefined {
   return uid ? `${BASE_URL.BILIBILI_AVATAR}/${uid}?size=96` : undefined
 }
 
+// Counter so we sweep at most once every N reads. Amortizes the linear scan
+// to O(1) per call while preserving TTL semantics: a stale key won't survive
+// indefinitely, just up to (sweep interval) extra reads.
+let recentSweepCounter = 0
+const RECENT_SWEEP_INTERVAL = 32
+
 function cleanupRecent(): void {
+  recentSweepCounter++
+  // Always sweep when we're past the size cap; otherwise sweep periodically.
+  if (recentDanmaku.size <= RECENT_DANMAKU_MAX && recentSweepCounter < RECENT_SWEEP_INTERVAL) return
+  recentSweepCounter = 0
   const now = Date.now()
   for (const [key, ts] of recentDanmaku) {
     if (now - ts > 8000) recentDanmaku.delete(key)
+  }
+  // Best-effort: if expiry alone didn't drop us below the cap (e.g. a very
+  // chatty room with sub-8s churn), drop the oldest entries by insertion order.
+  while (recentDanmaku.size > RECENT_DANMAKU_MAX) {
+    const oldest = recentDanmaku.keys().next().value
+    if (oldest === undefined) break
+    recentDanmaku.delete(oldest)
   }
 }
 
 export function hasRecentWsDanmaku(text: string, uid: string | null): boolean {
   cleanupRecent()
-  return recentDanmaku.has(`${uid ?? ''}:${text}`)
+  return recentDanmaku.has(recentKey(text, uid))
 }
 
 function rememberWsDanmaku(text: string, uid: string | null): void {
   cleanupRecent()
-  recentDanmaku.set(`${uid ?? ''}:${text}`, Date.now())
+  recentDanmaku.set(recentKey(text, uid), Date.now())
 }
 
 function eventId(_cmd: string, data: UnknownRecord, fallback: string): string {
@@ -374,7 +436,7 @@ async function connect(): Promise<void> {
 
     const address = info.addresses[addressIndex % info.addresses.length]
     addressIndex += 1
-    const uid = Number(getDedeUid() ?? 0) || 0
+    const uid = parseAuthUid(getDedeUid())
     const buvid = getBuvid()
     const authBody: Record<string, unknown> = {
       uid,
@@ -413,7 +475,7 @@ async function connect(): Promise<void> {
       if (!started || liveConnection !== live) return
       const suffix = lastWsCloseDetail ? ` (${lastWsCloseDetail})` : ''
       appendStartupFailure(live.live ? `connection closed${suffix}` : `closed before room entered${suffix}`)
-      const delay = Math.min(30_000, 3000 + reconnectAttempt * 2000)
+      const delay = computeReconnectDelay(reconnectAttempt)
       reconnectAttempt += 1
       reconnectTimer = setTimeout(() => void connect(), delay)
     })

@@ -9,7 +9,9 @@ export type CustomChatPriority = 'message' | 'identity' | 'lite' | 'card' | 'cri
 export type CustomChatBadgeType = 'medal' | 'guard' | 'admin' | 'rank' | 'ul' | 'honor' | 'price' | 'other'
 
 export function trimRenderQueue(queue: CustomChatEvent[]): void {
-  while (queue.length > CUSTOM_CHAT_MAX_RENDER_QUEUE) queue.shift()
+  if (queue.length > CUSTOM_CHAT_MAX_RENDER_QUEUE) {
+    queue.splice(0, queue.length - CUSTOM_CHAT_MAX_RENDER_QUEUE)
+  }
 }
 
 export function takeRenderBatch(queue: CustomChatEvent[]): CustomChatEvent[] {

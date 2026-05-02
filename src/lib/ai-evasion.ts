@@ -43,12 +43,25 @@ export function processText(text: string): string {
   return insertInvisibleChars(text)
 }
 
-function replaceSensitiveWords(text: string, sensitiveWords: string[]): string {
+export function replaceSensitiveWords(text: string, sensitiveWords: string[]): string {
   let result = text
   for (const word of sensitiveWords) {
+    if (!word) continue
     result = result.split(word).join(processText(word))
   }
   return result
+}
+
+/**
+ * Returns true when the AI-evasion replacement output is safe to enqueue —
+ * i.e. it contains at least one non-whitespace character.
+ *
+ * Without this guard a sensitive-word list that consumes the whole message
+ * (e.g. word === message) would produce an empty string that we'd happily
+ * send as an empty danmaku.
+ */
+export function isEvadedMessageSendable(evadedMessage: string): boolean {
+  return evadedMessage.trim().length > 0
 }
 
 export interface TryAiEvasionResult {
@@ -76,6 +89,14 @@ export async function tryAiEvasion(
     appendLog(`🤖 ${logPrefix}检测到敏感词：${detection.sensitiveWords.join(', ')}，正在尝试规避…`)
 
     const evadedMessage = replaceSensitiveWords(message, detection.sensitiveWords)
+    // Guard against the API returning a sensitive-word list that, after
+    // replacement, leaves nothing meaningful to send. Without this we'd
+    // happily enqueue an empty / whitespace-only danmaku.
+    if (!isEvadedMessageSendable(evadedMessage)) {
+      const error = 'AI规避后内容为空'
+      appendLog(`❌ ${logPrefix}AI规避失败：替换后内容为空，已跳过发送`)
+      return { success: false, evadedMessage, error }
+    }
     if (isLockedEmoticon(evadedMessage)) {
       const error = 'AI规避结果是锁定表情'
       appendLog(formatLockedEmoticonReject(evadedMessage, `${logPrefix}AI规避表情`))

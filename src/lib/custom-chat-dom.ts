@@ -91,6 +91,11 @@ let disposeSettings: (() => void) | null = null
 let disposeComposer: (() => void) | null = null
 let fallbackMountTimer: ReturnType<typeof setTimeout> | null = null
 let nativeEventObserver: MutationObserver | null = null
+// The container the native observer is currently bound to. Used so we can
+// re-connect after suspending the observer while WS is live.
+let nativeEventObserverContainer: HTMLElement | null = null
+// Track suspension state so updateWsStatus can flip the observer on/off.
+let nativeEventObserverSuspended = false
 let root: HTMLElement | null = null
 let rootOutsideHistory = false
 let rootUsesFallbackHost = false
@@ -123,6 +128,15 @@ let nativeDomWarning = false
 const messages: CustomChatEvent[] = []
 const messageKeys = new Set<string>()
 const recentEventKeys = new Map<string, number>()
+// Cache `eventKey(message)` per message ref to avoid recomputing the regex
+// inside `compactText` on every dedup scan.
+const eventKeyByMessage = new WeakMap<CustomChatEvent, string>()
+// Map from eventKey → most-recent message that produced it. O(1) duplicate
+// lookup in `messageIndexByEvent`. The array index is recovered via indexOf
+// only on the (rare) duplicate-hit path.
+const messageByEventKey = new Map<string, CustomChatEvent>()
+// Cap on how many entries we keep in the dedup TTL map before forcing GC.
+const RECENT_EVENT_KEYS_GC_THRESHOLD = 512
 const renderQueue: CustomChatEvent[] = []
 let visibleMessages: CustomChatEvent[] = []
 const rowHeights = new Map<string, number>()
@@ -193,14 +207,31 @@ function eventKey(event: Pick<CustomChatEvent, 'kind' | 'uid' | 'text'>): string
   return `${event.kind}:${event.uid ?? ''}:${compactText(event.text).slice(0, 80)}`
 }
 
+function eventKeyOf(message: CustomChatEvent): string {
+  let key = eventKeyByMessage.get(message)
+  if (key === undefined) {
+    key = eventKey(message)
+    eventKeyByMessage.set(message, key)
+  }
+  return key
+}
+
 function messageKey(event: Pick<CustomChatEvent, 'source' | 'id'>): string {
   return `${event.source}:${event.id}`
 }
 
-function rememberEvent(event: Pick<CustomChatEvent, 'kind' | 'uid' | 'text'>): boolean {
-  const now = Date.now()
+function gcRecentEventKeys(now: number): void {
   for (const [key, ts] of recentEventKeys) {
     if (now - ts > 9000) recentEventKeys.delete(key)
+  }
+}
+
+function rememberEvent(event: Pick<CustomChatEvent, 'kind' | 'uid' | 'text'>): boolean {
+  const now = Date.now()
+  // Bound the map: only sweep when it grows past the threshold instead of
+  // iterating the whole map on every event.
+  if (recentEventKeys.size > RECENT_EVENT_KEYS_GC_THRESHOLD) {
+    gcRecentEventKeys(now)
   }
   const key = eventKey(event)
   if (recentEventKeys.has(key)) return false
@@ -210,10 +241,9 @@ function rememberEvent(event: Pick<CustomChatEvent, 'kind' | 'uid' | 'text'>): b
 
 function messageIndexByEvent(event: Pick<CustomChatEvent, 'kind' | 'uid' | 'text'>): number {
   const key = eventKey(event)
-  for (let index = messages.length - 1; index >= 0; index--) {
-    if (eventKey(messages[index]) === key) return index
-  }
-  return -1
+  const existing = messageByEventKey.get(key)
+  if (!existing) return -1
+  return messages.indexOf(existing)
 }
 
 function chooseBetterName(current: string, incoming: string): string {
@@ -301,19 +331,31 @@ function replaceMessage(index: number, next: CustomChatEvent): void {
   if (!previous) return
   const prevKey = messageKey(previous)
   const nextKey = messageKey(next)
+  const prevEventKey = eventKeyOf(previous)
+  const nextEventKey = eventKey(next)
+  eventKeyByMessage.set(next, nextEventKey)
   messages[index] = next
   if (prevKey !== nextKey) {
     messageKeys.delete(prevKey)
     rowHeights.delete(prevKey)
     messageKeys.add(nextKey)
   }
+  if (messageByEventKey.get(prevEventKey) === previous) {
+    messageByEventKey.delete(prevEventKey)
+  }
+  messageByEventKey.set(nextEventKey, next)
   scheduleRerenderMessages()
 }
 
 function recordEventStats(event: CustomChatEvent): void {
   const now = Date.now()
   eventTicks.push(now)
-  while (eventTicks.length > 0 && now - eventTicks[0] > 1000) eventTicks.shift()
+  // Find the first tick still inside the 1s window and drop everything before
+  // it in a single splice, instead of shifting one by one (O(n) per shift on
+  // each event during chat waves).
+  let dropCount = 0
+  while (dropCount < eventTicks.length && now - eventTicks[dropCount] > 1000) dropCount++
+  if (dropCount > 0) eventTicks.splice(0, dropCount)
   sourceCounts[event.source]++
 }
 
@@ -608,6 +650,7 @@ function wsStatusLabel(status: CustomChatWsStatus): string {
 
 function updateWsStatus(status: CustomChatWsStatus): void {
   currentWsStatus = status
+  syncNativeObserverWithWsStatus()
   if (!wsStatusEl) return
   wsStatusEl.textContent = wsStatusLabel(status)
   wsStatusEl.dataset.status =
@@ -704,12 +747,19 @@ function scrollListByWheel(event: WheelEvent): void {
 }
 
 function pruneMessages(): void {
-  while (messages.length > MAX_MESSAGES) {
-    const removed = messages.shift()
-    if (removed) {
-      const key = messageKey(removed)
-      messageKeys.delete(key)
-      rowHeights.delete(key)
+  if (messages.length <= MAX_MESSAGES) {
+    updatePerfDebug()
+    return
+  }
+  const dropCount = messages.length - MAX_MESSAGES
+  const removed = messages.splice(0, dropCount)
+  for (const message of removed) {
+    const key = messageKey(message)
+    messageKeys.delete(key)
+    rowHeights.delete(key)
+    const ek = eventKeyByMessage.get(message)
+    if (ek !== undefined && messageByEventKey.get(ek) === message) {
+      messageByEventKey.delete(ek)
     }
   }
   updatePerfDebug()
@@ -968,6 +1018,7 @@ function scrollToVirtualIndex(index: number): void {
 function clearMessages(): void {
   messages.length = 0
   messageKeys.clear()
+  messageByEventKey.clear()
   renderQueue.length = 0
   visibleMessages = []
   rowHeights.clear()
@@ -1276,11 +1327,19 @@ function createRoot(): HTMLElement {
   searchInput.placeholder = '搜索 user:名 kind:gift -词'
   searchInput.setAttribute('aria-label', '搜索直播聊天消息')
   searchInput.value = searchQuery
+  // Debounce keystrokes — every input event would otherwise re-filter all 220
+  // messages and rebuild the visible list. ~120ms is the sweet spot between
+  // perceived snappiness and not running the filter pass per character.
+  let searchInputTimer: ReturnType<typeof setTimeout> | null = null
   addRootEventListener(searchInput, 'input', () => {
-    searchQuery = searchInput?.value ?? ''
-    unread = 0
-    scheduleRerenderMessages({ refreshFrozenSnapshot: true })
-    updateUnread()
+    if (searchInputTimer !== null) clearTimeout(searchInputTimer)
+    searchInputTimer = setTimeout(() => {
+      searchInputTimer = null
+      searchQuery = searchInput?.value ?? ''
+      unread = 0
+      scheduleRerenderMessages({ refreshFrozenSnapshot: true })
+      updateUnread()
+    }, 120)
   })
 
   const clearBtn = makeButton('lc-chat-pill', '清屏', '清空自定义评论区', clearMessages)
@@ -1431,6 +1490,8 @@ function mount(container: HTMLElement): void {
   ensureStyles()
   abortRootEventListeners()
   nativeEventObserver?.disconnect()
+  nativeEventObserverContainer = null
+  nativeEventObserverSuspended = false
   root?.remove()
   rootUsesFallbackHost = false
   fallbackHost?.remove()
@@ -1475,6 +1536,8 @@ function mountFallback(): void {
   abortRootEventListeners()
   nativeEventObserver?.disconnect()
   nativeEventObserver = null
+  nativeEventObserverContainer = null
+  nativeEventObserverSuspended = false
   pendingNativeNodes.clear()
   root?.remove()
   const host = ensureFallbackHost()
@@ -1498,6 +1561,8 @@ function scheduleFallbackMount(): void {
 
 function observeNativeEvents(container: HTMLElement): void {
   nativeEventObserver?.disconnect()
+  nativeEventObserverContainer = null
+  nativeEventObserverSuspended = false
   pendingNativeNodes.clear()
   nativeHealthSamples.length = 0
   nativeDomWarning = false
@@ -1561,7 +1626,26 @@ function observeNativeEvents(container: HTMLElement): void {
       }
     }
   })
-  nativeEventObserver.observe(container, { childList: true, subtree: true })
+  nativeEventObserverContainer = container
+  // Don't bind the observer if WS is already healthy — DOM is fallback only.
+  if (currentWsStatus === 'live') {
+    nativeEventObserverSuspended = true
+  } else {
+    nativeEventObserverSuspended = false
+    nativeEventObserver.observe(container, { childList: true, subtree: true })
+  }
+}
+
+function syncNativeObserverWithWsStatus(): void {
+  if (!nativeEventObserver || !nativeEventObserverContainer) return
+  const shouldSuspend = currentWsStatus === 'live'
+  if (shouldSuspend && !nativeEventObserverSuspended) {
+    nativeEventObserver.disconnect()
+    nativeEventObserverSuspended = true
+  } else if (!shouldSuspend && nativeEventObserverSuspended) {
+    nativeEventObserver.observe(nativeEventObserverContainer, { childList: true, subtree: true })
+    nativeEventObserverSuspended = false
+  }
 }
 
 function addDomMessage(ev: DanmakuEvent): void {
@@ -1597,8 +1681,11 @@ function addEvent(event: CustomChatEvent): void {
   if (!rememberEvent(event)) return
   hasClearedMessages = false
   recordEventStats(event)
+  const ek = eventKey(event)
+  eventKeyByMessage.set(event, ek)
   messages.push(event)
   messageKeys.add(key)
+  messageByEventKey.set(ek, event)
   pruneMessages()
   scheduleRender(event)
 }
@@ -1656,6 +1743,8 @@ export function stopCustomChatDom(): void {
   abortRootEventListeners()
   nativeEventObserver?.disconnect()
   nativeEventObserver = null
+  nativeEventObserverContainer = null
+  nativeEventObserverSuspended = false
   pendingNativeNodes.clear()
   if (nativeScanDebounceTimer !== null) {
     clearTimeout(nativeScanDebounceTimer)
@@ -1695,6 +1784,7 @@ export function stopCustomChatDom(): void {
   debugEl = null
   messages.length = 0
   messageKeys.clear()
+  messageByEventKey.clear()
   renderQueue.length = 0
   visibleMessages = []
   rowHeights.clear()

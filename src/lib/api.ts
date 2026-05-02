@@ -1,3 +1,5 @@
+import { effect } from '@preact/signals'
+
 import type { BilibiliGetEmoticonsResponse } from '../types'
 
 import { BASE_URL } from './const'
@@ -124,6 +126,14 @@ export async function getRoomId(url = window.location.href): Promise<number> {
 // If the user navigates to a different room without a full reload, the slug
 // changes and we invalidate the cache so the next call re-resolves.
 let cachedRoomSlug: string | null = null
+
+// Keep the slug in sync with `cachedRoomId`. If anything outside this module
+// resets `cachedRoomId.value = null` (e.g. an imported settings backup),
+// the slug must reset too — otherwise `ensureRoomId` would happily re-cache
+// the same room id without re-resolving against the current URL.
+effect(() => {
+  if (cachedRoomId.value === null) cachedRoomSlug = null
+})
 
 /**
  * Returns the cached room ID, fetching and caching it if needed.
@@ -303,17 +313,47 @@ function medalEntryToAnchorFallback(entry: unknown): Omit<MedalRoom, 'roomId' | 
   }
 }
 
+const ANCHOR_LOOKUP_TIMEOUT_MS = 8000
+const ANCHOR_LOOKUP_CONCURRENCY = 6
+
 async function fetchRoomByAnchorUid(anchor: Omit<MedalRoom, 'roomId' | 'source'>): Promise<MedalRoom | null> {
-  const resp = await fetch(`${BASE_URL.BILIBILI_ROOM_INFO_BY_UID}?mid=${anchor.anchorUid}`, {
-    method: 'GET',
-    credentials: 'include',
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), ANCHOR_LOOKUP_TIMEOUT_MS)
+  try {
+    const resp = await fetch(`${BASE_URL.BILIBILI_ROOM_INFO_BY_UID}?mid=${anchor.anchorUid}`, {
+      method: 'GET',
+      credentials: 'include',
+      signal: controller.signal,
+    })
+    if (!resp.ok) return null
+    const json: { code?: number; data?: { roomid?: number; link?: string } } = await resp.json()
+    if (json.code !== 0) return null
+    const roomId = toNumber(json.data?.roomid) ?? roomIdFromLiveLink(json.data?.link)
+    if (roomId === null || roomId <= 0) return null
+    return { ...anchor, roomId, source: 'anchor-uid' }
+  } catch {
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+export async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let cursor = 0
+  const workers = new Array(Math.min(limit, items.length)).fill(0).map(async () => {
+    while (true) {
+      const idx = cursor++
+      if (idx >= items.length) return
+      results[idx] = await fn(items[idx])
+    }
   })
-  if (!resp.ok) return null
-  const json: { code?: number; data?: { roomid?: number; link?: string } } = await resp.json()
-  if (json.code !== 0) return null
-  const roomId = toNumber(json.data?.roomid) ?? roomIdFromLiveLink(json.data?.link)
-  if (roomId === null || roomId <= 0) return null
-  return { ...anchor, roomId, source: 'anchor-uid' }
+  await Promise.all(workers)
+  return results
 }
 
 interface FollowingEntry {
@@ -367,8 +407,8 @@ export async function fetchMedalRooms(): Promise<MedalRoom[]> {
     .map(medalEntryToAnchorFallback)
     .filter((anchor): anchor is Omit<MedalRoom, 'roomId' | 'source'> => anchor !== null)
 
-  for (const anchor of unresolvedAnchors) {
-    const room = await fetchRoomByAnchorUid(anchor)
+  const resolved = await mapWithConcurrency(unresolvedAnchors, ANCHOR_LOOKUP_CONCURRENCY, fetchRoomByAnchorUid)
+  for (const room of resolved) {
     if (room) rooms.push(room)
   }
 
@@ -389,13 +429,16 @@ export async function fetchFollowingRooms(maxPages = 4): Promise<FollowingRoom[]
   }
 
   const rooms = new Map<number, FollowingRoom>()
-  for (const anchor of anchors) {
-    const room = await fetchRoomByAnchorUid({
+  const resolved = await mapWithConcurrency(anchors, ANCHOR_LOOKUP_CONCURRENCY, anchor =>
+    fetchRoomByAnchorUid({
       medalName: '',
       anchorName: anchor.anchorName,
       anchorUid: anchor.anchorUid,
-    })
-    if (!room) continue
+    }).then(room => (room ? { room, anchor } : null))
+  )
+  for (const entry of resolved) {
+    if (!entry) continue
+    const { room, anchor } = entry
     rooms.set(room.roomId, {
       roomId: room.roomId,
       anchorName: room.anchorName,

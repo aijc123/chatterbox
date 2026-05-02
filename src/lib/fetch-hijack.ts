@@ -18,18 +18,24 @@ function applyTransforms(url: string, data: any): void {
 /** Patches Response consumption for specific Bilibili live API endpoints. */
 ;(() => {
   try {
-    const ResponseProto = unsafeWindow.Response.prototype
+    const ResponseProto = unsafeWindow.Response.prototype as Response & {
+      __chatterboxFetchHijackInstalled?: boolean
+    }
+    if (ResponseProto.__chatterboxFetchHijackInstalled) return
+    ResponseProto.__chatterboxFetchHijackInstalled = true
 
     const origJson = ResponseProto.json
     ResponseProto.json = async function (this: Response): Promise<unknown> {
       const data = await origJson.call(this)
       const url = this.url
-      if (url && data && typeof data === 'object') {
-        try {
-          applyTransforms(url, data)
-        } catch (err) {
-          console.error('[Chatterbox] fetch-hijack json transform failed:', err)
-        }
+      // Fast path: skip transform inspection unless the feature is enabled and
+      // the URL is one we care about. `applyTransforms` short-circuits too,
+      // but doing it here avoids the function call entirely.
+      if (!url || !shouldHijackUrl(url) || !data || typeof data !== 'object') return data
+      try {
+        applyTransforms(url, data)
+      } catch (err) {
+        console.error('[Chatterbox] fetch-hijack json transform failed:', err)
       }
       return data
     }

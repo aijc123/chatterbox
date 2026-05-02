@@ -746,6 +746,10 @@ export function startAutoBlend(): void {
 
   if (cleanupTimer === null) {
     cleanupTimer = setInterval(() => {
+      // Skip the full pipeline (prune + status format + burst scheduling)
+      // when there's nothing to evaluate. This timer fires once a second for
+      // the entire feature lifetime, including idle rooms.
+      if (trendMap.size === 0) return
       pruneExpired(Date.now())
       updateStatusText()
       maybeScheduleBurstFromCurrentTrends()
