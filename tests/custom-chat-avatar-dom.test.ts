@@ -89,13 +89,16 @@ function event(over: Partial<CustomChatEvent> = {}): CustomChatEvent {
 }
 
 describe('createAvatar', () => {
-  test('renders fallback wrap with initial when no avatar URL is resolvable', () => {
+  test('renders bare fallback wrap when no avatar URL is resolvable', () => {
     const wrap = createAvatar(event({ uid: null, avatarUrl: undefined, uname: 'Zoe' }))
 
     expect(wrap.tagName).toBe('DIV')
     expect(wrap.classList.contains('lc-chat-avatar')).toBe(true)
     expect(wrap.classList.contains('lc-chat-avatar-fallback')).toBe(true)
-    expect(wrap.textContent).toBe('Z')
+    // Intentionally no initial-letter text — the silhouette is provided by
+    // CSS background. Letter text was removed because it read as a loading
+    // widget and made the swap to the real avatar feel dramatic.
+    expect(wrap.textContent).toBe('')
     expect(wrap.querySelector('img')).toBeNull()
   })
 
@@ -108,8 +111,9 @@ describe('createAvatar', () => {
     expect(img?.getAttribute('referrerpolicy')).toBe('no-referrer')
     expect(img?.decoding).toBe('sync')
     expect(img?.src).toBe('https://workers.vrp.moe/bilibili/avatar/42?size=96')
-    // Wrap still carries the initial as a fallback under the img.
-    expect(wrap.textContent?.startsWith('A')).toBe(true)
+    // No fallback letter is rendered — the wrap is just the silhouette
+    // background under the img.
+    expect(wrap.textContent).toBe('')
   })
 
   test('falls back to UID-derived URL when message.avatarUrl is absent', () => {
@@ -173,47 +177,69 @@ describe('createAvatar', () => {
     img.dispatchEvent(new Event('error'))
 
     expect(wrap.querySelector('img')).toBeNull()
-    // Wrap still carries fallback class and initial.
+    // Wrap still carries the silhouette fallback class.
     expect(wrap.classList.contains('lc-chat-avatar-fallback')).toBe(true)
-    expect(wrap.textContent).toBe('A')
+    expect(wrap.textContent).toBe('')
   })
 })
 
 // ─── bootstrapPrewarmFromNative ──────────────────────────────────────────────
 
 describe('bootstrapPrewarmFromNative', () => {
-  function nativeChatNode(avatarUrl: string): HTMLElement {
+  function nativeChatNode(opts: { avatarUrl?: string; uid?: string } = {}): HTMLElement {
     const el = document.createElement('div')
     el.className = 'chat-item'
-    const img = document.createElement('img')
-    img.className = 'avatar'
-    img.src = avatarUrl
-    el.appendChild(img)
+    if (opts.uid) el.setAttribute('data-uid', opts.uid)
+    if (opts.avatarUrl) {
+      const img = document.createElement('img')
+      img.className = 'avatar'
+      img.src = opts.avatarUrl
+      el.appendChild(img)
+    }
     return el
   }
 
-  test('feeds each scraped avatar URL into prewarm exactly once', () => {
+  test('prewarms BOTH the native rendered URL and the canonical proxied URL per node', () => {
+    // The two URL forms target different cache slots in the browser, and
+    // WS-source events resolve to the canonical proxy form while DOM-source
+    // events use whatever the native panel rendered. Prewarming both is what
+    // makes the chat-mid-stream-open path actually hit cache.
     const container = document.createElement('div')
-    container.appendChild(nativeChatNode('https://i0.hdslb.com/bfs/face/aaa.jpg'))
-    container.appendChild(nativeChatNode('https://i0.hdslb.com/bfs/face/bbb.jpg'))
-    container.appendChild(nativeChatNode('https://i0.hdslb.com/bfs/face/ccc.jpg'))
+    container.appendChild(nativeChatNode({ avatarUrl: 'https://i0.hdslb.com/bfs/face/aaa.jpg', uid: '111' }))
 
     bootstrapPrewarmFromNative(container)
 
     const fired = imageConstructions.map(i => i.src).sort()
     expect(fired).toEqual([
       'https://i0.hdslb.com/bfs/face/aaa.jpg',
-      'https://i0.hdslb.com/bfs/face/bbb.jpg',
-      'https://i0.hdslb.com/bfs/face/ccc.jpg',
+      'https://workers.vrp.moe/bilibili/avatar/111?size=96',
     ])
   })
 
-  test('skips chat nodes whose img has no avatar-like class', () => {
+  test('still prewarms canonical when UID is present but no avatar img', () => {
+    const container = document.createElement('div')
+    container.appendChild(nativeChatNode({ uid: '222' }))
+
+    bootstrapPrewarmFromNative(container)
+
+    expect(imageConstructions.map(i => i.src)).toEqual(['https://workers.vrp.moe/bilibili/avatar/222?size=96'])
+  })
+
+  test('still prewarms native URL when avatar img is present but UID is missing', () => {
+    const container = document.createElement('div')
+    container.appendChild(nativeChatNode({ avatarUrl: 'https://i0.hdslb.com/bfs/face/orphan.jpg' }))
+
+    bootstrapPrewarmFromNative(container)
+
+    expect(imageConstructions.map(i => i.src)).toEqual(['https://i0.hdslb.com/bfs/face/orphan.jpg'])
+  })
+
+  test('skips chat nodes that yield neither native URL nor UID', () => {
     const container = document.createElement('div')
     const node = document.createElement('div')
     node.className = 'chat-item'
     const img = document.createElement('img')
-    img.className = 'gift-thumbnail'
+    img.className = 'gift-thumbnail' // no avatar-like label, no UID anywhere
     img.src = 'https://i0.hdslb.com/bfs/gift/some.png'
     node.appendChild(img)
     container.appendChild(node)
@@ -223,16 +249,18 @@ describe('bootstrapPrewarmFromNative', () => {
     expect(imageConstructions).toHaveLength(0)
   })
 
-  test('caps iteration at MAX_NATIVE_INITIAL_SCAN (80)', () => {
+  test('caps iteration at MAX_NATIVE_INITIAL_SCAN (80) regardless of total nodes', () => {
     const container = document.createElement('div')
     for (let i = 0; i < 120; i++) {
-      container.appendChild(nativeChatNode(`https://i0.hdslb.com/bfs/face/cap-${i}.jpg`))
+      container.appendChild(
+        nativeChatNode({ avatarUrl: `https://i0.hdslb.com/bfs/face/cap-${i}.jpg`, uid: `cap-${i}` })
+      )
     }
 
     bootstrapPrewarmFromNative(container)
 
-    // The cap is 80; everything beyond that is skipped.
-    expect(imageConstructions.length).toBe(80)
+    // 80 nodes scanned * 2 URLs each (native + canonical) = 160 prewarms.
+    expect(imageConstructions.length).toBe(160)
   })
 
   test('is a no-op for an empty container', () => {

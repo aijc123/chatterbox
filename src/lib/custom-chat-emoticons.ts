@@ -10,13 +10,13 @@ function normalizeEmoticonTokens(...values: Array<string | null | undefined>): s
   const add = (value: string | null | undefined): void => {
     const token = (value ?? '').trim()
     if (!token) return
-    tokens.add(token)
 
     const bracketMatch = token.match(/^[[\u3010](.*?)[\]\u3011]$/u)
     const core = (bracketMatch?.[1] ?? token).trim()
     if (!core) return
 
-    tokens.add(core)
+    // Only register bracketed forms so plain text like `晚安晚安晚安` can't
+    // collide with an emoticon whose `descript` happens to be `晚安`.
     tokens.add(`[${core}]`)
     tokens.add(`【${core}】`)
   }

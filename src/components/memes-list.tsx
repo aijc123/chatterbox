@@ -7,7 +7,9 @@ import { BASE_URL } from '../lib/const'
 import { formatLockedEmoticonReject, isLockedEmoticon } from '../lib/emoticon'
 import { appendLog, notifyUser } from '../lib/log'
 import { ignoreMemeCandidate } from '../lib/meme-contributor'
+import { getMemeSourceForRoom, type MemeSource } from '../lib/meme-sources'
 import { applyReplacements } from '../lib/replacement'
+import { fetchSbhzmMemes, type LaplaceMemeWithSource } from '../lib/sbhzm-client'
 import { enqueueDanmaku, SendPriority } from '../lib/send-queue'
 import {
   cachedRoomId,
@@ -20,6 +22,9 @@ import {
   optimizeLayout,
 } from '../lib/store'
 import { processMessages } from '../lib/utils'
+import { HzmDrivePanel } from './hzm-drive-panel'
+import { MemeTagsBar } from './meme-tags-bar'
+import { SbhzmSubmitRow } from './sbhzm-submit-row'
 
 type MemeSortBy = NonNullable<LaplaceInternal.HTTPS.Workers.MemeListQuery['sortBy']>
 
@@ -52,13 +57,56 @@ function sortMemes(memes: LaplaceInternal.HTTPS.Workers.MemeWithUser[], sortBy: 
   })
 }
 
-async function fetchMemes(roomId: number, sortBy: MemeSortBy): Promise<LaplaceInternal.HTTPS.Workers.MemeWithUser[]> {
+async function fetchLaplaceMemes(
+  roomId: number,
+  sortBy: MemeSortBy
+): Promise<LaplaceInternal.HTTPS.Workers.MemeWithUser[]> {
   const resp = await fetch(`${BASE_URL.LAPLACE_MEMES}?roomId=${roomId}&sortBy=${sortBy}&sort=desc`)
   if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`)
   const json: LaplaceInternal.HTTPS.Workers.MemeListResponse = await resp.json()
   const data = json.data ?? []
   sortMemes(data, sortBy)
   return data
+}
+
+/**
+ * 拉取并合并所有可用梗源。
+ * - 始终拉 LAPLACE（标 `_source: 'laplace'`）
+ * - 若当前房间在 `meme-sources.ts` 注册表里命中（如灰泽满），追加 sbhzm 源
+ * - sbhzm 失败不影响 LAPLACE 渲染，反之亦然
+ *
+ * 返回数组里每条都带 `_source` 字段（laplace 默认 'laplace'）以便 UI 渲染来源 badge。
+ */
+async function fetchAllMemes(
+  roomId: number,
+  sortBy: MemeSortBy,
+  source: MemeSource | null
+): Promise<LaplaceMemeWithSource[]> {
+  const tasks: Array<Promise<LaplaceMemeWithSource[]>> = []
+
+  tasks.push(
+    fetchLaplaceMemes(roomId, sortBy)
+      .then(data => data.map(m => ({ ...m, _source: 'laplace' as const })))
+      .catch(err => {
+        appendLog(`⚠️ LAPLACE 烂梗加载失败：${err instanceof Error ? err.message : String(err)}`)
+        return []
+      })
+  )
+
+  if (source) {
+    tasks.push(
+      fetchSbhzmMemes(source).catch(err => {
+        appendLog(`⚠️ ${source.name} 加载失败：${err instanceof Error ? err.message : String(err)}`)
+        return []
+      })
+    )
+  }
+
+  const results = await Promise.all(tasks)
+  const merged: LaplaceMemeWithSource[] = ([] as LaplaceMemeWithSource[]).concat(...results)
+  // 二级排序：维持各源内部已排序，混合后用 sortBy 再排一次保证视觉一致。
+  sortMemes(merged, sortBy)
+  return merged
 }
 
 async function reportMemeCopy(memeId: number): Promise<number | null> {
@@ -72,12 +120,37 @@ async function reportMemeCopy(memeId: number): Promise<number | null> {
   }
 }
 
+function SourceBadge({ source }: { source: 'laplace' | 'sbhzm' | undefined }) {
+  if (!source || source === 'laplace') return null
+  // sbhzm 用一个小绿圆点 + 字母，避免占太多空间
+  return (
+    <span
+      title='来自社区专属梗库（sbhzm.cn）'
+      style={{
+        display: 'inline-block',
+        flexShrink: 0,
+        marginRight: '.3em',
+        padding: '0 .3em',
+        fontSize: '9px',
+        lineHeight: 1.6,
+        color: '#fff',
+        background: '#10b981',
+        borderRadius: '2px',
+        fontWeight: 'bold',
+        verticalAlign: 'middle',
+      }}
+    >
+      H
+    </span>
+  )
+}
+
 function MemeItem({
   meme,
   onUpdateCount,
   onTagClick,
 }: {
-  meme: LaplaceInternal.HTTPS.Workers.MemeWithUser
+  meme: LaplaceMemeWithSource
   onUpdateCount: (id: number, count: number) => void
   onTagClick: (tagName: string) => void
 }) {
@@ -115,8 +188,12 @@ function MemeItem({
         }
       }
 
-      const newCount = await reportMemeCopy(meme.id)
-      if (newCount !== null) onUpdateCount(meme.id, newCount)
+      // 仅对 LAPLACE 源（正数 id）回报复制次数；sbhzm 源 id 是合成负数，
+      // 不能调 LAPLACE 的 meme-copy 端点。
+      if (meme._source !== 'sbhzm' && meme.id > 0) {
+        const newCount = await reportMemeCopy(meme.id)
+        if (newCount !== null) onUpdateCount(meme.id, newCount)
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       appendLog(`🔴 发送出错：${msg}`)
@@ -134,8 +211,10 @@ function MemeItem({
     setTimeout(() => {
       copyLabel.value = '复制'
     }, 1500)
-    const newCount = await reportMemeCopy(meme.id)
-    if (newCount !== null) onUpdateCount(meme.id, newCount)
+    if (meme._source !== 'sbhzm' && meme.id > 0) {
+      const newCount = await reportMemeCopy(meme.id)
+      if (newCount !== null) onUpdateCount(meme.id, newCount)
+    }
   }
 
   return (
@@ -217,6 +296,7 @@ function MemeItem({
             e.currentTarget.style.background = ''
           }}
         >
+          <SourceBadge source={meme._source} />
           {meme.content}
         </button>
       </div>
@@ -248,14 +328,21 @@ function MemeItem({
 const MEME_RELOAD_INTERVAL = 30_000 // 30 seconds
 
 export function MemesList() {
-  const memes = useSignal<LaplaceInternal.HTTPS.Workers.MemeWithUser[]>([])
+  const memes = useSignal<LaplaceMemeWithSource[]>([])
   const sortBy = useSignal<MemeSortBy>('lastCopiedAt')
   const filterText = useSignal('')
+  /** 来源过滤：'all'（默认） / 'laplace' / 'sbhzm'。仅在双源直播间显示选项。 */
+  const sourceFilter = useSignal<'all' | 'laplace' | 'sbhzm'>('all')
+  /** 当前正在打开 sbhzm 上传面板的候选 text。同时只允许一个候选展开，避免上传混乱。 */
+  const submittingFor = useSignal<string | null>(null)
   const status = useSignal('')
   const statusColor = useSignal('#666')
   const loading = useSignal(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const prevRectsRef = useRef<Map<number, DOMRect>>(new Map())
+
+  // 当前房间是否有专属梗源（如灰泽满）。命中时启用 sbhzm 拉取、source 过滤、智驾面板。
+  const memeSource = getMemeSourceForRoom(cachedRoomId.value)
 
   const capturePositions = () => {
     const el = containerRef.current
@@ -276,7 +363,9 @@ export function MemesList() {
 
     try {
       const roomId = await ensureRoomId()
-      const data = await fetchMemes(roomId, sortBy.peek())
+      // 重新查梗源（若 silent 刷新跨过房间切换）
+      const liveSource = getMemeSourceForRoom(roomId)
+      const data = await fetchAllMemes(roomId, sortBy.peek(), liveSource)
 
       if (data.length === 0) {
         memes.value = []
@@ -285,7 +374,14 @@ export function MemesList() {
       }
 
       if (memes.peek().length > 0) capturePositions()
-      status.value = `${data.length} 条`
+      // 双源时显示 "L:N + H:M"，单源直接 "N 条"
+      if (liveSource) {
+        const lap = data.filter(m => m._source !== 'sbhzm').length
+        const hzm = data.filter(m => m._source === 'sbhzm').length
+        status.value = `L:${lap} + H:${hzm}`
+      } else {
+        status.value = `${data.length} 条`
+      }
       memes.value = data
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -409,44 +505,87 @@ export function MemesList() {
               <div style={{ fontSize: '12px', color: '#666', marginBottom: '.25em' }}>
                 候选梗（{memeContributorCandidates.value.length} 条）：
               </div>
-              {memeContributorCandidates.value.map(text => (
-                <div
-                  key={text}
-                  style={{
-                    display: 'flex',
-                    gap: '.4em',
-                    alignItems: 'center',
-                    padding: '.2em 0',
-                    borderBottom: '1px solid var(--Ga2, #eee)',
-                  }}
-                >
-                  <span style={{ flex: 1, fontSize: '12px', wordBreak: 'break-all' }}>{text}</span>
-                  <button
-                    type='button'
-                    style={{ fontSize: '11px', cursor: 'pointer', padding: '.1em .4em', flexShrink: 0 }}
-                    onClick={() => {
-                      const id = cachedRoomId.peek()
-                      if (id === null) return
-                      void navigator.clipboard.writeText(text)
-                      const uid = cachedStreamerUid.value
-                      window.open(`https://laplace.live/memes${uid ? `?contribute=${uid}` : ''}`, '_blank', 'noopener')
-                      ignoreMemeCandidate(text, id)
+              {memeContributorCandidates.value.map(text => {
+                const isSubmitting = submittingFor.value === text
+                return (
+                  <div
+                    key={text}
+                    style={{
+                      padding: '.2em 0',
+                      borderBottom: '1px solid var(--Ga2, #eee)',
                     }}
                   >
-                    复制+贡献
-                  </button>
-                  <button
-                    type='button'
-                    style={{ fontSize: '11px', cursor: 'pointer', padding: '.1em .4em', flexShrink: 0 }}
-                    onClick={() => {
-                      const id = cachedRoomId.peek()
-                      if (id !== null) ignoreMemeCandidate(text, id)
-                    }}
-                  >
-                    忽略
-                  </button>
-                </div>
-              ))}
+                    <div style={{ display: 'flex', gap: '.4em', alignItems: 'center' }}>
+                      <span style={{ flex: 1, fontSize: '12px', wordBreak: 'break-all' }}>{text}</span>
+                      <button
+                        type='button'
+                        style={{ fontSize: '11px', cursor: 'pointer', padding: '.1em .4em', flexShrink: 0 }}
+                        title='复制到剪贴板，并打开 LAPLACE 贡献页面'
+                        onClick={() => {
+                          const id = cachedRoomId.peek()
+                          if (id === null) return
+                          void navigator.clipboard.writeText(text)
+                          const uid = cachedStreamerUid.value
+                          window.open(
+                            `https://laplace.live/memes${uid ? `?contribute=${uid}` : ''}`,
+                            '_blank',
+                            'noopener'
+                          )
+                          ignoreMemeCandidate(text, id)
+                        }}
+                      >
+                        复制+贡献 LAPLACE
+                      </button>
+                      {memeSource && (
+                        <button
+                          type='button'
+                          style={{
+                            fontSize: '11px',
+                            cursor: 'pointer',
+                            padding: '.1em .4em',
+                            flexShrink: 0,
+                            background: isSubmitting ? '#10b981' : 'transparent',
+                            color: isSubmitting ? '#fff' : 'inherit',
+                            border: '1px solid var(--Ga2, #ccc)',
+                            borderRadius: '3px',
+                          }}
+                          title={`选标签后上传到 ${memeSource.name}（API：POST /api/admin/memes）`}
+                          onClick={() => {
+                            submittingFor.value = isSubmitting ? null : text
+                          }}
+                        >
+                          {isSubmitting ? '收起' : `↑ 上传到 ${memeSource.name.replace('烂梗库', '')}`}
+                        </button>
+                      )}
+                      <button
+                        type='button'
+                        style={{ fontSize: '11px', cursor: 'pointer', padding: '.1em .4em', flexShrink: 0 }}
+                        onClick={() => {
+                          const id = cachedRoomId.peek()
+                          if (id !== null) ignoreMemeCandidate(text, id)
+                          if (submittingFor.value === text) submittingFor.value = null
+                        }}
+                      >
+                        忽略
+                      </button>
+                    </div>
+                    {isSubmitting && memeSource && (
+                      <SbhzmSubmitRow
+                        content={text}
+                        source={memeSource}
+                        onDone={() => {
+                          const id = cachedRoomId.peek()
+                          if (id !== null) ignoreMemeCandidate(text, id)
+                          submittingFor.value = null
+                        }}
+                        onCancel={() => {
+                          submittingFor.value = null
+                        }}
+                      />
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
 
@@ -461,6 +600,35 @@ export function MemesList() {
               style={{ boxSizing: 'border-box', width: '100%', marginBottom: '.5em' }}
             />
           )}
+
+          {/* 双源直播间：来源过滤药丸 */}
+          {memeSource && memes.value.length > 0 && (
+            <div style={{ display: 'flex', gap: '.3em', marginBottom: '.4em', fontSize: '11px' }}>
+              {(['all', 'laplace', 'sbhzm'] as const).map(s => (
+                <button
+                  key={s}
+                  type='button'
+                  onClick={() => {
+                    sourceFilter.value = s
+                  }}
+                  style={{
+                    padding: '.1em .5em',
+                    borderRadius: '999px',
+                    border: '1px solid var(--Ga2, #ccc)',
+                    background: sourceFilter.value === s ? 'var(--Ga2, #eee)' : 'transparent',
+                    fontWeight: sourceFilter.value === s ? 'bold' : 'normal',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {s === 'all' ? '全部' : s === 'laplace' ? 'LAPLACE' : memeSource.name}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* 顶部 tag 标签栏：根据当前梗列表聚合可点击 */}
+          {memes.value.length > 0 && <MemeTagsBar memes={memes.value} filterText={filterText} />}
+
           <div
             ref={containerRef}
             style={{
@@ -473,6 +641,8 @@ export function MemesList() {
           >
             {memes.value
               .filter(m => {
+                if (sourceFilter.value === 'laplace' && m._source === 'sbhzm') return false
+                if (sourceFilter.value === 'sbhzm' && m._source !== 'sbhzm') return false
                 const q = filterText.value.trim().toLowerCase()
                 if (!q) return true
                 if (m.content.toLowerCase().includes(q)) return true
@@ -482,6 +652,9 @@ export function MemesList() {
                 <MemeItem key={meme.id} meme={meme} onUpdateCount={updateCount} onTagClick={handleTagClick} />
               ))}
           </div>
+
+          {/* 智能辅助驾驶面板：仅当当前房间有专属梗源时显示 */}
+          {memeSource && <HzmDrivePanel source={memeSource} memes={memes.value} />}
         </>
       )}
     </>

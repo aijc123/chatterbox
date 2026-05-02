@@ -34,6 +34,14 @@ export interface CustomChatEvent {
   amount?: number
   fields?: CustomChatField[]
   rawCmd?: string
+  /**
+   * Authoritative emoticon image attached to this danmaku by Bilibili
+   * (`dm_type === 1` + `emoticon_options.url` from the WS payload). When
+   * present, the renderer should display this image directly instead of
+   * trying to match emoticon names inside `text` against the cached
+   * emoticon packages — that fallback misses room-specific stickers.
+   */
+  emoticonImage?: { url: string; alt: string; width?: number; height?: number }
 }
 
 export type CustomChatWsStatus = 'off' | 'connecting' | 'live' | 'error' | 'closed'

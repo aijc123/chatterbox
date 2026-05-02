@@ -56,6 +56,26 @@ export const BASE_URL = {
   LAPLACE_MEME_COPY: 'https://workers.vrp.moe/laplace/meme-copy',
   BILIBILI_AVATAR: 'https://workers.vrp.moe/bilibili/avatar',
   BILIBILI_SUPERCHAT_ORDER: 'https://workers.vrp.moe/bilibili/live-create-order',
+
+  /** sbhzm.cn community meme list (paginated). GET, params: page, page_size. */
+  SBHZM_MEMES: 'https://sbhzm.cn/api/public/memes',
+  /** sbhzm.cn random meme endpoint. GET. Used as fallback when paginated list is empty. */
+  SBHZM_MEMES_RANDOM: 'https://sbhzm.cn/api/public/memes/random',
+  /** sbhzm.cn tag dictionary (id ↔ name). GET. Used to resolve tag names → ids when uploading. */
+  SBHZM_TAGS: 'https://sbhzm.cn/api/public/tags',
+  /**
+   * sbhzm.cn meme submission. POST, JSON body `{ content, tag_ids: number[] }`.
+   * NOTE: Unauthenticated despite the `/admin/` path. Returns the inserted row
+   * (including auto-generated `id`) on success.
+   */
+  SBHZM_SUBMIT_MEME: 'https://sbhzm.cn/api/admin/memes',
+  /** sbhzm.cn submit page (kept as user-facing fallback link). */
+  SBHZM_SUBMIT_PAGE: 'https://sbhzm.cn/submit',
+
+  /** Anthropic Messages API. POST. Used by 智能辅助驾驶 LLM mode. */
+  ANTHROPIC_MESSAGES: 'https://api.anthropic.com/v1/messages',
+  /** OpenAI chat completions. POST. Also reused for OpenAI-compatible providers via custom base URL. */
+  OPENAI_CHAT: 'https://api.openai.com/v1/chat/completions',
 } as const
 
 /**

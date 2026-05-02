@@ -76,6 +76,28 @@ function avatarUrl(uid: string | null): string | undefined {
   return uid ? `${BASE_URL.BILIBILI_AVATAR}/${uid}?size=96` : undefined
 }
 
+// Bilibili's DANMU_MSG packs sticker metadata into `info[0][13]` whenever
+// `info[0][12] === 1` (dm_type=1 = the whole danmaku is a single emoticon).
+// When present, `url` is authoritative: it points at the room-specific image
+// even for packages we never fetched into the cache. Falling back to text
+// scanning loses these stickers. Exported for unit tests.
+export function extractEmoticonImage(
+  info: unknown,
+  text: string
+): { url: string; alt: string; width?: number; height?: number } | undefined {
+  if (!Array.isArray(info)) return undefined
+  const meta = info[0]
+  if (!Array.isArray(meta)) return undefined
+  if (meta[12] !== 1) return undefined
+  const opts = asRecord(meta[13])
+  const url = asString(opts.url)
+  if (!url) return undefined
+  const alt = asString(opts.emoticon_unique) || asString(opts.emoji) || text || '表情'
+  const width = typeof opts.width === 'number' && opts.width > 0 ? opts.width : undefined
+  const height = typeof opts.height === 'number' && opts.height > 0 ? opts.height : undefined
+  return { url, alt, width, height }
+}
+
 // Counter so we sweep at most once every N reads. Amortizes the linear scan
 // to O(1) per call while preserving TTL semantics: a stale key won't survive
 // indefinitely, just up to (sweep interval) extra reads.
@@ -218,6 +240,7 @@ function bindEvents(roomId: number, live: LiveWS): void {
       badges,
       avatarUrl: avatarUrl(uid),
       rawCmd: data.cmd,
+      emoticonImage: extractEmoticonImage(info, text),
     })
   })
 

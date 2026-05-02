@@ -21,7 +21,18 @@ export default defineConfig({
         homepageURL: 'https://github.com/aijc123/bilibili-live-wheel-auto-follow',
         supportURL: 'https://github.com/aijc123/bilibili-live-wheel-auto-follow/issues',
         match: ['*://live.bilibili.com/*'],
-        connect: ['bilibili-guard-room.vercel.app', 'localhost'],
+        connect: [
+          'bilibili-guard-room.vercel.app',
+          'localhost',
+          // 烂梗库专属梗源（灰泽满直播间等社区自建库）
+          'sbhzm.cn',
+          // 智能辅助驾驶 LLM 默认 provider
+          'api.anthropic.com',
+          'api.openai.com',
+          // OpenAI 兼容自定义 base URL（DeepSeek/Moonshot/OpenRouter/Ollama）
+          // Tampermonkey 会在首次访问未列出域时弹权限确认；用户可在 Tampermonkey
+          // 设置中允许特定域。我们在 UI 上提示这一点。
+        ],
         'run-at': 'document-start',
       },
       build: {

@@ -30,6 +30,7 @@ import {
   NATIVE_SCAN_DEBOUNCE_MS,
   type NativeParseContext,
   nativeAvatar,
+  nativeUid,
   parseBadgeLevel,
   parseNativeEvent,
   resolveAvatarUrl,
@@ -529,7 +530,10 @@ function cardFields(
 export function createAvatar(message: CustomChatEvent): HTMLElement {
   const wrap = document.createElement('div')
   wrap.className = 'lc-chat-avatar lc-chat-avatar-fallback'
-  wrap.textContent = message.uname.slice(0, 1).toUpperCase() || '?'
+  // No initial-letter text: the styled "blue + first character" placeholder
+  // reads as a loading-state widget and pulls the eye. The fallback styling
+  // (a muted gray silhouette, in custom-chat-style) is intentionally quiet,
+  // so the swap to the real avatar is not visually dramatic.
   wrap.title = message.uid ? `UID ${message.uid}` : message.uname
 
   const avatar = message.avatarUrl || resolveAvatarUrl(message.uid)
@@ -934,6 +938,16 @@ function createMessageRow(message: CustomChatEvent, animate = false, virtualInde
     text.append(head)
     if (fields.length > 0) text.append(fieldsEl)
     text.append(content)
+  } else if (message.emoticonImage?.url) {
+    const img = document.createElement('img')
+    img.className = 'lc-chat-emote-big'
+    img.dataset.emoteKind = 'big'
+    img.src = message.emoticonImage.url
+    img.alt = message.emoticonImage.alt
+    img.title = message.emoticonImage.alt
+    img.loading = 'lazy'
+    img.decoding = 'async'
+    text.replaceChildren(img)
   } else {
     setText(text, message.text)
   }
@@ -1511,14 +1525,23 @@ function ensureStyles(): void {
 
 /** @internal Exported for tests; not part of the public API. */
 export function bootstrapPrewarmFromNative(container: HTMLElement): void {
-  // One-shot scrape: the native panel already paid the network cost for the
-  // recent ~50 messages' avatars. Feed those URLs into prewarmAvatar so any
-  // of those users speaking again hits the same-frame cache path.
+  // One-shot scrape on chat mount. We prewarm BOTH URL forms because:
+  //   * `nativeAvatar(node)` returns Bilibili's own rendered URL (typically
+  //     `i0.hdslb.com/bfs/face/...`), which is what DOM-source events use.
+  //   * `resolveAvatarUrl(uid)` returns the proxied form
+  //     (`workers.vrp.moe/bilibili/avatar/{uid}?size=96`) — what WS-source
+  //     events and the createAvatar fallback use.
+  // Without prewarming both, a chat opened mid-stream would see WS events
+  // arrive with the proxy URL and miss the cache anyway. Same UID / two
+  // prewarms / two HTTP cache slots — the cap is 2000 so cost is negligible.
   const nodes = container.querySelectorAll<HTMLElement>(NATIVE_EVENT_SELECTOR)
   const limit = Math.min(nodes.length, MAX_NATIVE_INITIAL_SCAN)
   for (let i = 0; i < limit; i++) {
-    const url = nativeAvatar(nodes[i])
-    if (url) prewarmAvatar(url)
+    const node = nodes[i]
+    const nativeUrl = nativeAvatar(node)
+    if (nativeUrl) prewarmAvatar(nativeUrl)
+    const canonical = resolveAvatarUrl(nativeUid(node))
+    if (canonical) prewarmAvatar(canonical)
   }
 }
 
@@ -1742,11 +1765,19 @@ export function ensureAvatarPreconnect(): void {
   }
 }
 
+/** Bilibili's canonical "no avatar" placeholder, used as the cache-miss
+ *  state for `.lc-chat-avatar-fallback` (see custom-chat-style.ts). Kept
+ *  here so the prewarm and the CSS reference the same URL. */
+const BILIBILI_NOFACE_URL = 'https://i0.hdslb.com/bfs/face/member/noface.jpg'
+
 export function startCustomChatDom(): void {
   if (unsubscribeDom) return
 
   ensureStyles()
   ensureAvatarPreconnect()
+  // Warm the noface placeholder once on chat start so the very first
+  // cache-miss avatar already has the fallback bg image in HTTP cache.
+  prewarmAvatar(BILIBILI_NOFACE_URL)
   scheduleFallbackMount()
   void refreshCurrentRoomEmoticons()
   disposeSettings = signalEffect(() => {

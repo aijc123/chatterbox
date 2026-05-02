@@ -557,13 +557,24 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   opacity: 1;
   filter: none;
 }
+/* Neutral placeholder while the avatar image is in flight. Gray chip
+   background (inherited from .lc-chat-avatar) plus a muted person silhouette
+   centered on top — visually it reads as "an empty avatar slot", not a
+   loading widget. The eye does not fixate on it, and the swap to the real
+   photo is a "fill" rather than a "color flip". No text content here, so
+   the displayed name has no visual echo in the placeholder either. */
+/* Use Bilibili's own default "noface" avatar as the placeholder. Users
+   already see this exact image throughout the live site whenever an avatar
+   isn't set or hasn't loaded, so it is the quietest possible cache-miss
+   state — the brain treats it as "a normal default avatar", not "this chat
+   is loading something". The URL is on i0.hdslb.com which we already
+   preconnect; the file itself is also prewarmed on chat start (see
+   custom-chat-dom.ts) so it sits in HTTP cache before any message renders. */
 #${ROOT_ID} .lc-chat-avatar-fallback {
-  display: grid;
-  place-items: center;
-  color: var(--lc-chat-own-text);
-  background: var(--lc-chat-own);
-  font-weight: 800;
-  font-size: 12px;
+  background-image: url("https://i0.hdslb.com/bfs/face/member/noface.jpg");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: cover;
 }
 #${ROOT_ID} .lc-chat-reply {
   color: var(--lc-chat-accent);
@@ -669,6 +680,13 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   width: 1.7em;
   height: 1.7em;
   margin: -.2em .08em;
+  vertical-align: middle;
+  object-fit: contain;
+}
+#${ROOT_ID} .lc-chat-emote-big {
+  display: inline-block;
+  max-width: 160px;
+  max-height: 160px;
   vertical-align: middle;
   object-fit: contain;
 }
