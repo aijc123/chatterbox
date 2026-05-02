@@ -1,0 +1,164 @@
+/**
+ * Layer 2 + Layer 3 of the shadow-ban integration:
+ *
+ * - `learnShadowRules` writes (sensitiveWord → AI-evaded form) into
+ *   `localRoomRules` so the next send applies the rule before going out.
+ *   Mirrors the same record up to a guard-room cloud endpoint when configured.
+ *
+ * - `recordShadowBanObservation` accumulates messages that triggered a
+ *   shadow-ban warning (whether or not AI evasion already replaced them) into
+ *   a persistent observation list, surfaced in the settings panel.
+ *
+ * Both are no-ops when their respective gm-toggles are off, but called
+ * unconditionally — gating lives here, not at every callsite.
+ */
+
+import { processText } from './ai-evasion'
+import { syncGuardRoomShadowRule } from './guard-room-sync'
+import { appendLog } from './log'
+import { localRoomRules } from './store-replacement'
+import { autoLearnShadowRules, type ShadowObservation, shadowBanObservations } from './store-shadow-learn'
+
+const SHADOW_RULE_PER_ROOM_CAP = 50
+const SHADOW_RULE_MIN_LEN = 1
+const SHADOW_RULE_MAX_LEN = 60
+const OBSERVATION_CAP = 200
+
+export interface LearnShadowRulesInput {
+  roomId: number
+  sensitiveWords: string[]
+  /** The AI-rewritten message (kept for logging context only). */
+  evadedMessage: string
+  /** The original message that triggered the shadow-ban (also for logging). */
+  originalMessage: string
+}
+
+function isValidSensitiveWord(word: string): boolean {
+  const trimmed = word.trim()
+  return trimmed.length >= SHADOW_RULE_MIN_LEN && trimmed.length <= SHADOW_RULE_MAX_LEN && !trimmed.includes('\n')
+}
+
+/**
+ * Promote each sensitive word to a local room rule (`from = word`,
+ * `to = processText(word)`). Skips words that already have a manual rule
+ * with the same `from` (user wins). Caps total auto-learned rules per room.
+ *
+ * Cloud sync to guard-room (when configured) is fire-and-forget per word.
+ */
+export function learnShadowRules(input: LearnShadowRulesInput): void {
+  if (!autoLearnShadowRules.value) return
+  const roomKey = String(input.roomId)
+  const currentByRoom = localRoomRules.value
+  const existingRules = currentByRoom[roomKey] ?? []
+  const existingFroms = new Set(existingRules.map(r => r.from).filter((s): s is string => !!s))
+
+  const newRules: Array<{ from: string; to: string }> = []
+  const learnedFroms: string[] = []
+  for (const raw of input.sensitiveWords) {
+    if (!isValidSensitiveWord(raw)) continue
+    const from = raw.trim()
+    if (existingFroms.has(from)) continue
+    const to = processText(from)
+    if (to === from) continue
+    newRules.push({ from, to })
+    existingFroms.add(from)
+    learnedFroms.push(from)
+  }
+
+  if (newRules.length === 0) return
+
+  let merged = [...existingRules, ...newRules]
+  if (merged.length > SHADOW_RULE_PER_ROOM_CAP) {
+    merged = merged.slice(merged.length - SHADOW_RULE_PER_ROOM_CAP)
+  }
+
+  localRoomRules.value = { ...currentByRoom, [roomKey]: merged }
+
+  appendLog(`📚 已学到屏蔽词规则（房间 ${input.roomId}）：${learnedFroms.join('、')}`)
+
+  // Fire-and-forget cloud sync per learned rule.
+  for (const rule of newRules) {
+    void syncGuardRoomShadowRule({
+      roomId: input.roomId,
+      from: rule.from,
+      to: rule.to,
+      sourceText: input.originalMessage,
+    })
+  }
+}
+
+export interface RecordShadowBanObservationInput {
+  text: string
+  roomId?: number
+  evadedAlready: boolean
+}
+
+/**
+ * Append a shadow-ban observation. Accumulates count for repeated occurrences
+ * of the same (text, roomId), evicts oldest entries past `OBSERVATION_CAP`.
+ */
+export function recordShadowBanObservation(input: RecordShadowBanObservationInput): void {
+  const text = input.text.trim()
+  if (!text) return
+
+  const list = shadowBanObservations.value
+  const idx = list.findIndex(o => o.text === text && o.roomId === input.roomId)
+  const now = Date.now()
+  if (idx >= 0) {
+    const updated = [...list]
+    const prev = updated[idx]
+    updated[idx] = {
+      ...prev,
+      ts: now,
+      count: prev.count + 1,
+      evadedAlready: prev.evadedAlready || input.evadedAlready,
+    }
+    shadowBanObservations.value = updated
+    return
+  }
+
+  const entry: ShadowObservation = {
+    text,
+    roomId: input.roomId,
+    ts: now,
+    count: 1,
+    evadedAlready: input.evadedAlready,
+  }
+  let next = [...list, entry]
+  if (next.length > OBSERVATION_CAP) {
+    next = next.slice(next.length - OBSERVATION_CAP)
+  }
+  shadowBanObservations.value = next
+}
+
+/** Test-only helper: drop all entries. Production UI uses targeted removal. */
+export function clearShadowBanObservations(): void {
+  shadowBanObservations.value = []
+}
+
+/** Remove a single observation by (text, roomId) tuple. */
+export function removeShadowBanObservation(text: string, roomId?: number): void {
+  shadowBanObservations.value = shadowBanObservations.value.filter(o => !(o.text === text && o.roomId === roomId))
+}
+
+/** Promote an observation entry into a local room rule on demand (UI button). */
+export function promoteObservationToRule(observation: ShadowObservation, to: string): boolean {
+  const trimmedText = observation.text.trim()
+  const trimmedTo = to.trim()
+  if (!trimmedText || trimmedText === trimmedTo) return false
+  if (observation.roomId === undefined) return false
+  const roomKey = String(observation.roomId)
+  const currentByRoom = localRoomRules.value
+  const existingRules = currentByRoom[roomKey] ?? []
+  if (existingRules.some(r => r.from === trimmedText)) return false
+  const merged = [...existingRules, { from: trimmedText, to: trimmedTo }]
+  localRoomRules.value = { ...currentByRoom, [roomKey]: merged }
+  removeShadowBanObservation(observation.text, observation.roomId)
+  void syncGuardRoomShadowRule({
+    roomId: observation.roomId,
+    from: trimmedText,
+    to: trimmedTo,
+    sourceText: trimmedText,
+  })
+  return true
+}

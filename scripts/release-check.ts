@@ -34,7 +34,7 @@ const steps: Step[] = [
   {
     name: 'Unit tests (bun test)',
     fn: () => {
-      run(['bun', 'test'])
+      run(['bun', 'test', '--isolate'])
     },
   },
   {

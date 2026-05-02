@@ -61,7 +61,7 @@ export function SttTab() {
       const roomId = await ensureRoomId()
       const csrfToken = getCsrfToken()
       if (!csrfToken) {
-        appendLog('❌ 同传：未找到登录信息')
+        appendLog('❌ 同传：未找到 Bilibili 登录信息，请刷新 B 站页面或重新登录')
         return
       }
       if (isLockedEmoticon(segment)) {
@@ -300,6 +300,10 @@ export function SttTab() {
             获取 Soniox API Key
           </a>
           <span className='cb-note'>注册后把 API Key 粘贴到上方。</span>
+        </div>
+        <div className='cb-note' style={{ color: '#666', fontSize: '0.85em', marginTop: '.25em' }}>
+          API Key 仅保存在你的浏览器（GM 存储）。开启同传后，麦克风音频流会通过 WebSocket 发送到 api.soniox.com
+          进行识别。
         </div>
       </div>
 

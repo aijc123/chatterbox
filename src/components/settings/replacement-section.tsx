@@ -318,7 +318,10 @@ export function CloudReplacementSection({ query = '' }: { query?: string }) {
           </a>
         </div>
         <div className='cb-note' style={{ marginBlock: '.5em', color: '#666' }}>
-          每10分钟会自动同步云端替换规则
+          云端规则由社区维护，每 10 分钟会自动从 workers.vrp.moe 同步一次。
+        </div>
+        <div className='cb-note' style={{ marginBlock: '.25em', color: '#666', fontSize: '0.85em' }}>
+          应用顺序（从高到低）：当前直播间规则 → 本地全局规则 → 云端规则 → 原文。
         </div>
         <div
           className='cb-row'

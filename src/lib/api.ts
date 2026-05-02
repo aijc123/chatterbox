@@ -3,7 +3,7 @@ import { effect } from '@preact/signals'
 import type { BilibiliGetEmoticonsResponse } from '../types'
 
 import { mapWithConcurrency } from './concurrency'
-import { BASE_URL } from './const'
+import { BASE_URL, CHATTERBOX_SEND_HEADER, CHATTERBOX_SEND_VALUE } from './const'
 import { emitLocalDanmakuEcho } from './custom-chat-events'
 import { findEmoticon, isEmoticonUnique, isLockedEmoticon } from './emoticon'
 import { describeRestrictionDuration, type RestrictionSignal, scanRestrictionSignals } from './moderation'
@@ -582,6 +582,7 @@ export async function sendDanmaku(message: string, roomId: number, csrfToken: st
         credentials: 'include',
         body: form,
         signal: controller.signal,
+        headers: { [CHATTERBOX_SEND_HEADER]: CHATTERBOX_SEND_VALUE },
       })
     } finally {
       clearTimeout(timeout)

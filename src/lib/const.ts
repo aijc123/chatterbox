@@ -57,3 +57,11 @@ export const BASE_URL = {
   BILIBILI_AVATAR: 'https://workers.vrp.moe/bilibili/avatar',
   BILIBILI_SUPERCHAT_ORDER: 'https://workers.vrp.moe/bilibili/live-create-order',
 } as const
+
+/**
+ * Sentinel header that Chatterbox attaches to its own `/msg/send` requests so
+ * the fetch hijack in `fetch-hijack.ts` can distinguish them from native
+ * Bilibili UI sends and skip the duplicate verification path.
+ */
+export const CHATTERBOX_SEND_HEADER = 'X-Chatterbox-Send'
+export const CHATTERBOX_SEND_VALUE = '1'

@@ -2,6 +2,7 @@ import { useSignal } from '@preact/signals'
 
 import { AUTO_BLEND_PRESETS } from '../lib/auto-blend-preset-config'
 import { applyAutoBlendPreset } from '../lib/auto-blend-presets'
+import { decideAutoBlendToggle } from '../lib/auto-blend-toggle'
 import { appendLog } from '../lib/log'
 import {
   autoBlendAdvancedOpen,
@@ -26,6 +27,7 @@ import {
   autoBlendUseReplacements,
   autoBlendUserBlacklist,
   autoBlendWindowSec,
+  hasConfirmedAutoBlendRealFire,
   msgSendInterval,
 } from '../lib/store'
 
@@ -213,6 +215,19 @@ export function AutoBlendControls() {
         : '#0a7f55'
 
   const toggleEnabled = () => {
+    const decision = decideAutoBlendToggle(
+      {
+        currentlyEnabled: autoBlendEnabled.value,
+        dryRun: autoBlendDryRun.value,
+        hasConfirmedRealFire: hasConfirmedAutoBlendRealFire.value,
+      },
+      () =>
+        confirm(
+          '自动跟车将会以你的账号真实发送弹幕（试运行已关闭）。\n\n建议先打开「试运行」观察一段时间。是否继续直接开启？'
+        )
+    )
+    if (!decision.proceed) return
+    if (decision.markConfirmed) hasConfirmedAutoBlendRealFire.value = true
     autoBlendEnabled.value = !autoBlendEnabled.value
   }
 
@@ -229,6 +244,9 @@ export function AutoBlendControls() {
       </summary>
 
       <div className='cb-body cb-stack'>
+        <div className='cb-note' style={{ color: '#666', fontSize: '0.9em', marginBottom: '.25em' }}>
+          条件满足时，会以你的账号自动发送弹幕。第一次开启建议先打开下方的「试运行」观察效果。
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '.5em', alignItems: 'center' }}>
           <button type='button' className={isOn ? 'cb-danger' : 'cb-primary'} onClick={toggleEnabled}>
             {isOn ? '停止跟车' : '开始跟车'}
@@ -418,7 +436,14 @@ export function AutoBlendControls() {
                 autoBlendDryRun.value = e.currentTarget.checked
               }}
             />
-            <label for='autoBlendDryRun'>试运行（只观察，不发送）</label>
+            <label for='autoBlendDryRun' title='开启后只在日志里显示会发送什么，不会真的发出。关闭后会真实发送弹幕。'>
+              试运行（只观察，不发送）
+            </label>
+            {!autoBlendDryRun.value && (
+              <span style={{ color: '#a15c00', fontSize: '0.85em' }} title='当前关闭试运行，会真实发送弹幕。'>
+                关闭后会真实发送
+              </span>
+            )}
           </span>
 
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
@@ -485,8 +510,12 @@ export function AutoBlendControls() {
                 autoBlendSendAllTrending.value = e.currentTarget.checked
               }}
             />
-            <label for='autoBlendSendAllTrending'>一波刷屏全跟</label>
-            <span style={{ color: '#a15c00' }}>猛</span>
+            <label for='autoBlendSendAllTrending' title='命中后连发同一波里多句达标弹幕，更激进。'>
+              一波刷屏全跟
+            </label>
+            <span style={{ color: '#a15c00' }} title='更激进：命中一波后会连发多条达标弹幕，更容易被风控。'>
+              （更激进）
+            </span>
           </span>
         </div>
 

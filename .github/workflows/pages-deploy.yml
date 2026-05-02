@@ -29,7 +29,7 @@ jobs:
 
       - run: bun x biome ci .
 
-      - run: bun test
+      - run: bun test --isolate
 
       - run: bun run build
 

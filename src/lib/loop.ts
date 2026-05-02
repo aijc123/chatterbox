@@ -7,6 +7,7 @@ import { classifyRiskEvent, syncGuardRoomRiskEvent } from './guard-room-sync'
 import { appendLog } from './log'
 import { applyReplacements, buildReplacementMap } from './replacement'
 import { cancelPendingAuto, enqueueDanmaku, SendPriority } from './send-queue'
+import { verifyBroadcast } from './send-verification'
 import {
   activeTemplateIndex,
   availableDanmakuColors,
@@ -224,6 +225,19 @@ export async function loop(): Promise<void> {
               roomId,
               errorCode: result.errorCode,
               reason: result.error,
+            })
+          }
+          if (result.success && !result.cancelled) {
+            // Background verification: log a ⚠️ line ~4s later if no real
+            // broadcast echo arrives. Toast is rate-limited per template so
+            // continuous shadow-bans don't spam notifications.
+            void verifyBroadcast({
+              text: processedMessage,
+              label,
+              display: displayMsg,
+              sinceTs: result.startedAt ?? Date.now(),
+              isEmoticon: result.isEmoticon,
+              toastDedupeKey: `loop:${originalMessage}`,
             })
           }
 

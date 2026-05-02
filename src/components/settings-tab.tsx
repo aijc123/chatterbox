@@ -12,6 +12,26 @@ import {
   LocalGlobalReplacementSection,
   LocalRoomReplacementSection,
 } from './settings/replacement-section'
+import { ShadowObservationSection } from './settings/shadow-observation-section'
+
+function GroupHeading({ children, query }: { children: string; query: string }) {
+  if (query) return null
+  return (
+    <div
+      className='cb-group-heading'
+      style={{
+        margin: '1em 0 .25em',
+        fontSize: '0.75em',
+        fontWeight: 'bold',
+        color: '#999',
+        letterSpacing: '0.04em',
+        textTransform: 'uppercase',
+      }}
+    >
+      {children}
+    </div>
+  )
+}
 
 export function SettingsTab() {
   const settingsSearch = useSignal('')
@@ -35,10 +55,10 @@ export function SettingsTab() {
         />
       </div>
 
-      <CloudReplacementSection query={query} />
-      <LocalGlobalReplacementSection query={query} />
-      <LocalRoomReplacementSection query={query} />
-
+      <GroupHeading query={query}>常用</GroupHeading>
+      <CustomChatSection query={query} />
+      <DanmakuDirectSection query={query} />
+      <LayoutSection query={query} />
       {(!query || '表情 emote emoji ID 复制'.toLowerCase().includes(query)) && (
         <details className='cb-settings-accordion' open>
           <summary>表情</summary>
@@ -56,11 +76,17 @@ export function SettingsTab() {
         </details>
       )}
 
-      <MedalCheckSection query={query} />
-      <CustomChatSection query={query} />
-      <DanmakuDirectSection query={query} />
-      <LayoutSection query={query} />
+      <GroupHeading query={query}>替换规则</GroupHeading>
+      <CloudReplacementSection query={query} />
+      <LocalGlobalReplacementSection query={query} />
+      <LocalRoomReplacementSection query={query} />
+      <ShadowObservationSection query={query} />
 
+      <GroupHeading query={query}>工具</GroupHeading>
+      <MedalCheckSection query={query} />
+      <BackupSection query={query} />
+
+      <GroupHeading query={query}>系统</GroupHeading>
       {(!query || '日志设置 日志 行数'.toLowerCase().includes(query)) && (
         <details className='cb-settings-accordion'>
           <summary>日志设置</summary>
@@ -91,8 +117,6 @@ export function SettingsTab() {
           </div>
         </details>
       )}
-
-      <BackupSection query={query} />
     </>
   )
 }

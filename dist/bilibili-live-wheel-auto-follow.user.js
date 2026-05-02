@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.8.58
+// @version      2.8.59
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -282,6 +282,29 @@
   var _GM_info = (() => typeof GM_info != "undefined" ? GM_info : void 0)();
   var _GM_setValue = (() => typeof GM_setValue != "undefined" ? GM_setValue : void 0)();
   var _unsafeWindow = (() => typeof unsafeWindow != "undefined" ? unsafeWindow : void 0)();
+  const VERSION = _GM_info.script.version;
+  const BASE_URL = {
+BILIBILI_ROOM_INIT: "https://api.live.bilibili.com/room/v1/Room/room_init",
+BILIBILI_ROOM_INIT_ALT: "https://api.live.bilibili.com/room/v1/Room/get_info",
+BILIBILI_ROOM_INFO_BY_UID: "https://api.live.bilibili.com/room/v1/Room/getRoomInfoOld",
+BILIBILI_MSG_SEND: "https://api.live.bilibili.com/msg/send",
+BILIBILI_MSG_CONFIG: "https://api.live.bilibili.com/xlive/web-room/v1/dM/AjaxSetConfig",
+BILIBILI_GET_DM_CONFIG: "https://api.live.bilibili.com/xlive/web-room/v1/dM/GetDMConfigByGroup",
+BILIBILI_DANMU_INFO: "https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo",
+BILIBILI_GET_EMOTICONS: "https://api.live.bilibili.com/xlive/web-ucenter/v2/emoticon/GetEmoticons",
+BILIBILI_MEDAL_WALL: "https://api.live.bilibili.com/xlive/web-ucenter/user/MedalWall",
+BILIBILI_FOLLOWINGS: "https://api.bilibili.com/x/relation/followings",
+BILIBILI_ROOM_USER_INFO: "https://api.live.bilibili.com/xlive/web-room/v1/index/getInfoByUser",
+BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/banned/GetSilentUserList",
+    LAPLACE_CHAT_AUDIT: "https://edge-workers.laplace.cn/laplace/chat-audit",
+    REMOTE_KEYWORDS: "https://workers.vrp.moe/gh-raw/laplace-live/public/master/artifacts/livesrtream-keywords.json",
+    LAPLACE_MEMES: "https://workers.vrp.moe/laplace/memes",
+    LAPLACE_MEME_COPY: "https://workers.vrp.moe/laplace/meme-copy",
+    BILIBILI_AVATAR: "https://workers.vrp.moe/bilibili/avatar",
+    BILIBILI_SUPERCHAT_ORDER: "https://workers.vrp.moe/bilibili/live-create-order"
+  };
+  const CHATTERBOX_SEND_HEADER = "X-Chatterbox-Send";
+  const CHATTERBOX_SEND_VALUE = "1";
   var t$1, r$1, u$1, i$1, o$1 = 0, f = [], c$1 = l$3, e$1 = c$1.__b, a$1 = c$1.__r, v$1 = c$1.diffed, l$2 = c$1.__c, m$1 = c$1.unmount, s$1 = c$1.__;
   function p$2(n2, t2) {
     c$1.__h && c$1.__h(r$1, n2, o$1 || t2), o$1 = 0;
@@ -1186,20 +1209,30 @@
     appendLog(`${prefix} ${fullMessage}`);
     if (level === "warning" || level === "error") showUserNotice(fullMessage, level);
   }
-  function appendLog(arg, label, display) {
-    const now = new Date();
-    const ts = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
-    const message = typeof arg === "string" ? `${ts} ${arg}` : arg.cancelled ? `${ts} ⏭ ${label}: ${display}（被手动发送中断）` : arg.success ? `${ts} ✅ ${label}: ${display}` : `${ts} ❌ ${label}: ${display}，原因：${formatDanmakuError(arg.error)}`;
+  function formatTs(now) {
+    return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
+  }
+  function pushLine(line) {
     const max = maxLogLines.value;
     const lines = logLines.value;
-    const next = lines.length >= max ? [...lines.slice(lines.length - max + 1), message] : [...lines, message];
-    logLines.value = next;
+    logLines.value = lines.length >= max ? [...lines.slice(lines.length - max + 1), line] : [...lines, line];
+  }
+  function appendLog(arg, label, display) {
+    const ts = formatTs( new Date());
+    const message = typeof arg === "string" ? `${ts} ${arg}` : arg.cancelled ? `${ts} ⏭ ${label}: ${display}（被手动发送中断）` : arg.success ? `${ts} ✅ ${label}: ${display}` : `${ts} ❌ ${label}: ${display}，原因：${formatDanmakuError(arg.error)}`;
+    pushLine(message);
     if (typeof arg === "string") {
       maybeSurfaceLogMessage(arg);
     } else if (!arg.success && !arg.cancelled) {
       showUserNotice(`${label}: ${display}，原因：${formatDanmakuError(arg.error)}`, "error");
     }
   }
+  function appendLogQuiet(message) {
+    pushLine(`${formatTs( new Date())} ${message}`);
+  }
+  const enableMemeContribution = gmSignal("enableMemeContribution", false);
+  const memeContributorCandidatesByRoom = gmSignal("memeContributorCandidatesByRoom", {});
+  const memeContributorSeenTextsByRoom = gmSignal("memeContributorSeenTextsByRoom", {});
   const msgSendInterval = gmSignal("msgSendInterval", 1);
   const maxLength = gmSignal("maxLength", 38);
   const randomColor = gmSignal("randomColor", false);
@@ -1268,9 +1301,6 @@
   const guardRoomSyncKey = gmSignal("guardRoomSyncKey", "");
   const guardRoomWebsiteControlEnabled = gmSignal("guardRoomWebsiteControlEnabled", false);
   const guardRoomHandoffActive = y$1(false);
-  const enableMemeContribution = gmSignal("enableMemeContribution", false);
-  const memeContributorCandidates = gmSignal("memeContributorCandidates", []);
-  const memeContributorSeenTexts = gmSignal("memeContributorSeenTexts", []);
   (() => {
     const old = _GM_getValue("replacementRules", []);
     if (old.length > 0) {
@@ -1286,6 +1316,8 @@
   const remoteKeywords = gmSignal("remoteKeywords", null);
   const remoteKeywordsLastSync = gmSignal("remoteKeywordsLastSync", null);
   const replacementMap = y$1(null);
+  const autoLearnShadowRules = gmSignal("autoLearnShadowRules", true);
+  const shadowBanObservations = gmSignal("shadowBanObservations", []);
   const sonioxApiKey = gmSignal("sonioxApiKey", "");
   const sonioxLanguageHints = gmSignal("sonioxLanguageHints", ["zh"]);
   const sonioxAutoSend = gmSignal("sonioxAutoSend", true);
@@ -1308,8 +1340,20 @@
   const dialogOpen = gmSignal("dialogOpen", false);
   const unlockForbidLive = gmSignal("unlockForbidLive", true);
   const hasSeenWelcome = gmSignal("hasSeenWelcome", false);
+  const hasConfirmedAutoBlendRealFire = gmSignal("hasConfirmedAutoBlendRealFire", false);
+  const lastSeenVersion = gmSignal("lastSeenVersion", "");
   const cachedRoomId = y$1(null);
   const cachedStreamerUid = y$1(null);
+  const memeContributorCandidates = g$1(() => {
+    const id = cachedRoomId.value;
+    if (id === null) return [];
+    return memeContributorCandidatesByRoom.value[String(id)] ?? [];
+  });
+  g$1(() => {
+    const id = cachedRoomId.value;
+    if (id === null) return [];
+    return memeContributorSeenTextsByRoom.value[String(id)] ?? [];
+  });
   let sendStateRestored = false;
   j(() => {
     const persist = persistSendState.value;
@@ -1337,762 +1381,37 @@
       }
     }
   });
-  const GET_INFO_BY_USER_PATTERN = "/xlive/web-room/v1/index/getInfoByUser";
-  function shouldHijackUrl(url) {
-    return unlockForbidLive.value && url.includes(GET_INFO_BY_USER_PATTERN);
+  function isEmoticonUnique(msg) {
+    return cachedEmoticonPackages.value.some((pkg) => pkg.emoticons.some((e2) => e2.emoticon_unique === msg));
   }
-  function applyTransforms(url, data) {
-    if (!shouldHijackUrl(url)) return;
-    const forbid = data?.data?.forbid_live;
-    if (!forbid) return;
-    forbid.is_forbid = false;
-    forbid.forbid_text = "";
-  }
-  (() => {
-    try {
-      const ResponseProto = _unsafeWindow.Response.prototype;
-      if (ResponseProto.__chatterboxFetchHijackInstalled) return;
-      ResponseProto.__chatterboxFetchHijackInstalled = true;
-      const origJson = ResponseProto.json;
-      ResponseProto.json = async function() {
-        const data = await origJson.call(this);
-        const url = this.url;
-        if (!url || !shouldHijackUrl(url) || !data || typeof data !== "object") return data;
-        try {
-          applyTransforms(url, data);
-        } catch (err) {
-          console.error("[Chatterbox] fetch-hijack json transform failed:", err);
-        }
-        return data;
-      };
-      const origText = ResponseProto.text;
-      ResponseProto.text = async function() {
-        const text = await origText.call(this);
-        const url = this.url;
-        if (!url || !shouldHijackUrl(url)) return text;
-        try {
-          const data = JSON.parse(text);
-          applyTransforms(url, data);
-          return JSON.stringify(data);
-        } catch {
-          return text;
-        }
-      };
-    } catch (err) {
-      console.error("[Chatterbox] failed to install fetch-hijack:", err);
+  function findEmoticon(msg) {
+    for (const pkg of cachedEmoticonPackages.value) {
+      for (const e2 of pkg.emoticons) {
+        if (e2.emoticon_unique === msg) return e2;
+      }
     }
-  })();
-  const CUSTOM_CHAT_REARM_OFF_DELAY_MS = 80;
-  const CUSTOM_CHAT_REARM_ON_DELAY_MS = 160;
-  const PANEL_STYLE = `
-      #laplace-chatterbox-toggle,
-      #laplace-chatterbox-dialog,
-      #laplace-chatterbox-dialog * {
-        box-sizing: border-box;
-        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
-        font-size: 12px;
-        letter-spacing: 0;
-      }
-
-      #laplace-chatterbox-toggle {
-        appearance: none !important;
-        border: 1px solid rgba(255, 255, 255, .42) !important;
-        border-radius: 999px !important;
-        min-height: 30px !important;
-        padding: 0 12px !important;
-        background: rgba(30, 30, 30, .78) !important;
-        color: #fff !important;
-        box-shadow: 0 10px 28px rgba(0, 0, 0, .22), inset 0 1px rgba(255, 255, 255, .22) !important;
-        backdrop-filter: blur(18px) saturate(1.4);
-        -webkit-backdrop-filter: blur(18px) saturate(1.4);
-        transition: transform .2s ease, background .2s ease;
-      }
-
-      #laplace-chatterbox-toggle[data-sending="true"] {
-        background: rgba(0, 186, 143, .88) !important;
-      }
-
-      #laplace-chatterbox-toggle[data-open="true"] {
-        transform: scale(1.06);
-      }
-
-      #laplace-chatterbox-toggle:active {
-        transform: scale(0.96);
-      }
-
-      #laplace-chatterbox-dialog {
-        color: #1d1d1f !important;
-        background: rgba(248, 248, 250, .86) !important;
-        border: 1px solid rgba(0, 0, 0, .08) !important;
-        border-radius: 8px !important;
-        box-shadow: 0 22px 60px rgba(0, 0, 0, .24), 0 1px 0 rgba(255,255,255,.72) inset !important;
-        backdrop-filter: blur(26px) saturate(1.5);
-        -webkit-backdrop-filter: blur(26px) saturate(1.5);
-        scrollbar-width: thin;
-      }
-
-      #laplace-chatterbox-dialog .cb-scroll {
-        padding: 8px !important;
-      }
-
-      #laplace-chatterbox-dialog details {
-        margin: 0 0 5px !important;
-        padding: 0 !important;
-        border: 1px solid rgba(0, 0, 0, .08) !important;
-        border-radius: 8px !important;
-        background: rgba(252, 252, 253, .78) !important;
-        box-shadow: 0 1px 0 rgba(255, 255, 255, .7) inset !important;
-        overflow: hidden;
-      }
-
-      #laplace-chatterbox-dialog details[open] {
-        background: rgba(255, 255, 255, .9) !important;
-      }
-
-      #laplace-chatterbox-dialog .cb-settings-accordion > .cb-section {
-        margin: 0 !important;
-        padding: 0 7px 7px !important;
-        border: 0 !important;
-        border-radius: 0 !important;
-        background: transparent !important;
-        box-shadow: none !important;
-      }
-
-      #laplace-chatterbox-dialog .cb-settings-accordion[open] > .cb-section > .cb-heading,
-      #laplace-chatterbox-dialog .cb-settings-accordion[open] > .cb-section > .cb-row:first-child > .cb-heading {
-        display: none;
-      }
-
-      #laplace-chatterbox-dialog details > :not(summary):not(.cb-body) {
-        margin-left: 10px;
-        margin-right: 10px;
-      }
-
-      #laplace-chatterbox-dialog details > :last-child:not(summary) {
-        margin-bottom: 10px;
-      }
-
-      #laplace-chatterbox-dialog summary {
-        min-height: 30px;
-        display: flex !important;
-        align-items: center;
-        gap: 6px;
-        padding: 0 8px !important;
-        color: #1d1d1f !important;
-        list-style: none;
-        font-weight: 650 !important;
-        cursor: pointer;
-        user-select: none;
-      }
-
-      #laplace-chatterbox-dialog summary::-webkit-details-marker {
-        display: none;
-      }
-
-      #laplace-chatterbox-dialog summary::after {
-        content: "";
-        margin-left: auto;
-        width: 10px;
-        height: 10px;
-        border-right: 2.5px solid #8e8e93;
-        border-bottom: 2.5px solid #8e8e93;
-        transform: rotate(-45deg);
-        transition: transform .18s ease;
-        flex-shrink: 0;
-      }
-
-      #laplace-chatterbox-dialog details[open] > summary::after {
-        transform: rotate(135deg);
-      }
-
-      #laplace-chatterbox-dialog button,
-      #laplace-chatterbox-dialog select,
-      #laplace-chatterbox-dialog input,
-      #laplace-chatterbox-dialog textarea {
-        outline: none !important;
-        font: inherit;
-      }
-
-      #laplace-chatterbox-dialog button {
-        appearance: none !important;
-        min-height: 26px !important;
-        border: 1px solid rgba(0, 0, 0, .08) !important;
-        border-radius: 8px !important;
-        background: rgba(255, 255, 255, .9) !important;
-        color: #1d1d1f !important;
-        padding: 3px 9px !important;
-        cursor: pointer !important;
-        font-weight: 560 !important;
-        line-height: 1.3 !important;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, .05) !important;
-      }
-
-      #laplace-chatterbox-dialog button:hover {
-        background: #fff !important;
-        border-color: rgba(0, 0, 0, .14) !important;
-      }
-
-      #laplace-chatterbox-dialog button:active {
-        transform: translateY(1px);
-      }
-
-      #laplace-chatterbox-dialog button:disabled,
-      #laplace-chatterbox-dialog input:disabled,
-      #laplace-chatterbox-dialog select:disabled {
-        opacity: .46;
-        cursor: not-allowed !important;
-      }
-
-      #laplace-chatterbox-dialog input[type="text"],
-      #laplace-chatterbox-dialog input[type="password"],
-      #laplace-chatterbox-dialog input[type="number"],
-      #laplace-chatterbox-dialog select,
-      #laplace-chatterbox-dialog textarea {
-        border: 1px solid rgba(0, 0, 0, .08) !important;
-        border-radius: 8px !important;
-        background: rgba(255, 255, 255, .86) !important;
-        color: #1d1d1f !important;
-        padding: 5px 8px !important;
-        box-shadow: inset 0 1px 2px rgba(0, 0, 0, .035) !important;
-      }
-
-      #laplace-chatterbox-dialog input[type="number"] {
-        text-align: center;
-        width: 64px !important;
-        min-width: 64px !important;
-      }
-
-      #laplace-chatterbox-dialog textarea {
-        line-height: 1.45 !important;
-      }
-
-      #laplace-chatterbox-dialog input:focus,
-      #laplace-chatterbox-dialog select:focus,
-      #laplace-chatterbox-dialog textarea:focus {
-        border-color: #007aff !important;
-        box-shadow: 0 0 0 3px rgba(0, 122, 255, .16), inset 0 1px 2px rgba(0, 0, 0, .03) !important;
-      }
-
-      #laplace-chatterbox-dialog input[type="checkbox"] {
-        appearance: none !important;
-        width: 30px !important;
-        height: 18px !important;
-        flex: 0 0 30px;
-        border: none !important;
-        border-radius: 999px !important;
-        background: #d1d1d6 !important;
-        padding: 0 !important;
-        position: relative;
-        cursor: pointer;
-        box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .04) !important;
-        transition: background .18s ease;
-      }
-
-      #laplace-chatterbox-dialog input[type="checkbox"]::after {
-        content: "";
-        position: absolute;
-        top: 2px;
-        left: 2px;
-        width: 14px;
-        height: 14px;
-        border-radius: 50%;
-        background: #fff;
-        box-shadow: 0 1px 2px rgba(0,0,0,.24);
-        transition: transform .18s ease;
-      }
-
-      #laplace-chatterbox-dialog input[type="checkbox"]:checked {
-        background: #34c759 !important;
-      }
-
-      #laplace-chatterbox-dialog input[type="checkbox"]:checked::after {
-        transform: translateX(12px);
-      }
-
-      #laplace-chatterbox-dialog a {
-        color: #007aff !important;
-        text-decoration: none !important;
-      }
-
-      #laplace-chatterbox-dialog .cb-tabs {
-        position: sticky;
-        top: 0;
-        z-index: 2;
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 4px;
-        padding: 7px;
-        background: rgba(248, 248, 250, .9);
-        backdrop-filter: blur(18px) saturate(1.4);
-        -webkit-backdrop-filter: blur(18px) saturate(1.4);
-        border-bottom: 1px solid rgba(0, 0, 0, .06);
-      }
-
-      #laplace-chatterbox-dialog .cb-tab {
-        min-height: 28px !important;
-        padding: 4px 0 !important;
-        border: none !important;
-        box-shadow: none !important;
-        background: transparent !important;
-        color: #6e6e73 !important;
-      }
-
-      #laplace-chatterbox-dialog .cb-tab[data-active="true"] {
-        background: #fff !important;
-        color: #1d1d1f !important;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .08) !important;
-      }
-
-      #laplace-chatterbox-dialog .cb-primary {
-        background: #007aff !important;
-        color: #fff !important;
-        border-color: #007aff !important;
-      }
-
-      #laplace-chatterbox-dialog .cb-danger {
-        background: #ff3b30 !important;
-        color: #fff !important;
-        border-color: #ff3b30 !important;
-      }
-
-      #laplace-chatterbox-dialog .cb-soft {
-        color: #6e6e73 !important;
-      }
-
-      #laplace-chatterbox-dialog .cb-row {
-        display: flex;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 6px;
-      }
-
-      #laplace-chatterbox-dialog .cb-stack {
-        display: grid;
-        gap: 6px;
-      }
-
-      #laplace-chatterbox-dialog .cb-body {
-        padding: 0 9px 8px;
-      }
-
-      #laplace-chatterbox-dialog .cb-note {
-        color: #6e6e73;
-        font-size: 11px !important;
-        line-height: 1.45;
-      }
-
-      #laplace-chatterbox-dialog .cb-label {
-        color: #6e6e73;
-        font-size: 11px !important;
-        font-weight: 560;
-      }
-
-      #laplace-chatterbox-dialog .cb-panel {
-        border: 1px solid rgba(0,0,0,.06);
-        border-radius: 8px;
-        background: rgba(248, 248, 250, .8);
-        padding: 7px;
-      }
-
-      #laplace-chatterbox-dialog .cb-section {
-        margin: 0 0 6px !important;
-        padding: 7px !important;
-        border: 1px solid rgba(0, 0, 0, .06) !important;
-        border-radius: 8px !important;
-        background: rgba(255, 255, 255, .72) !important;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, .04) !important;
-      }
-
-      #laplace-chatterbox-dialog .cb-heading {
-        margin: 0 0 6px !important;
-        color: #1d1d1f !important;
-        font-weight: 650 !important;
-      }
-
-      #laplace-chatterbox-dialog .cb-empty {
-        color: #8e8e93 !important;
-        background: rgba(118, 118, 128, .08);
-        border-radius: 8px;
-        padding: 7px;
-      }
-
-      #laplace-chatterbox-dialog .cb-result {
-        border: 1px solid rgba(0, 0, 0, .06) !important;
-        border-radius: 8px !important;
-        background: rgba(255, 255, 255, .82) !important;
-        padding: 7px !important;
-      }
-
-      #laplace-chatterbox-dialog .cb-switch-row {
-        display: flex !important;
-        align-items: center !important;
-        gap: 6px !important;
-        min-height: 22px;
-        line-height: 1.32;
-      }
-
-      #laplace-chatterbox-dialog .cb-setting-block {
-        display: grid;
-        gap: 5px;
-        padding: 6px 0;
-      }
-
-      #laplace-chatterbox-dialog .cb-setting-block + .cb-setting-block {
-        border-top: 1px solid rgba(0, 0, 0, .06);
-      }
-
-      #laplace-chatterbox-dialog .cb-setting-primary {
-        padding: 6px 7px;
-        border: 1px solid rgba(0, 0, 0, .055);
-        border-left: 3px solid #007aff;
-        border-radius: 8px;
-        background: rgba(255, 255, 255, .68);
-      }
-
-      #laplace-chatterbox-dialog .cb-setting-row {
-        justify-content: space-between;
-        gap: 8px;
-        min-height: 26px;
-      }
-
-      #laplace-chatterbox-dialog .cb-setting-row select {
-        max-width: 178px;
-        margin-left: auto;
-      }
-
-      #laplace-chatterbox-dialog .cb-setting-child[data-enabled="false"] {
-        color: #8e8e93;
-      }
-
-      #laplace-chatterbox-dialog .cb-dependent-group {
-        position: relative;
-        margin-top: 1px;
-        padding: 7px;
-        border: 1px solid rgba(0, 0, 0, .055);
-        border-left: 3px solid #34c759;
-        border-radius: 8px;
-        background: rgba(248, 248, 250, .7);
-        transition: background .18s ease, border-color .18s ease, opacity .18s ease;
-      }
-
-      #laplace-chatterbox-dialog .cb-dependent-group[data-enabled="false"] {
-        border-left-color: #c7c7cc;
-        background: repeating-linear-gradient(
-          -45deg,
-          rgba(118, 118, 128, .06),
-          rgba(118, 118, 128, .06) 6px,
-          rgba(255, 255, 255, .52) 6px,
-          rgba(255, 255, 255, .52) 12px
-        );
-      }
-
-      #laplace-chatterbox-dialog .cb-dependent-group[data-enabled="false"]::before {
-        content: attr(data-reason);
-        justify-self: start;
-        width: max-content;
-        max-width: 100%;
-        padding: 2px 6px;
-        border-radius: 999px;
-        background: rgba(118, 118, 128, .13);
-        color: #6e6e73;
-        font-size: 11px;
-        font-weight: 620;
-        line-height: 1.35;
-      }
-
-      #laplace-chatterbox-dialog .cb-accordion-title {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        margin-right: auto;
-      }
-
-      #laplace-chatterbox-dialog .cb-module-summary::after {
-        margin-left: 2px;
-      }
-
-      #laplace-chatterbox-dialog .cb-module-state {
-        flex: 0 0 auto;
-        min-width: 32px;
-        padding: 1px 6px;
-        border-radius: 999px;
-        border: 1px solid rgba(0, 0, 0, .06);
-        background: rgba(118, 118, 128, .1);
-        color: #6e6e73;
-        font-size: 10px !important;
-        font-weight: 720;
-        line-height: 1.45;
-        text-align: center;
-      }
-
-      #laplace-chatterbox-dialog .cb-module-state[data-active="true"] {
-        border-color: rgba(52, 199, 89, .28);
-        background: rgba(52, 199, 89, .14);
-        color: #0a7f55;
-      }
-
-      #laplace-chatterbox-dialog .cb-subdetails {
-        margin: 0 !important;
-        border-color: rgba(0, 0, 0, .05) !important;
-        background: rgba(248, 248, 250, .56) !important;
-        box-shadow: none !important;
-      }
-
-      #laplace-chatterbox-dialog .cb-segment {
-        display: grid;
-        grid-auto-flow: column;
-        grid-auto-columns: 1fr;
-        gap: 4px;
-        padding: 3px;
-        border-radius: 8px;
-        background: rgba(118, 118, 128, .12);
-      }
-
-      #laplace-chatterbox-dialog .cb-segment button {
-        box-shadow: none !important;
-        border-color: transparent !important;
-        background: transparent !important;
-        min-width: 0;
-      }
-
-      #laplace-chatterbox-dialog .cb-segment button[aria-pressed="true"] {
-        background: #fff !important;
-        color: #1d1d1f !important;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, .12) !important;
-      }
-
-      #laplace-chatterbox-dialog .cb-status-dot {
-        width: 7px;
-        height: 7px;
-        border-radius: 50%;
-        display: inline-block;
-        background: currentColor;
-      }
-
-      #laplace-chatterbox-dialog .cb-list {
-        display: grid;
-        gap: 6px;
-      }
-
-      #laplace-chatterbox-dialog .cb-list-item {
-        border-radius: 8px;
-        background: rgba(255,255,255,.74);
-        border: 1px solid rgba(0,0,0,.06);
-        padding: 8px;
-      }
-
-      #laplace-chatterbox-dialog .cb-rule-list {
-        display: grid;
-        gap: 6px;
-        max-height: 190px;
-        overflow-y: auto;
-      }
-
-      #laplace-chatterbox-dialog .cb-rule-item {
-        display: grid;
-        grid-template-columns: 1fr auto;
-        gap: 7px;
-        align-items: center;
-        border: 1px solid rgba(0,0,0,.06);
-        border-radius: 8px;
-        background: rgba(255,255,255,.7);
-        padding: 7px;
-      }
-
-      #laplace-chatterbox-dialog .cb-rule-pair {
-        min-width: 0;
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 7px;
-      }
-
-      #laplace-chatterbox-dialog .cb-rule-pair code {
-        display: block;
-        min-height: 24px;
-        padding: 4px 6px;
-        border-radius: 6px;
-        background: rgba(118, 118, 128, .08);
-        color: #1d1d1f;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-        white-space: normal;
-        word-break: break-all;
-      }
-
-      #laplace-chatterbox-dialog .cb-rule-form,
-      #laplace-chatterbox-dialog .cb-rule-room-form {
-        display: grid;
-        grid-template-columns: 1fr 1fr auto;
-        gap: 7px;
-        align-items: end;
-      }
-
-      #laplace-chatterbox-dialog .cb-rule-form label,
-      #laplace-chatterbox-dialog .cb-rule-room-form label {
-        min-width: 0;
-        display: grid;
-        gap: 3px;
-      }
-
-      #laplace-chatterbox-dialog .cb-rule-form input,
-      #laplace-chatterbox-dialog .cb-rule-room-form input,
-      #laplace-chatterbox-dialog .cb-rule-room-form select {
-        width: 100%;
-        min-width: 0;
-      }
-
-      #laplace-chatterbox-dialog .cb-rule-room-actions {
-        display: flex;
-        gap: 6px;
-        flex-wrap: wrap;
-      }
-
-      #laplace-chatterbox-dialog .cb-rule-remove {
-        color: #ff3b30 !important;
-      }
-
-      #laplace-chatterbox-dialog .cb-icon-button {
-        width: 28px !important;
-        min-width: 28px !important;
-        padding: 0 !important;
-      }
-
-      #laplace-chatterbox-dialog .cb-tag {
-        background: var(--cb-tag-bg, #8e8e93) !important;
-        color: #fff !important;
-        border: none !important;
-        box-shadow: none !important;
-        min-height: 20px !important;
-        border-radius: 5px !important;
-        padding: 0 6px !important;
-      }
-
-      #laplace-chatterbox-dialog .cb-emote[data-copied="true"] {
-        background: #34c759 !important;
-        color: #fff !important;
-      }
-
-      @media (max-width: 420px) {
-        #laplace-chatterbox-dialog .cb-rule-item,
-        #laplace-chatterbox-dialog .cb-rule-form,
-        #laplace-chatterbox-dialog .cb-rule-room-form {
-          grid-template-columns: 1fr;
-        }
-      }
-    `;
-  function currentLiveRoomSlug() {
-    try {
-      return extractRoomNumber(window.location.href) ?? null;
-    } catch {
-      return null;
-    }
+    return null;
   }
-  function installPanelStyles() {
-    if (typeof _GM_addStyle === "function") {
-      _GM_addStyle(PANEL_STYLE);
-      return () => {
-      };
-    }
-    const style = document.createElement("style");
-    style.textContent = PANEL_STYLE;
-    (document.head || document.documentElement).appendChild(style);
-    return () => style.remove();
+  function isLockedEmoticon(msg) {
+    const emoticon = findEmoticon(msg);
+    return emoticon !== null && emoticon.perm === 0;
   }
-  function startCustomChatRoomRearm() {
-    let disposed = false;
-    let offTimer = null;
-    let onTimer = null;
-    let serial = 0;
-    let lastRoomSlug = null;
-    const clearTimers = () => {
-      if (offTimer) {
-        clearTimeout(offTimer);
-        offTimer = null;
-      }
-      if (onTimer) {
-        clearTimeout(onTimer);
-        onTimer = null;
-      }
-    };
-    const applyDesiredCustomChatDefaults = () => {
-      customChatHideNative.value = false;
-      customChatUseWs.value = true;
-    };
-    let rearming = false;
-    const rearmCustomChat = () => {
-      serial += 1;
-      const runId = serial;
-      clearTimers();
-      rearming = true;
-      applyDesiredCustomChatDefaults();
-      customChatEnabled.value = true;
-      offTimer = setTimeout(() => {
-        if (disposed || runId !== serial) return;
-        customChatEnabled.value = false;
-      }, CUSTOM_CHAT_REARM_OFF_DELAY_MS);
-      onTimer = setTimeout(() => {
-        if (disposed || runId !== serial) return;
-        applyDesiredCustomChatDefaults();
-        customChatEnabled.value = true;
-        rearming = false;
-      }, CUSTOM_CHAT_REARM_ON_DELAY_MS);
-    };
-    const handleLocationMaybeChanged = (force = false) => {
-      const roomSlug = currentLiveRoomSlug();
-      if (!roomSlug) {
-        lastRoomSlug = null;
-        return;
-      }
-      if (!force && roomSlug === lastRoomSlug) return;
-      lastRoomSlug = roomSlug;
-      if (!customChatEnabled.value) return;
-      rearmCustomChat();
-    };
-    let prevEnabled = customChatEnabled.peek();
-    const stopEnabledWatcher = j(() => {
-      const next = customChatEnabled.value;
-      const wasEnabled = prevEnabled;
-      prevEnabled = next;
-      if (!wasEnabled && next && !rearming) {
-        rearmCustomChat();
-      }
-    });
-    const scheduleLocationCheck = () => {
-      window.setTimeout(handleLocationMaybeChanged, 0);
-    };
-    const originalPushState = window.history.pushState.bind(window.history);
-    const originalReplaceState = window.history.replaceState.bind(window.history);
-    window.history.pushState = ((...args) => {
-      originalPushState(...args);
-      scheduleLocationCheck();
-    });
-    window.history.replaceState = ((...args) => {
-      originalReplaceState(...args);
-      scheduleLocationCheck();
-    });
-    window.addEventListener("popstate", handleLocationMaybeChanged);
-    window.addEventListener("hashchange", handleLocationMaybeChanged);
-    const roomWatcher = window.setInterval(handleLocationMaybeChanged, 1e3);
-    handleLocationMaybeChanged(true);
-    return () => {
-      disposed = true;
-      clearTimers();
-      stopEnabledWatcher();
-      window.history.pushState = originalPushState;
-      window.history.replaceState = originalReplaceState;
-      window.removeEventListener("popstate", handleLocationMaybeChanged);
-      window.removeEventListener("hashchange", handleLocationMaybeChanged);
-      clearInterval(roomWatcher);
-    };
+  function getEmoticonLockReason(emo) {
+    const reqText = emo?.unlock_show_text?.trim();
+    return reqText ? `需要 ${reqText}` : "权限不足";
   }
-  function installOptimizedLayoutStyle() {
-    const stale = document.querySelector(".app-body");
-    if (stale?.style.marginLeft === "1rem") stale.style.marginLeft = "";
-    if (!optimizeLayout.value) return () => {
-    };
-    const style = document.createElement("style");
-    style.textContent = ".app-body { margin-left: 1rem !important; }";
-    document.head.appendChild(style);
-    return () => style.remove();
+  function getEmoticonLockMeta(emo) {
+    const isLocked = emo?.perm === 0;
+    const lockText = emo?.unlock_show_text?.trim() || "";
+    const reason = lockText ? `需要 ${lockText}` : "权限不足";
+    const badgeColor = emo?.unlock_show_color || "rgba(0,0,0,0.6)";
+    const titleSuffix = isLocked ? lockText ? `🔒 该表情需要 ${lockText} 才能发送` : "🔒 该表情已被平台锁定" : "";
+    const badgeLabel = lockText || "🔒";
+    return { isLocked, lockText, reason, badgeColor, titleSuffix, badgeLabel };
+  }
+  function formatLockedEmoticonReject(msg, label) {
+    const reason = getEmoticonLockReason(findEmoticon(msg));
+    return `🔒 ${label}：${msg} 已被平台锁定（${reason}），已阻止发送`;
   }
   async function mapWithConcurrency(items, limit, fn) {
     const results = new Array(items.length);
@@ -2107,27 +1426,6 @@
     await Promise.all(workers);
     return results;
   }
-  const VERSION = _GM_info.script.version;
-  const BASE_URL = {
-BILIBILI_ROOM_INIT: "https://api.live.bilibili.com/room/v1/Room/room_init",
-BILIBILI_ROOM_INIT_ALT: "https://api.live.bilibili.com/room/v1/Room/get_info",
-BILIBILI_ROOM_INFO_BY_UID: "https://api.live.bilibili.com/room/v1/Room/getRoomInfoOld",
-BILIBILI_MSG_SEND: "https://api.live.bilibili.com/msg/send",
-BILIBILI_MSG_CONFIG: "https://api.live.bilibili.com/xlive/web-room/v1/dM/AjaxSetConfig",
-BILIBILI_GET_DM_CONFIG: "https://api.live.bilibili.com/xlive/web-room/v1/dM/GetDMConfigByGroup",
-BILIBILI_DANMU_INFO: "https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo",
-BILIBILI_GET_EMOTICONS: "https://api.live.bilibili.com/xlive/web-ucenter/v2/emoticon/GetEmoticons",
-BILIBILI_MEDAL_WALL: "https://api.live.bilibili.com/xlive/web-ucenter/user/MedalWall",
-BILIBILI_FOLLOWINGS: "https://api.bilibili.com/x/relation/followings",
-BILIBILI_ROOM_USER_INFO: "https://api.live.bilibili.com/xlive/web-room/v1/index/getInfoByUser",
-BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/banned/GetSilentUserList",
-    LAPLACE_CHAT_AUDIT: "https://edge-workers.laplace.cn/laplace/chat-audit",
-    REMOTE_KEYWORDS: "https://workers.vrp.moe/gh-raw/laplace-live/public/master/artifacts/livesrtream-keywords.json",
-    LAPLACE_MEMES: "https://workers.vrp.moe/laplace/memes",
-    LAPLACE_MEME_COPY: "https://workers.vrp.moe/laplace/meme-copy",
-    BILIBILI_AVATAR: "https://workers.vrp.moe/bilibili/avatar",
-    BILIBILI_SUPERCHAT_ORDER: "https://workers.vrp.moe/bilibili/live-create-order"
-  };
   const handlers = new Set();
   const wsStatusHandlers = new Set();
   let currentWsStatus$1 = "off";
@@ -2236,26 +1534,6 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
   }
   function chatEventTime(ts = Date.now()) {
     return new Date(ts).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
-  }
-  function isEmoticonUnique(msg) {
-    return cachedEmoticonPackages.value.some((pkg) => pkg.emoticons.some((e2) => e2.emoticon_unique === msg));
-  }
-  function findEmoticon(msg) {
-    for (const pkg of cachedEmoticonPackages.value) {
-      for (const e2 of pkg.emoticons) {
-        if (e2.emoticon_unique === msg) return e2;
-      }
-    }
-    return null;
-  }
-  function isLockedEmoticon(msg) {
-    const emoticon = findEmoticon(msg);
-    return emoticon !== null && emoticon.perm === 0;
-  }
-  function formatLockedEmoticonReject(msg, label) {
-    const reqText = findEmoticon(msg)?.unlock_show_text?.trim();
-    const reason = reqText ? `需要 ${reqText}` : "权限不足";
-    return `🔒 ${label}：${msg} 已被平台锁定（${reason}），已阻止发送`;
   }
   const RATE_LIMIT_CODES = new Set([10030, 10031]);
   const MUTED_CODES = new Set([10024, 11004]);
@@ -3126,7 +2404,8 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
           method: "POST",
           credentials: "include",
           body: form,
-          signal: controller.signal
+          signal: controller.signal,
+          headers: { [CHATTERBOX_SEND_HEADER]: CHATTERBOX_SEND_VALUE }
         });
       } finally {
         clearTimeout(timeout);
@@ -3196,90 +2475,139 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
     } catch {
     }
   }
-  function isAutoBlendBlacklistedUid(uid) {
-    return !!uid && uid in autoBlendUserBlacklist.value;
+  const SendPriority = {
+    AUTO: 0,
+    STT: 1,
+    MANUAL: 2
+  };
+  const HARD_MIN_GAP_MS = 1010;
+  const queue = [];
+  let processing = false;
+  let lastSendCompletedAt = 0;
+  let inflight = null;
+  function cancelAutoItem(item, error) {
+    if (item.cancelled || item.priority !== SendPriority.AUTO) return;
+    item.cancelled = true;
+    item.resolve({ success: false, cancelled: true, message: item.message, isEmoticon: false, error });
   }
-  const subscribers = new Set();
-  function emitAutoBlendEvent(event) {
-    for (const subscriber of subscribers) {
-      subscriber(event);
-    }
+  function insertByPriority(item) {
+    let i2 = queue.length;
+    while (i2 > 0 && queue[i2 - 1].priority < item.priority) i2--;
+    queue.splice(i2, 0, item);
   }
-  function subscribeAutoBlendEvents(subscriber) {
-    subscribers.add(subscriber);
-    return () => subscribers.delete(subscriber);
-  }
-  function logAutoBlend(message, level, detail) {
-    emitAutoBlendEvent({ kind: "log", level, message, detail });
-  }
-  function logAutoBlendSendResult(result, label, display) {
-    emitAutoBlendEvent({ kind: "send-result", result, label, display });
-  }
-  subscribeAutoBlendEvents((event) => {
-    if (event.kind === "send-result") {
-      appendLog(event.result, event.label, event.display);
-      return;
-    }
-    if (event.level) {
-      notifyUser(event.level, event.message, event.detail);
-      return;
-    }
-    appendLog(event.detail ? `${event.message}：${event.detail}` : event.message);
-  });
-  function formatAutoBlendSenderInfo(uniqueUsers, totalCount) {
-    return uniqueUsers > 0 ? `${uniqueUsers} 人 / ${totalCount} 条` : `${totalCount} 条`;
-  }
-  function shortAutoBlendText(text) {
-    return trimText(text, 18)[0] ?? text;
-  }
-  function formatAutoBlendStatus({
-    enabled,
-    dryRun,
-    isSending: isSending2,
-    cooldownUntil: cooldownUntil2,
-    now
-  }) {
-    if (!enabled) return "已关闭";
-    if (dryRun) return "试运行（不发送）";
-    if (isSending2) return "正在跟车";
-    const left = Math.max(0, Math.ceil((cooldownUntil2 - now) / 1e3));
-    return left > 0 ? `冷却中 ${left}s` : "观察中";
-  }
-  function formatAutoBlendCandidate(candidates) {
-    let best = null;
-    for (const candidate of candidates) {
-      if (candidate.totalCount < 2) continue;
-      if (!best || candidate.totalCount > best.totalCount) best = candidate;
-    }
-    if (!best) return "暂无";
-    return `${shortAutoBlendText(best.text)}（${formatAutoBlendSenderInfo(best.uniqueUsers, best.totalCount)}）`;
-  }
-  function detectTrend(events, windowMs, threshold) {
-    const now = events.reduce((latest, event) => Math.max(latest, event.ts), 0);
-    const windowStart = now - Math.max(0, windowMs);
-    const entries = new Map();
-    for (const event of events) {
-      const text = event.text.trim();
-      if (!text || event.ts < windowStart) continue;
-      let entry = entries.get(text);
-      if (!entry) {
-        entry = { totalCount: 0, uids: new Set() };
-        entries.set(text, entry);
+  async function processQueue() {
+    if (processing) return;
+    processing = true;
+    try {
+      while (queue.length > 0) {
+        while (queue.length > 0 && queue[0].cancelled) queue.shift();
+        const item = queue.shift();
+        if (!item) break;
+        inflight = item;
+        if (lastSendCompletedAt > 0) {
+          const sinceLast = Date.now() - lastSendCompletedAt;
+          if (sinceLast < HARD_MIN_GAP_MS) {
+            await new Promise((r2) => setTimeout(r2, HARD_MIN_GAP_MS - sinceLast));
+          }
+        }
+        if (item.cancelled) {
+          inflight = null;
+          continue;
+        }
+        inflight = null;
+        try {
+          const result = await sendDanmaku(item.message, item.roomId, item.csrfToken);
+          lastSendCompletedAt = Date.now();
+          item.resolve(result);
+        } catch (err) {
+          lastSendCompletedAt = Date.now();
+          item.reject(err);
+        }
       }
-      entry.totalCount += 1;
-      if (event.uid) entry.uids.add(event.uid);
+    } finally {
+      processing = false;
     }
-    const candidates = Array.from(entries, ([text, entry]) => ({
-      text,
-      totalCount: entry.totalCount,
-      uniqueUsers: entry.uids.size
-    })).sort((a2, b2) => b2.totalCount - a2.totalCount);
-    const winner = candidates.find((candidate) => candidate.totalCount >= threshold) ?? null;
-    return {
-      shouldSend: winner !== null,
-      text: winner?.text ?? null,
-      candidates
-    };
+  }
+  function enqueueDanmaku(message, roomId, csrfToken, priority = SendPriority.AUTO) {
+    return new Promise((resolve, reject) => {
+      const item = { message, roomId, csrfToken, priority, resolve, reject, cancelled: false };
+      insertByPriority(item);
+      if (priority === SendPriority.MANUAL) {
+        if (inflight !== null) cancelAutoItem(inflight, "preempted");
+        for (const q2 of queue) {
+          if (q2 !== item) cancelAutoItem(q2, "preempted");
+        }
+      }
+      void processQueue();
+    });
+  }
+  function cancelPendingAuto() {
+    if (inflight !== null) cancelAutoItem(inflight, "loop-stopped");
+    for (const q2 of queue) cancelAutoItem(q2, "loop-stopped");
+  }
+  async function detectSensitiveWords(text) {
+    try {
+      const resp = await fetch(BASE_URL.LAPLACE_CHAT_AUDIT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          completionMetadata: { input: text }
+        })
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      return data.completion ?? { hasSensitiveContent: false };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLog(`⚠️ AI检测服务出错：${msg}`);
+      return { hasSensitiveContent: false };
+    }
+  }
+  function insertInvisibleChars(word) {
+    const graphemes = getGraphemes(word);
+    return graphemes.join("­");
+  }
+  function processText(text) {
+    return insertInvisibleChars(text);
+  }
+  function replaceSensitiveWords(text, sensitiveWords) {
+    let result = text;
+    for (const word of sensitiveWords) {
+      if (!word) continue;
+      result = result.split(word).join(processText(word));
+    }
+    return result;
+  }
+  function isEvadedMessageSendable(evadedMessage) {
+    return evadedMessage.trim().length > 0;
+  }
+  async function tryAiEvasion(message, roomId, csrfToken, logPrefix) {
+    if (!aiEvasion.value) return { success: false };
+    appendLog(`🤖 ${logPrefix}AI规避：正在检测敏感词…`);
+    const detection = await detectSensitiveWords(message);
+    if (detection.hasSensitiveContent && detection.sensitiveWords && detection.sensitiveWords.length > 0) {
+      appendLog(`🤖 ${logPrefix}检测到敏感词：${detection.sensitiveWords.join(", ")}，正在尝试规避…`);
+      const evadedMessage = replaceSensitiveWords(message, detection.sensitiveWords);
+      if (!isEvadedMessageSendable(evadedMessage)) {
+        const error = "AI规避后内容为空";
+        appendLog(`❌ ${logPrefix}AI规避失败：替换后内容为空，已跳过发送`);
+        return { success: false, evadedMessage, error };
+      }
+      if (isLockedEmoticon(evadedMessage)) {
+        const error = "AI规避结果是锁定表情";
+        appendLog(formatLockedEmoticonReject(evadedMessage, `${logPrefix}AI规避表情`));
+        return { success: false, evadedMessage, error };
+      }
+      const retryResult = await enqueueDanmaku(evadedMessage, roomId, csrfToken, SendPriority.MANUAL);
+      if (retryResult.success) {
+        appendLog(`✅ ${logPrefix}AI规避成功: ${evadedMessage}`);
+        return { success: true, evadedMessage, sensitiveWords: detection.sensitiveWords };
+      }
+      appendLog(`❌ ${logPrefix}AI规避失败: ${evadedMessage}，原因：${retryResult.error}`);
+      return { success: false, evadedMessage, error: retryResult.error, sensitiveWords: detection.sensitiveWords };
+    }
+    appendLog(`⚠️ ${logPrefix}无法检测到敏感词，请手动检查`);
+    return { success: false };
   }
   const subscriptions = new Set();
   let observer = null;
@@ -3599,6 +2927,27 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
       })
     }).catch(() => void 0);
   }
+  async function syncGuardRoomShadowRule(input) {
+    const endpoint = normalizeGuardRoomEndpoint$1(guardRoomEndpoint.value);
+    const syncKey = guardRoomSyncKey.value.trim();
+    if (!endpoint || !syncKey) return;
+    await fetch(`${endpoint}/api/shadow-rules`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-sync-key": syncKey
+      },
+      body: JSON.stringify({
+        kind: "shadow_rule_learned",
+        roomId: input.roomId,
+        from: input.from,
+        to: input.to,
+        sourceText: input.sourceText.slice(0, 200),
+        occurredAt: ( new Date()).toISOString(),
+        scriptVersion: VERSION
+      })
+    }).catch(() => void 0);
+  }
   async function syncGuardRoomWatchlist(rooms) {
     const endpoint = normalizeGuardRoomEndpoint$1(guardRoomEndpoint.value);
     const syncKey = guardRoomSyncKey.value.trim();
@@ -3626,6 +2975,1158 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
     }).catch(() => null);
     if (!response?.ok) return null;
     return await response.json();
+  }
+  const SHADOW_RULE_PER_ROOM_CAP = 50;
+  const SHADOW_RULE_MIN_LEN = 1;
+  const SHADOW_RULE_MAX_LEN = 60;
+  const OBSERVATION_CAP = 200;
+  function isValidSensitiveWord(word) {
+    const trimmed = word.trim();
+    return trimmed.length >= SHADOW_RULE_MIN_LEN && trimmed.length <= SHADOW_RULE_MAX_LEN && !trimmed.includes("\n");
+  }
+  function learnShadowRules(input) {
+    if (!autoLearnShadowRules.value) return;
+    const roomKey = String(input.roomId);
+    const currentByRoom = localRoomRules.value;
+    const existingRules = currentByRoom[roomKey] ?? [];
+    const existingFroms = new Set(existingRules.map((r2) => r2.from).filter((s2) => !!s2));
+    const newRules = [];
+    const learnedFroms = [];
+    for (const raw of input.sensitiveWords) {
+      if (!isValidSensitiveWord(raw)) continue;
+      const from = raw.trim();
+      if (existingFroms.has(from)) continue;
+      const to = processText(from);
+      if (to === from) continue;
+      newRules.push({ from, to });
+      existingFroms.add(from);
+      learnedFroms.push(from);
+    }
+    if (newRules.length === 0) return;
+    let merged = [...existingRules, ...newRules];
+    if (merged.length > SHADOW_RULE_PER_ROOM_CAP) {
+      merged = merged.slice(merged.length - SHADOW_RULE_PER_ROOM_CAP);
+    }
+    localRoomRules.value = { ...currentByRoom, [roomKey]: merged };
+    appendLog(`📚 已学到屏蔽词规则（房间 ${input.roomId}）：${learnedFroms.join("、")}`);
+    for (const rule of newRules) {
+      void syncGuardRoomShadowRule({
+        roomId: input.roomId,
+        from: rule.from,
+        to: rule.to,
+        sourceText: input.originalMessage
+      });
+    }
+  }
+  function recordShadowBanObservation(input) {
+    const text = input.text.trim();
+    if (!text) return;
+    const list = shadowBanObservations.value;
+    const idx = list.findIndex((o2) => o2.text === text && o2.roomId === input.roomId);
+    const now = Date.now();
+    if (idx >= 0) {
+      const updated = [...list];
+      const prev = updated[idx];
+      updated[idx] = {
+        ...prev,
+        ts: now,
+        count: prev.count + 1,
+        evadedAlready: prev.evadedAlready || input.evadedAlready
+      };
+      shadowBanObservations.value = updated;
+      return;
+    }
+    const entry = {
+      text,
+      roomId: input.roomId,
+      ts: now,
+      count: 1,
+      evadedAlready: input.evadedAlready
+    };
+    let next = [...list, entry];
+    if (next.length > OBSERVATION_CAP) {
+      next = next.slice(next.length - OBSERVATION_CAP);
+    }
+    shadowBanObservations.value = next;
+  }
+  function clearShadowBanObservations() {
+    shadowBanObservations.value = [];
+  }
+  function removeShadowBanObservation(text, roomId) {
+    shadowBanObservations.value = shadowBanObservations.value.filter((o2) => !(o2.text === text && o2.roomId === roomId));
+  }
+  function promoteObservationToRule(observation, to) {
+    const trimmedText = observation.text.trim();
+    const trimmedTo = to.trim();
+    if (!trimmedText || trimmedText === trimmedTo) return false;
+    if (observation.roomId === void 0) return false;
+    const roomKey = String(observation.roomId);
+    const currentByRoom = localRoomRules.value;
+    const existingRules = currentByRoom[roomKey] ?? [];
+    if (existingRules.some((r2) => r2.from === trimmedText)) return false;
+    const merged = [...existingRules, { from: trimmedText, to: trimmedTo }];
+    localRoomRules.value = { ...currentByRoom, [roomKey]: merged };
+    removeShadowBanObservation(observation.text, observation.roomId);
+    void syncGuardRoomShadowRule({
+      roomId: observation.roomId,
+      from: trimmedText,
+      to: trimmedTo,
+      sourceText: trimmedText
+    });
+    return true;
+  }
+  const SEND_ECHO_TIMEOUT_MS = 4e3;
+  const RECENT_DOM_DANMAKU_HISTORY_MS = 15e3;
+  const RECENT_DOM_DANMAKU_HISTORY_MAX = 240;
+  const recentDomDanmaku = [];
+  function pruneRecentDomDanmaku(now = Date.now()) {
+    while (recentDomDanmaku.length > 0 && now - recentDomDanmaku[0].observedAt > RECENT_DOM_DANMAKU_HISTORY_MS) {
+      recentDomDanmaku.shift();
+    }
+    while (recentDomDanmaku.length > RECENT_DOM_DANMAKU_HISTORY_MAX) {
+      recentDomDanmaku.shift();
+    }
+  }
+  function rememberRecentDomDanmaku(text, uid, observedAt) {
+    if (!text) return;
+    pruneRecentDomDanmaku(observedAt);
+    recentDomDanmaku.push({ text, uid, observedAt });
+  }
+  function findRecentDomDanmakuSource(text, uid, sinceTs) {
+    const target = text.trim();
+    if (!target) return null;
+    pruneRecentDomDanmaku();
+    for (let i2 = recentDomDanmaku.length - 1; i2 >= 0; i2--) {
+      const event = recentDomDanmaku[i2];
+      if (event.observedAt < sinceTs) break;
+      if (event.text !== target) continue;
+      if (uid && event.uid && event.uid !== uid) continue;
+      return "dom";
+    }
+    return null;
+  }
+  function matchesCustomChatEchoEvent(event, target, uid) {
+    return event.kind === "danmaku" && event.text.trim() === target && (!uid || !event.uid || event.uid === uid);
+  }
+  function matchesDomEchoEvent(event, target, uid) {
+    return event.text.trim() === target && (!uid || !event.uid || event.uid === uid);
+  }
+  let domSubscribed = false;
+  function ensureDomTracking() {
+    if (domSubscribed) return;
+    domSubscribed = true;
+    subscribeDanmaku({
+      onMessage: (ev) => rememberRecentDomDanmaku(ev.text, ev.uid, Date.now())
+    });
+  }
+  function waitForSentEcho(text, uid, sinceTs, timeoutMs = SEND_ECHO_TIMEOUT_MS) {
+    ensureDomTracking();
+    const target = text.trim();
+    if (!target) return Promise.resolve(null);
+    const recentCustomSource = findRecentCustomChatDanmakuSource(target, uid, sinceTs);
+    if (recentCustomSource && recentCustomSource !== "local") return Promise.resolve(recentCustomSource);
+    const recentDomSource = findRecentDomDanmakuSource(target, uid, sinceTs);
+    if (recentDomSource) return Promise.resolve(recentDomSource);
+    return new Promise((resolve) => {
+      let done = false;
+      let unsubscribeEvents2 = () => {
+      };
+      let unsubscribeDom2 = () => {
+      };
+      const finish = (source) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer2);
+        unsubscribeEvents2();
+        unsubscribeDom2();
+        resolve(source);
+      };
+      const timer2 = setTimeout(() => {
+        const localFallback = findRecentCustomChatDanmakuSource(target, uid, sinceTs);
+        finish(localFallback === "local" ? "local" : null);
+      }, timeoutMs);
+      unsubscribeEvents2 = subscribeCustomChatEvents((event) => {
+        if (!matchesCustomChatEchoEvent(event, target, uid)) return;
+        if (event.source !== "local") finish(event.source);
+      });
+      unsubscribeDom2 = subscribeDanmaku({
+        onMessage: (event) => {
+          if (!matchesDomEchoEvent(event, target, uid)) return;
+          finish("dom");
+        }
+      });
+      const lateCustomSource = findRecentCustomChatDanmakuSource(target, uid, sinceTs);
+      const lateDomSource = findRecentDomDanmakuSource(target, uid, sinceTs);
+      const lateSource = (lateCustomSource !== "local" ? lateCustomSource : null) ?? lateDomSource;
+      if (lateSource) finish(lateSource);
+    });
+  }
+  const TOAST_COOLDOWN_MS = 3e4;
+  const lastToastAt = new Map();
+  async function verifyBroadcast(input) {
+    const isEmoticon = input.isEmoticon ?? isEmoticonUnique(input.text);
+    if (isEmoticon) return;
+    const uid = getDedeUid() ?? null;
+    const source = await waitForSentEcho(input.text, uid, input.sinceTs, input.timeoutMs);
+    if (source === "ws" || source === "dom") return;
+    const message = `⚠️ ${input.label}: ${input.display}（接口成功但未检测到广播，可能被屏蔽）`;
+    let surfaceToast = input.surfaceToast !== false;
+    if (surfaceToast && input.toastDedupeKey) {
+      const now = Date.now();
+      const prev = lastToastAt.get(input.toastDedupeKey) ?? 0;
+      if (now - prev < TOAST_COOLDOWN_MS) {
+        surfaceToast = false;
+      } else {
+        lastToastAt.set(input.toastDedupeKey, now);
+      }
+    }
+    if (surfaceToast) {
+      appendLog(message);
+    } else {
+      appendLogQuiet(message);
+    }
+    if (input.isPostEvasion) {
+      recordShadowBanObservation({ text: input.text, roomId: input.roomId, evadedAlready: true });
+      return;
+    }
+    const canRunAiEvasion = input.enableAiEvasion === true && aiEvasion.value && input.roomId !== void 0 && typeof input.csrfToken === "string" && input.csrfToken.length > 0;
+    if (!canRunAiEvasion) {
+      recordShadowBanObservation({ text: input.text, roomId: input.roomId, evadedAlready: false });
+      return;
+    }
+    const roomId = input.roomId;
+    const csrfToken = input.csrfToken;
+    const result = await tryAiEvasion(input.text, roomId, csrfToken, `${input.label}·影子屏蔽-`);
+    if (result.success && result.evadedMessage) {
+      if (result.sensitiveWords && result.sensitiveWords.length > 0) {
+        learnShadowRules({
+          roomId,
+          sensitiveWords: result.sensitiveWords,
+          evadedMessage: result.evadedMessage,
+          originalMessage: input.text
+        });
+      }
+      void verifyBroadcast({
+        text: result.evadedMessage,
+        label: `${input.label}·AI`,
+        display: result.evadedMessage,
+        sinceTs: Date.now(),
+        isPostEvasion: true,
+        surfaceToast: false
+      });
+    } else {
+      recordShadowBanObservation({ text: input.text, roomId: input.roomId, evadedAlready: false });
+    }
+  }
+  const GET_INFO_BY_USER_PATTERN = "/xlive/web-room/v1/index/getInfoByUser";
+  function shouldHijackUrl(url) {
+    return unlockForbidLive.value && url.includes(GET_INFO_BY_USER_PATTERN);
+  }
+  function applyTransforms(url, data) {
+    if (!shouldHijackUrl(url)) return;
+    const forbid = data?.data?.forbid_live;
+    if (!forbid) return;
+    forbid.is_forbid = false;
+    forbid.forbid_text = "";
+  }
+  (() => {
+    try {
+      const ResponseProto = _unsafeWindow.Response.prototype;
+      if (ResponseProto.__chatterboxFetchHijackInstalled) return;
+      ResponseProto.__chatterboxFetchHijackInstalled = true;
+      const origJson = ResponseProto.json;
+      ResponseProto.json = async function() {
+        const data = await origJson.call(this);
+        const url = this.url;
+        if (!url || !shouldHijackUrl(url) || !data || typeof data !== "object") return data;
+        try {
+          applyTransforms(url, data);
+        } catch (err) {
+          console.error("[Chatterbox] fetch-hijack json transform failed:", err);
+        }
+        return data;
+      };
+      const origText = ResponseProto.text;
+      ResponseProto.text = async function() {
+        const text = await origText.call(this);
+        const url = this.url;
+        if (!url || !shouldHijackUrl(url)) return text;
+        try {
+          const data = JSON.parse(text);
+          applyTransforms(url, data);
+          return JSON.stringify(data);
+        } catch {
+          return text;
+        }
+      };
+    } catch (err) {
+      console.error("[Chatterbox] failed to install fetch-hijack:", err);
+    }
+  })();
+  function isOurOwnSend(init) {
+    const headers = init?.headers;
+    if (!headers) return false;
+    if (headers instanceof Headers) return headers.get(CHATTERBOX_SEND_HEADER) === CHATTERBOX_SEND_VALUE;
+    if (Array.isArray(headers)) {
+      return headers.some(([k2, v2]) => k2 === CHATTERBOX_SEND_HEADER && v2 === CHATTERBOX_SEND_VALUE);
+    }
+    return headers[CHATTERBOX_SEND_HEADER] === CHATTERBOX_SEND_VALUE;
+  }
+  function urlOf(input) {
+    if (typeof input === "string") return input;
+    if (input instanceof URL) return input.toString();
+    return input.url;
+  }
+  function extractMsgFromBody(body) {
+    if (!body) return null;
+    if (body instanceof FormData) {
+      const v2 = body.get("msg");
+      return typeof v2 === "string" ? v2 : null;
+    }
+    if (body instanceof URLSearchParams) return body.get("msg");
+    if (typeof body === "string") {
+      try {
+        return new URLSearchParams(body).get("msg");
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+  (() => {
+    try {
+      const win = _unsafeWindow;
+      if (win.__chatterboxMsgSendHijackInstalled) return;
+      win.__chatterboxMsgSendHijackInstalled = true;
+      const origFetch = win.fetch.bind(win);
+      win.fetch = (async (input, init) => {
+        try {
+          const url = urlOf(input);
+          const isMsgSend = url.includes(BASE_URL.BILIBILI_MSG_SEND);
+          if (!isMsgSend) return origFetch(input, init);
+          if (isOurOwnSend(init)) return origFetch(input, init);
+          const startedAt = Date.now();
+          const msg = extractMsgFromBody(init?.body);
+          const resp = await origFetch(input, init);
+          resp.clone().json().then((json) => {
+            if (!msg) return;
+            const code = json?.code;
+            if (code !== 0) return;
+            appendLog(`✅ B站原生: ${msg}`);
+            void verifyBroadcast({
+              text: msg,
+              label: "B站原生",
+              display: msg,
+              sinceTs: startedAt
+            });
+          }).catch(() => {
+          });
+          return resp;
+        } catch (err) {
+          console.error("[Chatterbox] msg-send hijack error:", err);
+          return origFetch(input, init);
+        }
+      });
+    } catch (err) {
+      console.error("[Chatterbox] failed to install msg-send hijack:", err);
+    }
+  })();
+  const CUSTOM_CHAT_REARM_OFF_DELAY_MS = 80;
+  const CUSTOM_CHAT_REARM_ON_DELAY_MS = 160;
+  const PANEL_STYLE = `
+      #laplace-chatterbox-toggle,
+      #laplace-chatterbox-dialog,
+      #laplace-chatterbox-dialog * {
+        box-sizing: border-box;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+        font-size: 12px;
+        letter-spacing: 0;
+      }
+
+      #laplace-chatterbox-toggle {
+        appearance: none !important;
+        border: 1px solid rgba(255, 255, 255, .42) !important;
+        border-radius: 999px !important;
+        min-height: 30px !important;
+        padding: 0 12px !important;
+        background: rgba(30, 30, 30, .78) !important;
+        color: #fff !important;
+        box-shadow: 0 10px 28px rgba(0, 0, 0, .22), inset 0 1px rgba(255, 255, 255, .22) !important;
+        backdrop-filter: blur(18px) saturate(1.4);
+        -webkit-backdrop-filter: blur(18px) saturate(1.4);
+        transition: transform .2s ease, background .2s ease;
+      }
+
+      #laplace-chatterbox-toggle[data-sending="true"] {
+        background: rgba(0, 186, 143, .88) !important;
+      }
+
+      #laplace-chatterbox-toggle[data-open="true"] {
+        transform: scale(1.06);
+      }
+
+      #laplace-chatterbox-toggle:active {
+        transform: scale(0.96);
+      }
+
+      #laplace-chatterbox-dialog {
+        color: #1d1d1f !important;
+        background: rgba(248, 248, 250, .86) !important;
+        border: 1px solid rgba(0, 0, 0, .08) !important;
+        border-radius: 8px !important;
+        box-shadow: 0 22px 60px rgba(0, 0, 0, .24), 0 1px 0 rgba(255,255,255,.72) inset !important;
+        backdrop-filter: blur(26px) saturate(1.5);
+        -webkit-backdrop-filter: blur(26px) saturate(1.5);
+        scrollbar-width: thin;
+      }
+
+      #laplace-chatterbox-dialog .cb-scroll {
+        padding: 8px !important;
+      }
+
+      #laplace-chatterbox-dialog details {
+        margin: 0 0 5px !important;
+        padding: 0 !important;
+        border: 1px solid rgba(0, 0, 0, .08) !important;
+        border-radius: 8px !important;
+        background: rgba(252, 252, 253, .78) !important;
+        box-shadow: 0 1px 0 rgba(255, 255, 255, .7) inset !important;
+        overflow: hidden;
+      }
+
+      #laplace-chatterbox-dialog details[open] {
+        background: rgba(255, 255, 255, .9) !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-settings-accordion > .cb-section {
+        margin: 0 !important;
+        padding: 0 7px 7px !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-settings-accordion[open] > .cb-section > .cb-heading,
+      #laplace-chatterbox-dialog .cb-settings-accordion[open] > .cb-section > .cb-row:first-child > .cb-heading {
+        display: none;
+      }
+
+      #laplace-chatterbox-dialog details > :not(summary):not(.cb-body) {
+        margin-left: 10px;
+        margin-right: 10px;
+      }
+
+      #laplace-chatterbox-dialog details > :last-child:not(summary) {
+        margin-bottom: 10px;
+      }
+
+      #laplace-chatterbox-dialog summary {
+        min-height: 30px;
+        display: flex !important;
+        align-items: center;
+        gap: 6px;
+        padding: 0 8px !important;
+        color: #1d1d1f !important;
+        list-style: none;
+        font-weight: 650 !important;
+        cursor: pointer;
+        user-select: none;
+      }
+
+      #laplace-chatterbox-dialog summary::-webkit-details-marker {
+        display: none;
+      }
+
+      #laplace-chatterbox-dialog summary::after {
+        content: "";
+        margin-left: auto;
+        width: 10px;
+        height: 10px;
+        border-right: 2.5px solid #8e8e93;
+        border-bottom: 2.5px solid #8e8e93;
+        transform: rotate(-45deg);
+        transition: transform .18s ease;
+        flex-shrink: 0;
+      }
+
+      #laplace-chatterbox-dialog details[open] > summary::after {
+        transform: rotate(135deg);
+      }
+
+      #laplace-chatterbox-dialog button,
+      #laplace-chatterbox-dialog select,
+      #laplace-chatterbox-dialog input,
+      #laplace-chatterbox-dialog textarea {
+        outline: none !important;
+        font: inherit;
+      }
+
+      #laplace-chatterbox-dialog button {
+        appearance: none !important;
+        min-height: 26px !important;
+        border: 1px solid rgba(0, 0, 0, .08) !important;
+        border-radius: 8px !important;
+        background: rgba(255, 255, 255, .9) !important;
+        color: #1d1d1f !important;
+        padding: 3px 9px !important;
+        cursor: pointer !important;
+        font-weight: 560 !important;
+        line-height: 1.3 !important;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, .05) !important;
+      }
+
+      #laplace-chatterbox-dialog button:hover {
+        background: #fff !important;
+        border-color: rgba(0, 0, 0, .14) !important;
+      }
+
+      #laplace-chatterbox-dialog button:active {
+        transform: translateY(1px);
+      }
+
+      #laplace-chatterbox-dialog button:disabled,
+      #laplace-chatterbox-dialog input:disabled,
+      #laplace-chatterbox-dialog select:disabled {
+        opacity: .46;
+        cursor: not-allowed !important;
+      }
+
+      #laplace-chatterbox-dialog input[type="text"],
+      #laplace-chatterbox-dialog input[type="password"],
+      #laplace-chatterbox-dialog input[type="number"],
+      #laplace-chatterbox-dialog select,
+      #laplace-chatterbox-dialog textarea {
+        border: 1px solid rgba(0, 0, 0, .08) !important;
+        border-radius: 8px !important;
+        background: rgba(255, 255, 255, .86) !important;
+        color: #1d1d1f !important;
+        padding: 5px 8px !important;
+        box-shadow: inset 0 1px 2px rgba(0, 0, 0, .035) !important;
+      }
+
+      #laplace-chatterbox-dialog input[type="number"] {
+        text-align: center;
+        width: 64px !important;
+        min-width: 64px !important;
+      }
+
+      #laplace-chatterbox-dialog textarea {
+        line-height: 1.45 !important;
+      }
+
+      #laplace-chatterbox-dialog input:focus,
+      #laplace-chatterbox-dialog select:focus,
+      #laplace-chatterbox-dialog textarea:focus {
+        border-color: #007aff !important;
+        box-shadow: 0 0 0 3px rgba(0, 122, 255, .16), inset 0 1px 2px rgba(0, 0, 0, .03) !important;
+      }
+
+      #laplace-chatterbox-dialog input[type="checkbox"] {
+        appearance: none !important;
+        width: 30px !important;
+        height: 18px !important;
+        flex: 0 0 30px;
+        border: none !important;
+        border-radius: 999px !important;
+        background: #d1d1d6 !important;
+        padding: 0 !important;
+        position: relative;
+        cursor: pointer;
+        box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .04) !important;
+        transition: background .18s ease;
+      }
+
+      #laplace-chatterbox-dialog input[type="checkbox"]::after {
+        content: "";
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 1px 2px rgba(0,0,0,.24);
+        transition: transform .18s ease;
+      }
+
+      #laplace-chatterbox-dialog input[type="checkbox"]:checked {
+        background: #34c759 !important;
+      }
+
+      #laplace-chatterbox-dialog input[type="checkbox"]:checked::after {
+        transform: translateX(12px);
+      }
+
+      #laplace-chatterbox-dialog a {
+        color: #007aff !important;
+        text-decoration: none !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-tabs {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 4px;
+        padding: 7px;
+        background: rgba(248, 248, 250, .9);
+        backdrop-filter: blur(18px) saturate(1.4);
+        -webkit-backdrop-filter: blur(18px) saturate(1.4);
+        border-bottom: 1px solid rgba(0, 0, 0, .06);
+      }
+
+      #laplace-chatterbox-dialog .cb-tab {
+        min-height: 28px !important;
+        padding: 4px 0 !important;
+        border: none !important;
+        box-shadow: none !important;
+        background: transparent !important;
+        color: #6e6e73 !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-tab[data-active="true"] {
+        background: #fff !important;
+        color: #1d1d1f !important;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .08) !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-primary {
+        background: #007aff !important;
+        color: #fff !important;
+        border-color: #007aff !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-danger {
+        background: #ff3b30 !important;
+        color: #fff !important;
+        border-color: #ff3b30 !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-soft {
+        color: #6e6e73 !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-row {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      #laplace-chatterbox-dialog .cb-stack {
+        display: grid;
+        gap: 6px;
+      }
+
+      #laplace-chatterbox-dialog .cb-body {
+        padding: 0 9px 8px;
+      }
+
+      #laplace-chatterbox-dialog .cb-note {
+        color: #6e6e73;
+        font-size: 11px !important;
+        line-height: 1.45;
+      }
+
+      #laplace-chatterbox-dialog .cb-label {
+        color: #6e6e73;
+        font-size: 11px !important;
+        font-weight: 560;
+      }
+
+      #laplace-chatterbox-dialog .cb-panel {
+        border: 1px solid rgba(0,0,0,.06);
+        border-radius: 8px;
+        background: rgba(248, 248, 250, .8);
+        padding: 7px;
+      }
+
+      #laplace-chatterbox-dialog .cb-section {
+        margin: 0 0 6px !important;
+        padding: 7px !important;
+        border: 1px solid rgba(0, 0, 0, .06) !important;
+        border-radius: 8px !important;
+        background: rgba(255, 255, 255, .72) !important;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, .04) !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-heading {
+        margin: 0 0 6px !important;
+        color: #1d1d1f !important;
+        font-weight: 650 !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-empty {
+        color: #8e8e93 !important;
+        background: rgba(118, 118, 128, .08);
+        border-radius: 8px;
+        padding: 7px;
+      }
+
+      #laplace-chatterbox-dialog .cb-result {
+        border: 1px solid rgba(0, 0, 0, .06) !important;
+        border-radius: 8px !important;
+        background: rgba(255, 255, 255, .82) !important;
+        padding: 7px !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-switch-row {
+        display: flex !important;
+        align-items: center !important;
+        gap: 6px !important;
+        min-height: 22px;
+        line-height: 1.32;
+      }
+
+      #laplace-chatterbox-dialog .cb-setting-block {
+        display: grid;
+        gap: 5px;
+        padding: 6px 0;
+      }
+
+      #laplace-chatterbox-dialog .cb-setting-block + .cb-setting-block {
+        border-top: 1px solid rgba(0, 0, 0, .06);
+      }
+
+      #laplace-chatterbox-dialog .cb-setting-primary {
+        padding: 6px 7px;
+        border: 1px solid rgba(0, 0, 0, .055);
+        border-left: 3px solid #007aff;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, .68);
+      }
+
+      #laplace-chatterbox-dialog .cb-setting-row {
+        justify-content: space-between;
+        gap: 8px;
+        min-height: 26px;
+      }
+
+      #laplace-chatterbox-dialog .cb-setting-row select {
+        max-width: 178px;
+        margin-left: auto;
+      }
+
+      #laplace-chatterbox-dialog .cb-setting-child[data-enabled="false"] {
+        color: #8e8e93;
+      }
+
+      #laplace-chatterbox-dialog .cb-dependent-group {
+        position: relative;
+        margin-top: 1px;
+        padding: 7px;
+        border: 1px solid rgba(0, 0, 0, .055);
+        border-left: 3px solid #34c759;
+        border-radius: 8px;
+        background: rgba(248, 248, 250, .7);
+        transition: background .18s ease, border-color .18s ease, opacity .18s ease;
+      }
+
+      #laplace-chatterbox-dialog .cb-dependent-group[data-enabled="false"] {
+        border-left-color: #c7c7cc;
+        background: repeating-linear-gradient(
+          -45deg,
+          rgba(118, 118, 128, .06),
+          rgba(118, 118, 128, .06) 6px,
+          rgba(255, 255, 255, .52) 6px,
+          rgba(255, 255, 255, .52) 12px
+        );
+      }
+
+      #laplace-chatterbox-dialog .cb-dependent-group[data-enabled="false"]::before {
+        content: attr(data-reason);
+        justify-self: start;
+        width: max-content;
+        max-width: 100%;
+        padding: 2px 6px;
+        border-radius: 999px;
+        background: rgba(118, 118, 128, .13);
+        color: #6e6e73;
+        font-size: 11px;
+        font-weight: 620;
+        line-height: 1.35;
+      }
+
+      #laplace-chatterbox-dialog .cb-accordion-title {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        margin-right: auto;
+      }
+
+      #laplace-chatterbox-dialog .cb-module-summary::after {
+        margin-left: 2px;
+      }
+
+      #laplace-chatterbox-dialog .cb-module-state {
+        flex: 0 0 auto;
+        min-width: 32px;
+        padding: 1px 6px;
+        border-radius: 999px;
+        border: 1px solid rgba(0, 0, 0, .06);
+        background: rgba(118, 118, 128, .1);
+        color: #6e6e73;
+        font-size: 10px !important;
+        font-weight: 720;
+        line-height: 1.45;
+        text-align: center;
+      }
+
+      #laplace-chatterbox-dialog .cb-module-state[data-active="true"] {
+        border-color: rgba(52, 199, 89, .28);
+        background: rgba(52, 199, 89, .14);
+        color: #0a7f55;
+      }
+
+      #laplace-chatterbox-dialog .cb-subdetails {
+        margin: 0 !important;
+        border-color: rgba(0, 0, 0, .05) !important;
+        background: rgba(248, 248, 250, .56) !important;
+        box-shadow: none !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-segment {
+        display: grid;
+        grid-auto-flow: column;
+        grid-auto-columns: 1fr;
+        gap: 4px;
+        padding: 3px;
+        border-radius: 8px;
+        background: rgba(118, 118, 128, .12);
+      }
+
+      #laplace-chatterbox-dialog .cb-segment button {
+        box-shadow: none !important;
+        border-color: transparent !important;
+        background: transparent !important;
+        min-width: 0;
+      }
+
+      #laplace-chatterbox-dialog .cb-segment button[aria-pressed="true"] {
+        background: #fff !important;
+        color: #1d1d1f !important;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, .12) !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-status-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        display: inline-block;
+        background: currentColor;
+      }
+
+      #laplace-chatterbox-dialog .cb-list {
+        display: grid;
+        gap: 6px;
+      }
+
+      #laplace-chatterbox-dialog .cb-list-item {
+        border-radius: 8px;
+        background: rgba(255,255,255,.74);
+        border: 1px solid rgba(0,0,0,.06);
+        padding: 8px;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-list {
+        display: grid;
+        gap: 6px;
+        max-height: 190px;
+        overflow-y: auto;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-item {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 7px;
+        align-items: center;
+        border: 1px solid rgba(0,0,0,.06);
+        border-radius: 8px;
+        background: rgba(255,255,255,.7);
+        padding: 7px;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-pair {
+        min-width: 0;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 7px;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-pair code {
+        display: block;
+        min-height: 24px;
+        padding: 4px 6px;
+        border-radius: 6px;
+        background: rgba(118, 118, 128, .08);
+        color: #1d1d1f;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        white-space: normal;
+        word-break: break-all;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-form,
+      #laplace-chatterbox-dialog .cb-rule-room-form {
+        display: grid;
+        grid-template-columns: 1fr 1fr auto;
+        gap: 7px;
+        align-items: end;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-form label,
+      #laplace-chatterbox-dialog .cb-rule-room-form label {
+        min-width: 0;
+        display: grid;
+        gap: 3px;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-form input,
+      #laplace-chatterbox-dialog .cb-rule-room-form input,
+      #laplace-chatterbox-dialog .cb-rule-room-form select {
+        width: 100%;
+        min-width: 0;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-room-actions {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-remove {
+        color: #ff3b30 !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-icon-button {
+        width: 28px !important;
+        min-width: 28px !important;
+        padding: 0 !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-tag {
+        background: var(--cb-tag-bg, #8e8e93) !important;
+        color: #fff !important;
+        border: none !important;
+        box-shadow: none !important;
+        min-height: 20px !important;
+        border-radius: 5px !important;
+        padding: 0 6px !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-emote[data-copied="true"] {
+        background: #34c759 !important;
+        color: #fff !important;
+      }
+
+      @media (max-width: 420px) {
+        #laplace-chatterbox-dialog .cb-rule-item,
+        #laplace-chatterbox-dialog .cb-rule-form,
+        #laplace-chatterbox-dialog .cb-rule-room-form {
+          grid-template-columns: 1fr;
+        }
+      }
+    `;
+  function currentLiveRoomSlug() {
+    try {
+      return extractRoomNumber(window.location.href) ?? null;
+    } catch {
+      return null;
+    }
+  }
+  function installPanelStyles() {
+    if (typeof _GM_addStyle === "function") {
+      _GM_addStyle(PANEL_STYLE);
+      return () => {
+      };
+    }
+    const style = document.createElement("style");
+    style.textContent = PANEL_STYLE;
+    (document.head || document.documentElement).appendChild(style);
+    return () => style.remove();
+  }
+  function startCustomChatRoomRearm() {
+    let disposed = false;
+    let offTimer = null;
+    let onTimer = null;
+    let serial = 0;
+    let lastRoomSlug = null;
+    const clearTimers = () => {
+      if (offTimer) {
+        clearTimeout(offTimer);
+        offTimer = null;
+      }
+      if (onTimer) {
+        clearTimeout(onTimer);
+        onTimer = null;
+      }
+    };
+    const applyDesiredCustomChatDefaults = () => {
+      customChatHideNative.value = false;
+      customChatUseWs.value = true;
+    };
+    let rearming = false;
+    const rearmCustomChat = () => {
+      serial += 1;
+      const runId = serial;
+      clearTimers();
+      rearming = true;
+      applyDesiredCustomChatDefaults();
+      customChatEnabled.value = true;
+      offTimer = setTimeout(() => {
+        if (disposed || runId !== serial) return;
+        customChatEnabled.value = false;
+      }, CUSTOM_CHAT_REARM_OFF_DELAY_MS);
+      onTimer = setTimeout(() => {
+        if (disposed || runId !== serial) return;
+        applyDesiredCustomChatDefaults();
+        customChatEnabled.value = true;
+        rearming = false;
+      }, CUSTOM_CHAT_REARM_ON_DELAY_MS);
+    };
+    const handleLocationMaybeChanged = (force = false) => {
+      const roomSlug = currentLiveRoomSlug();
+      if (!roomSlug) {
+        lastRoomSlug = null;
+        return;
+      }
+      if (!force && roomSlug === lastRoomSlug) return;
+      lastRoomSlug = roomSlug;
+      if (!customChatEnabled.value) return;
+      rearmCustomChat();
+    };
+    let prevEnabled = customChatEnabled.peek();
+    const stopEnabledWatcher = j(() => {
+      const next = customChatEnabled.value;
+      const wasEnabled = prevEnabled;
+      prevEnabled = next;
+      if (!wasEnabled && next && !rearming) {
+        rearmCustomChat();
+      }
+    });
+    const scheduleLocationCheck = () => {
+      window.setTimeout(handleLocationMaybeChanged, 0);
+    };
+    const originalPushState = window.history.pushState.bind(window.history);
+    const originalReplaceState = window.history.replaceState.bind(window.history);
+    window.history.pushState = ((...args) => {
+      originalPushState(...args);
+      scheduleLocationCheck();
+    });
+    window.history.replaceState = ((...args) => {
+      originalReplaceState(...args);
+      scheduleLocationCheck();
+    });
+    window.addEventListener("popstate", handleLocationMaybeChanged);
+    window.addEventListener("hashchange", handleLocationMaybeChanged);
+    const roomWatcher = window.setInterval(handleLocationMaybeChanged, 1e3);
+    handleLocationMaybeChanged(true);
+    return () => {
+      disposed = true;
+      clearTimers();
+      stopEnabledWatcher();
+      window.history.pushState = originalPushState;
+      window.history.replaceState = originalReplaceState;
+      window.removeEventListener("popstate", handleLocationMaybeChanged);
+      window.removeEventListener("hashchange", handleLocationMaybeChanged);
+      clearInterval(roomWatcher);
+    };
+  }
+  function installOptimizedLayoutStyle() {
+    const stale = document.querySelector(".app-body");
+    if (stale?.style.marginLeft === "1rem") stale.style.marginLeft = "";
+    if (!optimizeLayout.value) return () => {
+    };
+    const style = document.createElement("style");
+    style.textContent = ".app-body { margin-left: 1rem !important; }";
+    document.head.appendChild(style);
+    return () => style.remove();
+  }
+  function isAutoBlendBlacklistedUid(uid) {
+    return !!uid && uid in autoBlendUserBlacklist.value;
+  }
+  const subscribers = new Set();
+  function emitAutoBlendEvent(event) {
+    for (const subscriber of subscribers) {
+      subscriber(event);
+    }
+  }
+  function subscribeAutoBlendEvents(subscriber) {
+    subscribers.add(subscriber);
+    return () => subscribers.delete(subscriber);
+  }
+  function logAutoBlend(message, level, detail) {
+    emitAutoBlendEvent({ kind: "log", level, message, detail });
+  }
+  function logAutoBlendSendResult(result, label, display) {
+    emitAutoBlendEvent({ kind: "send-result", result, label, display });
+  }
+  subscribeAutoBlendEvents((event) => {
+    if (event.kind === "send-result") {
+      appendLog(event.result, event.label, event.display);
+      return;
+    }
+    if (event.level) {
+      notifyUser(event.level, event.message, event.detail);
+      return;
+    }
+    appendLog(event.detail ? `${event.message}：${event.detail}` : event.message);
+  });
+  function formatAutoBlendSenderInfo(uniqueUsers, totalCount) {
+    return uniqueUsers > 0 ? `${uniqueUsers} 人 / ${totalCount} 条` : `${totalCount} 条`;
+  }
+  function shortAutoBlendText(text) {
+    return trimText(text, 18)[0] ?? text;
+  }
+  function formatAutoBlendStatus({
+    enabled,
+    dryRun,
+    isSending: isSending2,
+    cooldownUntil: cooldownUntil2,
+    now
+  }) {
+    if (!enabled) return "已关闭";
+    if (dryRun) return "试运行（不发送）";
+    if (isSending2) return "正在跟车";
+    const left = Math.max(0, Math.ceil((cooldownUntil2 - now) / 1e3));
+    return left > 0 ? `冷却中 ${left}s` : "观察中";
+  }
+  function formatAutoBlendCandidate(candidates) {
+    let best = null;
+    for (const candidate of candidates) {
+      if (candidate.totalCount < 2) continue;
+      if (!best || candidate.totalCount > best.totalCount) best = candidate;
+    }
+    if (!best) return "暂无";
+    return `${shortAutoBlendText(best.text)}（${formatAutoBlendSenderInfo(best.uniqueUsers, best.totalCount)}）`;
+  }
+  function detectTrend(events, windowMs, threshold) {
+    const now = events.reduce((latest, event) => Math.max(latest, event.ts), 0);
+    const windowStart = now - Math.max(0, windowMs);
+    const entries = new Map();
+    for (const event of events) {
+      const text = event.text.trim();
+      if (!text || event.ts < windowStart) continue;
+      let entry = entries.get(text);
+      if (!entry) {
+        entry = { totalCount: 0, uids: new Set() };
+        entries.set(text, entry);
+      }
+      entry.totalCount += 1;
+      if (event.uid) entry.uids.add(event.uid);
+    }
+    const candidates = Array.from(entries, ([text, entry]) => ({
+      text,
+      totalCount: entry.totalCount,
+      uniqueUsers: entry.uids.size
+    })).sort((a2, b2) => b2.totalCount - a2.totalCount);
+    const winner = candidates.find((candidate) => candidate.totalCount >= threshold) ?? null;
+    return {
+      shouldSend: winner !== null,
+      text: winner?.text ?? null,
+      candidates
+    };
   }
   var LaplaceRawEvent = class extends Event {
     data;
@@ -5863,27 +6364,44 @@ ws;
   const MAX_CANDIDATES = 15;
   const MAX_SEEN = 200;
   const MIN_RECURRENCE_GAP_MS = 10 * 60 * 1e3;
-  const SESSION_MAP_KEY = "memeSessionMap";
+  const SESSION_MAP_KEY = "memeSessionMapByRoom";
   const SESSION_MAP_MAX_AGE_MS = 2 * 60 * 60 * 1e3;
-  function loadSessionMap() {
+  function loadRoomSessionMaps() {
     const raw = _GM_getValue(SESSION_MAP_KEY, {});
     const now = Date.now();
-    const map = new Map();
-    for (const [text, timestamps] of Object.entries(raw)) {
-      const last = timestamps.at(-1);
-      if (last !== void 0 && now - last < SESSION_MAP_MAX_AGE_MS) {
-        map.set(text, timestamps);
+    const out = new Map();
+    for (const [roomKey, byText] of Object.entries(raw)) {
+      const inner = new Map();
+      for (const [text, timestamps] of Object.entries(byText)) {
+        const last = timestamps.at(-1);
+        if (last !== void 0 && now - last < SESSION_MAP_MAX_AGE_MS) {
+          inner.set(text, timestamps);
+        }
       }
+      if (inner.size > 0) out.set(roomKey, inner);
     }
-    return map;
+    return out;
   }
-  function saveSessionMap(map) {
+  function saveRoomSessionMaps() {
     const raw = {};
-    for (const [text, timestamps] of map) raw[text] = timestamps;
+    for (const [roomKey, inner] of roomSessionMaps) {
+      if (inner.size === 0) continue;
+      const obj = {};
+      for (const [text, timestamps] of inner) obj[text] = timestamps;
+      raw[roomKey] = obj;
+    }
     _GM_setValue(SESSION_MAP_KEY, raw);
   }
-  const sessionMap = loadSessionMap();
-  const nominationTimestamps = [];
+  function getOrCreateSessionMap(roomKey) {
+    let m2 = roomSessionMaps.get(roomKey);
+    if (!m2) {
+      m2 = new Map();
+      roomSessionMaps.set(roomKey, m2);
+    }
+    return m2;
+  }
+  const roomSessionMaps = loadRoomSessionMaps();
+  const nominationTimestampsByRoom = new Map();
   function passesQualityFilter(text) {
     const len = text.length;
     if (len < 4 || len > 30) return false;
@@ -5892,108 +6410,61 @@ ws;
     if (/^[\p{P}\p{S}\s]+$/u.test(text)) return false;
     return true;
   }
-  function recordMemeCandidate(text) {
+  function recordMemeCandidate(text, roomId) {
     if (!enableMemeContribution.value) return;
     if (!passesQualityFilter(text)) return;
+    const roomKey = String(roomId);
+    const sessionMap = getOrCreateSessionMap(roomKey);
     const now = Date.now();
     const times = sessionMap.get(text) ?? [];
     times.push(now);
     sessionMap.set(text, times);
-    saveSessionMap(sessionMap);
+    saveRoomSessionMaps();
     if (times.length < 2) return;
     if (now - times[0] < MIN_RECURRENCE_GAP_MS) return;
-    if (memeContributorSeenTexts.value.includes(text)) return;
-    if (memeContributorCandidates.value.includes(text)) return;
+    const seenForRoom = memeContributorSeenTextsByRoom.value[roomKey] ?? [];
+    const candForRoom = memeContributorCandidatesByRoom.value[roomKey] ?? [];
+    if (seenForRoom.includes(text)) return;
+    if (candForRoom.includes(text)) return;
+    const stamps = nominationTimestampsByRoom.get(roomKey) ?? [];
     const oneHourAgo = now - 36e5;
-    const recentCount = nominationTimestamps.filter((t2) => t2 >= oneHourAgo).length;
+    const recentCount = stamps.filter((t2) => t2 >= oneHourAgo).length;
     if (recentCount >= MAX_PER_HOUR) return;
-    const candidates = [...memeContributorCandidates.value, text];
-    memeContributorCandidates.value = candidates.length > MAX_CANDIDATES ? candidates.slice(-MAX_CANDIDATES) : candidates;
-    const seen2 = [...memeContributorSeenTexts.value, text];
-    memeContributorSeenTexts.value = seen2.length > MAX_SEEN ? seen2.slice(-MAX_SEEN) : seen2;
-    nominationTimestamps.push(now);
+    const nextCand = [...candForRoom, text];
+    memeContributorCandidatesByRoom.value = {
+      ...memeContributorCandidatesByRoom.value,
+      [roomKey]: nextCand.length > MAX_CANDIDATES ? nextCand.slice(-MAX_CANDIDATES) : nextCand
+    };
+    const nextSeen = [...seenForRoom, text];
+    memeContributorSeenTextsByRoom.value = {
+      ...memeContributorSeenTextsByRoom.value,
+      [roomKey]: nextSeen.length > MAX_SEEN ? nextSeen.slice(-MAX_SEEN) : nextSeen
+    };
+    stamps.push(now);
+    nominationTimestampsByRoom.set(roomKey, stamps);
     appendLog(`[贡献者] 检测到高质量烂梗 "${text}"，已加入待贡献池`);
   }
-  function ignoreMemeCandidate(text) {
-    memeContributorCandidates.value = memeContributorCandidates.value.filter((c2) => c2 !== text);
-    if (!memeContributorSeenTexts.value.includes(text)) {
-      const seen2 = [...memeContributorSeenTexts.value, text];
-      memeContributorSeenTexts.value = seen2.length > MAX_SEEN ? seen2.slice(-MAX_SEEN) : seen2;
+  function ignoreMemeCandidate(text, roomId) {
+    const roomKey = String(roomId);
+    const candForRoom = memeContributorCandidatesByRoom.value[roomKey] ?? [];
+    memeContributorCandidatesByRoom.value = {
+      ...memeContributorCandidatesByRoom.value,
+      [roomKey]: candForRoom.filter((c2) => c2 !== text)
+    };
+    const seenForRoom = memeContributorSeenTextsByRoom.value[roomKey] ?? [];
+    if (!seenForRoom.includes(text)) {
+      const nextSeen = [...seenForRoom, text];
+      memeContributorSeenTextsByRoom.value = {
+        ...memeContributorSeenTextsByRoom.value,
+        [roomKey]: nextSeen.length > MAX_SEEN ? nextSeen.slice(-MAX_SEEN) : nextSeen
+      };
     }
   }
-  function clearMemeSession() {
-    sessionMap.clear();
-    saveSessionMap(sessionMap);
-  }
-  const SendPriority = {
-    AUTO: 0,
-    STT: 1,
-    MANUAL: 2
-  };
-  const HARD_MIN_GAP_MS = 1010;
-  const queue = [];
-  let processing = false;
-  let lastSendCompletedAt = 0;
-  let inflight = null;
-  function cancelAutoItem(item, error) {
-    if (item.cancelled || item.priority !== SendPriority.AUTO) return;
-    item.cancelled = true;
-    item.resolve({ success: false, cancelled: true, message: item.message, isEmoticon: false, error });
-  }
-  function insertByPriority(item) {
-    let i2 = queue.length;
-    while (i2 > 0 && queue[i2 - 1].priority < item.priority) i2--;
-    queue.splice(i2, 0, item);
-  }
-  async function processQueue() {
-    if (processing) return;
-    processing = true;
-    try {
-      while (queue.length > 0) {
-        while (queue.length > 0 && queue[0].cancelled) queue.shift();
-        const item = queue.shift();
-        if (!item) break;
-        inflight = item;
-        if (lastSendCompletedAt > 0) {
-          const sinceLast = Date.now() - lastSendCompletedAt;
-          if (sinceLast < HARD_MIN_GAP_MS) {
-            await new Promise((r2) => setTimeout(r2, HARD_MIN_GAP_MS - sinceLast));
-          }
-        }
-        if (item.cancelled) {
-          inflight = null;
-          continue;
-        }
-        inflight = null;
-        try {
-          const result = await sendDanmaku(item.message, item.roomId, item.csrfToken);
-          lastSendCompletedAt = Date.now();
-          item.resolve(result);
-        } catch (err) {
-          lastSendCompletedAt = Date.now();
-          item.reject(err);
-        }
-      }
-    } finally {
-      processing = false;
-    }
-  }
-  function enqueueDanmaku(message, roomId, csrfToken, priority = SendPriority.AUTO) {
-    return new Promise((resolve, reject) => {
-      const item = { message, roomId, csrfToken, priority, resolve, reject, cancelled: false };
-      insertByPriority(item);
-      if (priority === SendPriority.MANUAL) {
-        if (inflight !== null) cancelAutoItem(inflight, "preempted");
-        for (const q2 of queue) {
-          if (q2 !== item) cancelAutoItem(q2, "preempted");
-        }
-      }
-      void processQueue();
-    });
-  }
-  function cancelPendingAuto() {
-    if (inflight !== null) cancelAutoItem(inflight, "loop-stopped");
-    for (const q2 of queue) cancelAutoItem(q2, "loop-stopped");
+  function clearMemeSession(roomId) {
+    const roomKey = String(roomId);
+    roomSessionMaps.delete(roomKey);
+    saveRoomSessionMaps();
+    nominationTimestampsByRoom.delete(roomKey);
   }
   const trendMap = new Map();
   let nextTrendPruneAt = Number.POSITIVE_INFINITY;
@@ -6013,11 +6484,7 @@ ws;
   let moderationStopReason = null;
   let consecutiveSilentDrops = 0;
   const SILENT_DROP_CHECK_THRESHOLD = 3;
-  const recentDomDanmaku = [];
   const RATE_LIMIT_BACKOFF_MS = 2 * 60 * 1e3;
-  const SEND_ECHO_TIMEOUT_MS = 4e3;
-  const RECENT_DOM_DANMAKU_HISTORY_MS = 15e3;
-  const RECENT_DOM_DANMAKU_HISTORY_MAX = 240;
   function getBurstSettleMs() {
     return Math.max(0, autoBlendBurstSettleMs.value);
   }
@@ -6149,79 +6616,6 @@ ws;
       now: Date.now()
     });
   }
-  function pruneRecentDomDanmaku(now = Date.now()) {
-    while (recentDomDanmaku.length > 0 && now - recentDomDanmaku[0].observedAt > RECENT_DOM_DANMAKU_HISTORY_MS) {
-      recentDomDanmaku.shift();
-    }
-    while (recentDomDanmaku.length > RECENT_DOM_DANMAKU_HISTORY_MAX) {
-      recentDomDanmaku.shift();
-    }
-  }
-  function rememberRecentDomDanmaku(text, uid, observedAt) {
-    if (!text) return;
-    pruneRecentDomDanmaku(observedAt);
-    recentDomDanmaku.push({ text, uid, observedAt });
-  }
-  function findRecentDomDanmakuSource(text, uid, sinceTs) {
-    const target = text.trim();
-    if (!target) return null;
-    pruneRecentDomDanmaku();
-    for (let i2 = recentDomDanmaku.length - 1; i2 >= 0; i2--) {
-      const event = recentDomDanmaku[i2];
-      if (event.observedAt < sinceTs) break;
-      if (event.text !== target) continue;
-      if (uid && event.uid && event.uid !== uid) continue;
-      return "dom";
-    }
-    return null;
-  }
-  function matchesCustomChatEchoEvent(event, target, uid) {
-    return event.kind === "danmaku" && event.text.trim() === target && (!uid || !event.uid || event.uid === uid);
-  }
-  function matchesDomEchoEvent(event, target, uid) {
-    return event.text.trim() === target && (!uid || !event.uid || event.uid === uid);
-  }
-  function waitForSentEcho(text, uid, sinceTs, timeoutMs = SEND_ECHO_TIMEOUT_MS) {
-    const target = text.trim();
-    if (!target) return Promise.resolve(null);
-    const recentCustomSource = findRecentCustomChatDanmakuSource(target, uid, sinceTs);
-    if (recentCustomSource && recentCustomSource !== "local") return Promise.resolve(recentCustomSource);
-    const recentDomSource = findRecentDomDanmakuSource(target, uid, sinceTs);
-    if (recentDomSource) return Promise.resolve(recentDomSource);
-    return new Promise((resolve) => {
-      let done = false;
-      let unsubscribeEvents2 = () => {
-      };
-      let unsubscribeDom2 = () => {
-      };
-      const finish = (source) => {
-        if (done) return;
-        done = true;
-        clearTimeout(timer2);
-        unsubscribeEvents2();
-        unsubscribeDom2();
-        resolve(source);
-      };
-      const timer2 = setTimeout(() => {
-        const localFallback = findRecentCustomChatDanmakuSource(target, uid, sinceTs);
-        finish(localFallback === "local" ? "local" : null);
-      }, timeoutMs);
-      unsubscribeEvents2 = subscribeCustomChatEvents((event) => {
-        if (!matchesCustomChatEchoEvent(event, target, uid)) return;
-        if (event.source !== "local") finish(event.source);
-      });
-      unsubscribeDom2 = subscribeDanmaku({
-        onMessage: (event) => {
-          if (!matchesDomEchoEvent(event, target, uid)) return;
-          finish("dom");
-        }
-      });
-      const lateCustomSource = findRecentCustomChatDanmakuSource(target, uid, sinceTs);
-      const lateDomSource = findRecentDomDanmakuSource(target, uid, sinceTs);
-      const lateSource = (lateCustomSource !== "local" ? lateCustomSource : null) ?? lateDomSource;
-      if (lateSource) finish(lateSource);
-    });
-  }
   function pruneExpired(now, force = false) {
     const windowMs = autoBlendWindowSec.value * 1e3;
     if (!force && windowMs === lastPruneWindowMs && now < nextTrendPruneAt) return;
@@ -6289,7 +6683,6 @@ ws;
     updateStatusText();
     const text = rawText.trim();
     if (!text) return;
-    rememberRecentDomDanmaku(text, uid, now);
     if (isReply && !autoBlendIncludeReply.value) return;
     if (uid && myUid && uid === myUid) return;
     if (isAutoBlendBlacklistedUid(uid)) return;
@@ -6480,7 +6873,7 @@ ws;
           if (!result.success && !result.cancelled && handleSendFailure(result, roomId)) return;
           if (result.success && !result.cancelled && !isEmote && !memeRecorded) {
             memeRecorded = true;
-            recordMemeCandidate(originalText);
+            recordMemeCandidate(originalText, roomId);
           }
           cooldownUntil = Math.max(cooldownUntil, Date.now() + autoBlendCooldownSec.value * 1e3);
           updateStatusText();
@@ -6510,7 +6903,6 @@ ws;
     firstRateLimitHitAt = 0;
     moderationStopReason = null;
     consecutiveSilentDrops = 0;
-    recentDomDanmaku.length = 0;
     nextTrendPruneAt = Number.POSITIVE_INFINITY;
     lastPruneWindowMs = 0;
     autoBlendStatusText.value = "观察中";
@@ -6562,8 +6954,8 @@ ws;
     trendMap.clear();
     nextTrendPruneAt = Number.POSITIVE_INFINITY;
     lastPruneWindowMs = 0;
-    recentDomDanmaku.length = 0;
-    clearMemeSession();
+    const currentRoomId = cachedRoomId.peek();
+    if (currentRoomId !== null) clearMemeSession(currentRoomId);
     cooldownUntil = 0;
     autoBlendStatusText.value = "已关闭";
     autoBlendCandidateText.value = "暂无";
@@ -8103,70 +8495,6 @@ u$2(
       }
     );
   }
-  async function detectSensitiveWords(text) {
-    try {
-      const resp = await fetch(BASE_URL.LAPLACE_CHAT_AUDIT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          completionMetadata: { input: text }
-        })
-      });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const data = await resp.json();
-      return data.completion ?? { hasSensitiveContent: false };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      appendLog(`⚠️ AI检测服务出错：${msg}`);
-      return { hasSensitiveContent: false };
-    }
-  }
-  function insertInvisibleChars(word) {
-    const graphemes = getGraphemes(word);
-    return graphemes.join("­");
-  }
-  function processText(text) {
-    return insertInvisibleChars(text);
-  }
-  function replaceSensitiveWords(text, sensitiveWords) {
-    let result = text;
-    for (const word of sensitiveWords) {
-      if (!word) continue;
-      result = result.split(word).join(processText(word));
-    }
-    return result;
-  }
-  function isEvadedMessageSendable(evadedMessage) {
-    return evadedMessage.trim().length > 0;
-  }
-  async function tryAiEvasion(message, roomId, csrfToken, logPrefix) {
-    if (!aiEvasion.value) return { success: false };
-    appendLog(`🤖 ${logPrefix}AI规避：正在检测敏感词…`);
-    const detection = await detectSensitiveWords(message);
-    if (detection.hasSensitiveContent && detection.sensitiveWords && detection.sensitiveWords.length > 0) {
-      appendLog(`🤖 ${logPrefix}检测到敏感词：${detection.sensitiveWords.join(", ")}，正在尝试规避…`);
-      const evadedMessage = replaceSensitiveWords(message, detection.sensitiveWords);
-      if (!isEvadedMessageSendable(evadedMessage)) {
-        const error = "AI规避后内容为空";
-        appendLog(`❌ ${logPrefix}AI规避失败：替换后内容为空，已跳过发送`);
-        return { success: false, evadedMessage, error };
-      }
-      if (isLockedEmoticon(evadedMessage)) {
-        const error = "AI规避结果是锁定表情";
-        appendLog(formatLockedEmoticonReject(evadedMessage, `${logPrefix}AI规避表情`));
-        return { success: false, evadedMessage, error };
-      }
-      const retryResult = await enqueueDanmaku(evadedMessage, roomId, csrfToken, SendPriority.MANUAL);
-      if (retryResult.success) {
-        appendLog(`✅ ${logPrefix}AI规避成功: ${evadedMessage}`);
-        return { success: true, evadedMessage };
-      }
-      appendLog(`❌ ${logPrefix}AI规避失败: ${evadedMessage}，原因：${retryResult.error}`);
-      return { success: false, evadedMessage, error: retryResult.error };
-    }
-    appendLog(`⚠️ ${logPrefix}无法检测到敏感词，请手动检查`);
-    return { success: false };
-  }
   async function copyText(text) {
     try {
       await navigator.clipboard.writeText(text);
@@ -8227,6 +8555,18 @@ u$2(
       const result = await enqueueDanmaku(processed, roomId, csrfToken, SendPriority.MANUAL);
       const display = msg !== processed ? `${msg} → ${processed}` : processed;
       appendLog(result, "+1", display);
+      if (result.success && !result.cancelled) {
+        void verifyBroadcast({
+          text: processed,
+          label: "+1",
+          display,
+          sinceTs: result.startedAt ?? Date.now(),
+          isEmoticon: result.isEmoticon,
+          enableAiEvasion: true,
+          roomId,
+          csrfToken
+        });
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       appendLog(`🔴 +1 出错：${message}`);
@@ -8282,6 +8622,17 @@ u$2(
           if (aiEvasion.value) {
             await tryAiEvasion(segment, roomId, csrfToken, "");
           }
+        } else if (!result.cancelled) {
+          void verifyBroadcast({
+            text: segment,
+            label,
+            display: displayMsg,
+            sinceTs: result.startedAt ?? Date.now(),
+            isEmoticon: result.isEmoticon,
+            enableAiEvasion: true,
+            roomId,
+            csrfToken
+          });
         }
         if (i2 < segments.length - 1) {
           await new Promise((r2) => setTimeout(r2, msgSendInterval.value * 1e3));
@@ -8293,6 +8644,305 @@ u$2(
       appendLog(`🔴 发送出错：${msg}`);
       return false;
     }
+  }
+  const PICKER_W = 320;
+  const PICKER_H = 360;
+  const PICKER_GAP = 8;
+  const ANCHOR_OFFSET = 4;
+  function computePos(rect, viewportWidth, viewportHeight) {
+    if (!rect) return { bottom: PICKER_GAP, right: PICKER_GAP };
+    const pos = {};
+    if (rect.top >= PICKER_H + PICKER_GAP) {
+      pos.bottom = viewportHeight - rect.top + ANCHOR_OFFSET;
+    } else {
+      pos.top = rect.bottom + ANCHOR_OFFSET;
+    }
+    if (rect.right - PICKER_W >= PICKER_GAP) {
+      pos.right = Math.max(PICKER_GAP, viewportWidth - rect.right);
+    } else {
+      pos.left = Math.max(PICKER_GAP, rect.left);
+    }
+    return pos;
+  }
+  function computePosFor(anchor) {
+    return computePos(anchor ? anchor.getBoundingClientRect() : null, window.innerWidth, window.innerHeight);
+  }
+  function EmotePicker({ open, anchorRef, onSend, onClose }) {
+    const packages = cachedEmoticonPackages.value;
+    const activePkgId = useSignal(packages[0]?.pkg_id ?? null);
+    const pos = useSignal(computePosFor(anchorRef.current));
+    const rootRef = A(null);
+    y$2(() => {
+      pos.value = computePosFor(anchorRef.current);
+      const onResize = () => {
+        pos.value = computePosFor(anchorRef.current);
+      };
+      const onDocMouseDown = (e2) => {
+        const target = e2.target;
+        if (!target) return;
+        if (rootRef.current?.contains(target)) return;
+        if (anchorRef.current?.contains(target)) return;
+        onClose();
+      };
+      const onKeyDown = (e2) => {
+        if (e2.key === "Escape") onClose();
+      };
+      window.addEventListener("resize", onResize);
+      document.addEventListener("mousedown", onDocMouseDown, true);
+      document.addEventListener("keydown", onKeyDown, true);
+      return () => {
+        window.removeEventListener("resize", onResize);
+        document.removeEventListener("mousedown", onDocMouseDown, true);
+        document.removeEventListener("keydown", onKeyDown, true);
+      };
+    }, [anchorRef, onClose, pos]);
+    if (!open.value) return null;
+    if (packages.length === 0) {
+      return u$2(
+        "div",
+        {
+          ref: rootRef,
+          style: {
+            position: "fixed",
+            ...pos.value,
+            width: `${PICKER_W}px`,
+            height: "64px",
+            zIndex: 1e5,
+            background: "var(--bg1, #fff)",
+            border: "1px solid var(--Ga2, #ddd)",
+            borderRadius: "6px",
+            boxShadow: "0 4px 16px rgba(0,0,0,0.15)",
+            padding: "12px",
+            color: "#999",
+            fontSize: "12px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center"
+          },
+          children: "表情数据加载中…"
+        }
+      );
+    }
+    const activePkg = packages.find((p2) => p2.pkg_id === activePkgId.value) ?? packages[0];
+    return u$2(
+      "div",
+      {
+        ref: rootRef,
+        role: "dialog",
+        "aria-label": "表情选择器",
+        style: {
+          position: "fixed",
+          ...pos.value,
+          width: `${PICKER_W}px`,
+          height: `${PICKER_H}px`,
+          zIndex: 1e5,
+          background: "var(--bg1, #fff)",
+          border: "1px solid var(--Ga2, #ddd)",
+          borderRadius: "6px",
+          boxShadow: "0 4px 16px rgba(0,0,0,0.15)",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden"
+        },
+        children: [
+u$2(
+            "div",
+            {
+              style: {
+                display: "flex",
+                gap: "4px",
+                padding: "6px 8px",
+                borderBottom: "1px solid var(--Ga2, #eee)",
+                overflowX: "auto",
+                flex: "0 0 auto"
+              },
+              children: packages.map((pkg) => {
+                const active = pkg.pkg_id === (activePkg?.pkg_id ?? -1);
+                return u$2(
+                  "button",
+                  {
+                    type: "button",
+                    title: pkg.pkg_name,
+                    onClick: () => {
+                      activePkgId.value = pkg.pkg_id;
+                    },
+                    style: {
+                      padding: "3px 8px",
+                      fontSize: "11px",
+                      lineHeight: 1.4,
+                      border: "1px solid var(--Ga2, #ddd)",
+                      borderRadius: "3px",
+                      background: active ? "#36a185" : "var(--bg2, #f5f5f5)",
+                      color: active ? "#fff" : "#555",
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                      flex: "0 0 auto"
+                    },
+                    children: pkg.pkg_name
+                  },
+                  pkg.pkg_id
+                );
+              })
+            }
+          ),
+u$2(
+            "div",
+            {
+              style: {
+                flex: "1 1 auto",
+                overflowY: "auto",
+                padding: "8px",
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "4px",
+                alignContent: "flex-start"
+              },
+              children: activePkg?.emoticons.map((emo) => {
+                const meta = getEmoticonLockMeta(emo);
+                const titleParts = [emo.emoji];
+                if (meta.titleSuffix) titleParts.push(meta.titleSuffix);
+                return u$2(
+                  "button",
+                  {
+                    type: "button",
+                    title: titleParts.join("\n"),
+                    onClick: () => {
+                      if (meta.isLocked) {
+                        notifyUser("warning", "🔒 该表情已被锁定", meta.reason);
+                        return;
+                      }
+                      onSend(emo.emoticon_unique);
+                      onClose();
+                    },
+                    style: {
+                      position: "relative",
+                      width: "52px",
+                      height: "52px",
+                      padding: "2px",
+                      border: "1px solid var(--Ga2, #ddd)",
+                      borderRadius: "4px",
+                      background: "var(--bg2, #f5f5f5)",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center"
+                    },
+                    children: [
+u$2(
+                        "img",
+                        {
+                          src: emo.url,
+                          alt: emo.emoji,
+                          loading: "lazy",
+                          style: {
+                            maxWidth: "44px",
+                            maxHeight: "44px",
+                            objectFit: "contain",
+                            opacity: meta.isLocked ? 0.5 : 1
+                          }
+                        }
+                      ),
+                      meta.isLocked && u$2(
+                        "span",
+                        {
+                          style: {
+                            position: "absolute",
+                            top: 1,
+                            right: 1,
+                            padding: "0 4px",
+                            fontSize: "9px",
+                            lineHeight: "12px",
+                            color: "#fff",
+                            borderRadius: "2px",
+                            background: meta.badgeColor,
+                            pointerEvents: "none",
+                            whiteSpace: "nowrap"
+                          },
+                          children: meta.badgeLabel
+                        }
+                      )
+                    ]
+                  },
+                  emo.emoticon_id
+                );
+              })
+            }
+          )
+        ]
+      }
+    );
+  }
+  const iconBtnStyle = {
+    width: "28px",
+    height: "28px",
+    padding: 0,
+    border: "1px solid var(--Ga2, #ddd)",
+    borderRadius: "999px",
+    background: "var(--bg2, #f5f5f5)",
+    cursor: "pointer",
+    fontSize: "14px",
+    lineHeight: 1,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center"
+  };
+  function SendActions({ onSend }) {
+    const open = useSignal(false);
+    const anchorRef = A(null);
+    return u$2("div", { style: { display: "inline-flex", gap: "4px", alignItems: "center" }, children: [
+u$2(
+        "button",
+        {
+          ref: anchorRef,
+          type: "button",
+          title: "表情",
+          onClick: () => {
+            open.value = !open.value;
+          },
+          style: iconBtnStyle,
+          children: "😀"
+        }
+      ),
+u$2(
+        "button",
+        {
+          type: "button",
+          title: "点赞 — 即将上线",
+          onClick: () => notifyUser("info", "点赞功能即将上线"),
+          style: { ...iconBtnStyle, opacity: 0.4, cursor: "not-allowed" },
+          "aria-disabled": "true",
+          children: "👍"
+        }
+      ),
+u$2(
+        "button",
+        {
+          type: "button",
+          title: "醒目留言 SC — 即将上线",
+          onClick: () => notifyUser("info", "醒目留言 (SC) 功能即将上线"),
+          style: { ...iconBtnStyle, opacity: 0.4, cursor: "not-allowed" },
+          "aria-disabled": "true",
+          children: "💰"
+        }
+      ),
+u$2(
+        EmotePicker,
+        {
+          open,
+          anchorRef,
+          onSend,
+          onClose: () => {
+            open.value = false;
+          }
+        }
+      )
+    ] });
+  }
+  function mountSendActionsIsland(host, onSend) {
+    R( u$2(SendActions, { onSend }), host);
+    return () => {
+      R(null, host);
+    };
   }
   const ROOT_ID = "laplace-custom-chat";
   const STYLE_ID$1 = "laplace-custom-chat-style";
@@ -8309,6 +8959,7 @@ u$2(
   let unsubscribeWsStatus = null;
   let disposeSettings = null;
   let disposeComposer = null;
+  let disposeActionsIsland = null;
   let fallbackMountTimer = null;
   let nativeEventObserver = null;
   let nativeEventObserverContainer = null;
@@ -9462,11 +10113,15 @@ u$2(
     inputWrap.append(textarea, countEl);
     const sendRow = document.createElement("div");
     sendRow.className = "lc-chat-send-row";
+    const actionsHost = document.createElement("div");
+    actionsHost.className = "lc-chat-actions-host";
     const sendBtn = makeButton("lc-chat-send", "发送", "发送弹幕", () => void sendFromComposer());
     const hint = document.createElement("span");
     hint.className = "lc-chat-hint";
     hint.textContent = "偷 / +1 / 复制，设置可贴 CSS";
-    sendRow.append(sendBtn, hint);
+    sendRow.append(actionsHost, sendBtn, hint);
+    disposeActionsIsland?.();
+    disposeActionsIsland = mountSendActionsIsland(actionsHost, (msg) => void sendManualDanmaku(msg));
     composer.append(inputWrap, sendRow);
     panel.append(toolbar, menu, debugEl, listEl, composer);
     updateUnread();
@@ -9723,6 +10378,10 @@ u$2(
     if (disposeComposer) {
       disposeComposer();
       disposeComposer = null;
+    }
+    if (disposeActionsIsland) {
+      disposeActionsIsland();
+      disposeActionsIsland = null;
     }
     abortRootEventListeners();
     nativeEventObserver?.disconnect();
@@ -10471,6 +11130,16 @@ html.lc-dm-direct-always .${MARKER} {
                 reason: result.error
               });
             }
+            if (result.success && !result.cancelled) {
+              void verifyBroadcast({
+                text: processedMessage,
+                label,
+                display: displayMsg,
+                sinceTs: result.startedAt ?? Date.now(),
+                isEmoticon: result.isEmoticon,
+                toastDedupeKey: `loop:${originalMessage}`
+              });
+            }
             const resolvedRandomInterval = enableRandomInterval ? Math.floor(Math.random() * 500) : 0;
             const ok = await abortableSleep(interval * 1e3 - resolvedRandomInterval, signal);
             if (!ok) {
@@ -10612,6 +11281,10 @@ html.lc-dm-direct-always .${MARKER} {
     for (const input of inputs) pushClass(tokens, input);
     return tokens.join(" ");
   }
+  function shouldShowVersionUpdateBadge(lastSeen, current) {
+    if (!lastSeen) return false;
+    return lastSeen !== current;
+  }
   const SECTION_STYLE = {
     margin: ".5em 0",
     paddingBottom: "1em",
@@ -10667,13 +11340,35 @@ html.lc-dm-direct-always .${MARKER} {
     }
   ];
   function AboutTab() {
+    const initialSeenRef = A(lastSeenVersion.value);
+    const isFreshUpdate = shouldShowVersionUpdateBadge(initialSeenRef.current, VERSION);
+    y$2(() => {
+      if (lastSeenVersion.value !== VERSION) {
+        lastSeenVersion.value = VERSION;
+      }
+    }, []);
     return u$2(S$1, { children: [
 u$2("div", { className: "cb-section cb-stack", style: SECTION_STYLE, children: [
 u$2("div", { className: "cb-heading", style: HEADING_STYLE, children: "B站独轮车 + 自动跟车" }),
 u$2("div", { className: "cb-note", style: { display: "flex", flexDirection: "column", gap: ".25em", color: "#666" }, children: [
 u$2("span", { children: [
             "版本: ",
-            VERSION
+            VERSION,
+            isFreshUpdate && u$2(
+              "span",
+              {
+                style: {
+                  marginLeft: ".5em",
+                  padding: "1px 6px",
+                  borderRadius: "999px",
+                  background: "#ffe7c2",
+                  color: "#a15c00",
+                  fontSize: "0.8em"
+                },
+                title: `从 v${initialSeenRef.current} 更新到 v${VERSION}`,
+                children: "🆕 已更新"
+              }
+            )
           ] }),
 u$2("span", { children: [
             "作者:",
@@ -10699,7 +11394,20 @@ u$2("span", { children: [
             "原项目:",
             " ",
 u$2("a", { href: "https://github.com/laplace-live/chatterbox", target: "_blank", rel: "noopener", style: LINK_STYLE, children: "LAPLACE Chatterbox" })
-          ] })
+          ] }),
+u$2("span", { style: { marginTop: ".5em" }, children: u$2(
+            "button",
+            {
+              type: "button",
+              className: "cb-btn",
+              onClick: () => {
+                hasSeenWelcome.value = false;
+                activeTab.value = "fasong";
+              },
+              title: "下次打开「发送」页签时会再次显示首次引导",
+              children: "重新查看新手引导"
+            }
+          ) })
         ] })
       ] }),
 u$2("div", { className: "cb-section cb-stack", style: { ...SECTION_STYLE, borderBottom: "none" }, children: [
@@ -10729,6 +11437,17 @@ u$2("div", { style: { fontSize: ".9em", color: "#555" }, children: service.descr
         )) })
       ] })
     ] });
+  }
+  function shouldRequireAutoBlendRealFireConfirm(state) {
+    return !state.currentlyEnabled && !state.dryRun && !state.hasConfirmedRealFire;
+  }
+  function decideAutoBlendToggle(state, onConfirm) {
+    if (!shouldRequireAutoBlendRealFireConfirm(state)) {
+      return { proceed: true, markConfirmed: false };
+    }
+    const accepted = onConfirm();
+    if (!accepted) return { proceed: false, markConfirmed: false };
+    return { proceed: true, markConfirmed: true };
   }
   function NumberInput({
     value,
@@ -10895,6 +11614,18 @@ u$2("button", { type: "button", onClick: handleAdd, style: { whiteSpace: "nowrap
     const presetHint = currentPreset === "safe" || currentPreset === "normal" || currentPreset === "hot" ? AUTO_BLEND_PRESETS[currentPreset].hint : "自定义参数";
     const statusColor = !isOn ? "#777" : autoBlendStatusText.value.includes("冷却") ? "#a15c00" : autoBlendStatusText.value.includes("跟车") ? "#1677ff" : "#0a7f55";
     const toggleEnabled = () => {
+      const decision = decideAutoBlendToggle(
+        {
+          currentlyEnabled: autoBlendEnabled.value,
+          dryRun: autoBlendDryRun.value,
+          hasConfirmedRealFire: hasConfirmedAutoBlendRealFire.value
+        },
+        () => confirm(
+          "自动跟车将会以你的账号真实发送弹幕（试运行已关闭）。\n\n建议先打开「试运行」观察一段时间。是否继续直接开启？"
+        )
+      );
+      if (!decision.proceed) return;
+      if (decision.markConfirmed) hasConfirmedAutoBlendRealFire.value = true;
       autoBlendEnabled.value = !autoBlendEnabled.value;
     };
     return u$2(
@@ -10910,6 +11641,7 @@ u$2("span", { children: "自动跟车" }),
             isOn && u$2("span", { className: "cb-soft", children: "已开" })
           ] }),
 u$2("div", { className: "cb-body cb-stack", children: [
+u$2("div", { className: "cb-note", style: { color: "#666", fontSize: "0.9em", marginBottom: ".25em" }, children: "条件满足时，会以你的账号自动发送弹幕。第一次开启建议先打开下方的「试运行」观察效果。" }),
 u$2("div", { style: { display: "grid", gridTemplateColumns: "1fr auto", gap: ".5em", alignItems: "center" }, children: [
 u$2("button", { type: "button", className: isOn ? "cb-danger" : "cb-primary", onClick: toggleEnabled, children: isOn ? "停止跟车" : "开始跟车" }),
 u$2(
@@ -11130,7 +11862,8 @@ u$2(
                         }
                       }
                     ),
-u$2("label", { for: "autoBlendDryRun", children: "试运行（只观察，不发送）" })
+u$2("label", { for: "autoBlendDryRun", title: "开启后只在日志里显示会发送什么，不会真的发出。关闭后会真实发送弹幕。", children: "试运行（只观察，不发送）" }),
+                    !autoBlendDryRun.value && u$2("span", { style: { color: "#a15c00", fontSize: "0.85em" }, title: "当前关闭试运行，会真实发送弹幕。", children: "关闭后会真实发送" })
                   ] }),
 u$2("span", { style: { display: "inline-flex", alignItems: "center", gap: ".25em" }, children: [
 u$2(
@@ -11206,8 +11939,8 @@ u$2(
                         }
                       }
                     ),
-u$2("label", { for: "autoBlendSendAllTrending", children: "一波刷屏全跟" }),
-u$2("span", { style: { color: "#a15c00" }, children: "猛" })
+u$2("label", { for: "autoBlendSendAllTrending", title: "命中后连发同一波里多句达标弹幕，更激进。", children: "一波刷屏全跟" }),
+u$2("span", { style: { color: "#a15c00" }, title: "更激进：命中一波后会连发多条达标弹幕，更容易被风控。", children: "（更激进）" })
                   ] })
                 ] }),
                 autoBlendSendAllTrending.value && u$2("div", { style: { color: "#a15c00", fontSize: "12px", lineHeight: 1.5, marginBottom: ".25em" }, children: "会把同一波里达标的几句话依次发出去。" }),
@@ -11842,10 +12575,12 @@ u$2(
                     type: "button",
                     style: { fontSize: "11px", cursor: "pointer", padding: ".1em .4em", flexShrink: 0 },
                     onClick: () => {
+                      const id = cachedRoomId.peek();
+                      if (id === null) return;
                       void navigator.clipboard.writeText(text);
                       const uid = cachedStreamerUid.value;
                       window.open(`https://laplace.live/memes${uid ? `?contribute=${uid}` : ""}`, "_blank", "noopener");
-                      ignoreMemeCandidate(text);
+                      ignoreMemeCandidate(text, id);
                     },
                     children: "复制+贡献"
                   }
@@ -11855,7 +12590,10 @@ u$2(
                   {
                     type: "button",
                     style: { fontSize: "11px", cursor: "pointer", padding: ".1em .4em", flexShrink: 0 },
-                    onClick: () => ignoreMemeCandidate(text),
+                    onClick: () => {
+                      const id = cachedRoomId.peek();
+                      if (id !== null) ignoreMemeCandidate(text, id);
+                    },
                     children: "忽略"
                   }
                 )
@@ -11947,21 +12685,43 @@ u$2(
             }
           )
         ] }),
-u$2("div", { className: "cb-row", children: u$2("button", { type: "button", className: "cb-primary", onClick: () => void sendMessage(), children: "发送" }) }),
-u$2("div", { className: "cb-row", children: u$2("span", { className: "cb-row", children: [
+u$2("div", { className: "cb-row", style: { display: "flex", alignItems: "center", gap: ".5em" }, children: [
+u$2(SendActions, { onSend: (msg) => void sendManualDanmaku(msg) }),
 u$2(
-            "input",
+            "button",
             {
-              id: "aiEvasion",
-              type: "checkbox",
-              checked: aiEvasion.value,
-              onInput: (e2) => {
-                aiEvasion.value = e2.currentTarget.checked;
-              }
+              type: "button",
+              className: "cb-primary",
+              onClick: () => void sendMessage(),
+              style: { marginLeft: "auto" },
+              children: "发送"
             }
-          ),
-u$2("label", { for: "aiEvasion", children: "AI规避（发送失败时自动检测敏感词并重试）" })
-        ] }) })
+          )
+        ] }),
+u$2("div", { className: "cb-row", style: { display: "flex", flexDirection: "column", gap: ".15em" }, children: [
+u$2("span", { className: "cb-row", children: [
+u$2(
+              "input",
+              {
+                id: "aiEvasion",
+                type: "checkbox",
+                checked: aiEvasion.value,
+                onInput: (e2) => {
+                  aiEvasion.value = e2.currentTarget.checked;
+                }
+              }
+            ),
+u$2(
+              "label",
+              {
+                for: "aiEvasion",
+                title: "发送失败时，弹幕文本会发到 edge-workers.laplace.cn 进行敏感词检测和改写，再尝试重新发送。详见 关于 → 隐私说明。",
+                children: "AI规避（发送失败时自动检测敏感词并重试）"
+              }
+            )
+          ] }),
+          aiEvasion.value && u$2("div", { className: "cb-note", style: { color: "#666", fontSize: "0.85em", paddingLeft: "1.4em" }, children: "开启后，发送失败的弹幕文本会发到 edge-workers.laplace.cn 改写。详见 关于 → 隐私说明。" })
+        ] })
       ] })
     ] });
   }
@@ -12006,16 +12766,20 @@ u$2("span", { style: { fontWeight: "normal", marginLeft: ".5em" }, children: [
       ),
 u$2("div", { className: "cb-row", style: { display: "flex", flexWrap: "wrap", gap: "4px" }, children: pkg.emoticons.map((emo) => {
         const isCopied = copiedId.value === emo.emoticon_unique;
+        const meta = getEmoticonLockMeta(emo);
+        const titleParts = [emo.emoji, `点击复制: ${emo.emoticon_unique}`];
+        if (meta.titleSuffix) titleParts.push(meta.titleSuffix);
         return u$2(
           "button",
           {
             type: "button",
             className: "cb-emote",
             "data-copied": isCopied,
-            title: `${emo.emoji}
-点击复制: ${emo.emoticon_unique}`,
+            "data-locked": meta.isLocked,
+            title: titleParts.join("\n"),
             onClick: () => void handleCopy(emo.emoticon_unique),
             style: {
+              position: "relative",
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
@@ -12035,11 +12799,37 @@ u$2(
                 {
                   src: emo.url,
                   alt: emo.emoji,
-                  style: { width: "48px", height: "48px", objectFit: "contain" },
-                  loading: "lazy"
+                  loading: "lazy",
+                  style: {
+                    width: "48px",
+                    height: "48px",
+                    objectFit: "contain",
+
+
+opacity: meta.isLocked && !isCopied ? 0.5 : 1
+                  }
                 }
               ),
-              isCopied ? "已复制" : emo.emoji
+              isCopied ? "已复制" : emo.emoji,
+              meta.isLocked && !isCopied && u$2(
+                "span",
+                {
+                  style: {
+                    position: "absolute",
+                    top: 1,
+                    right: 1,
+                    padding: "0 4px",
+                    fontSize: "9px",
+                    lineHeight: "12px",
+                    color: "#fff",
+                    borderRadius: "2px",
+                    background: meta.badgeColor,
+                    pointerEvents: "none",
+                    whiteSpace: "nowrap"
+                  },
+                  children: meta.badgeLabel
+                }
+              )
             ]
           },
           emo.emoticon_id
@@ -12170,13 +12960,13 @@ u$2(
       const json = exportSettings();
       navigator.clipboard.writeText(json).then(
         () => notifyUser("success", "配置已复制到剪贴板"),
-        () => notifyUser("error", "复制配置失败，请手动复制")
+        () => notifyUser("error", "复制配置失败，请手动复制", "可改用「导出配置」下载文件")
       );
     }
     function handleImport() {
       const result = importSettings(importText.value);
       if (!result.ok) {
-        importMsg.value = `❌ 导入失败：${result.error}`;
+        importMsg.value = `❌ 导入失败：${result.error}（常见原因：JSON 格式错误，或来自不兼容的旧版本）`;
         notifyUser("error", "配置导入失败", result.error);
         return;
       }
@@ -12204,6 +12994,34 @@ u$2(
           )
         ] }),
         importOpen.value && u$2("div", { className: "cb-stack", style: { marginTop: ".5em", gap: ".5em" }, children: [
+u$2("div", { className: "cb-note", style: { color: "#a15c00", fontSize: "0.85em" }, children: "⚠️ 导入会覆盖现有设置，包括同步密钥、Soniox API Key 和保安室地址。建议导入前先备份当前配置。" }),
+u$2("details", { style: { fontSize: "0.85em" }, children: [
+u$2("summary", { style: { cursor: "pointer", color: "#666" }, children: "查看示例 JSON 结构" }),
+u$2(
+              "pre",
+              {
+                style: {
+                  background: "var(--bg2, #f5f5f5)",
+                  padding: ".5em",
+                  borderRadius: "4px",
+                  fontSize: "0.8em",
+                  overflowX: "auto",
+                  margin: ".25em 0 0",
+                  whiteSpace: "pre"
+                },
+                children: `{
+  "__version": 1,
+  "__exportedAt": "2026-01-15T10:30:00.000Z",
+  "msgSendInterval": 4,
+  "autoBlendPreset": "normal",
+  "autoBlendDryRun": true,
+  "MsgTemplates": [{ "name": "默认", "msg": "..." }],
+  "customChatEnabled": false,
+  ...
+}`
+              }
+            )
+          ] }),
 u$2(
             "textarea",
             {
@@ -12217,9 +13035,17 @@ u$2(
             }
           ),
 u$2("button", { className: "cb-btn", onClick: handleImport, disabled: !importText.value.trim(), type: "button", children: "确认导入（刷新后生效）" }),
-          importMsg.value && u$2("span", { style: { fontSize: "0.85em", color: importMsg.value.startsWith("✅") ? "#4caf50" : "#f44336" }, children: importMsg.value })
+          importMsg.value && u$2(
+            "span",
+            {
+              role: "status",
+              "aria-live": "polite",
+              style: { fontSize: "0.85em", color: importMsg.value.startsWith("✅") ? "#4caf50" : "#f44336" },
+              children: importMsg.value
+            }
+          )
         ] }),
-u$2("p", { style: { color: "#999", fontSize: "0.8em", margin: ".25em 0 0" }, children: "导出包含所有设置、模板、替换规则和跟车配置（不含烂梗缓存）。" })
+u$2("p", { style: { color: "#666", fontSize: "0.8em", margin: ".25em 0 0" }, children: "导出包含所有设置、模板、替换规则和跟车配置（不含烂梗缓存）。" })
       ] })
     ] });
   }
@@ -12790,7 +13616,7 @@ u$2("label", { htmlFor: "unlockForbidLive", children: "拉黑直播间解锁（�
       )
     ] });
   }
-  const medalCheckStatus = gmSignal("medalCheckStatus", "未检查");
+  const medalCheckStatus = gmSignal("medalCheckStatus", "尚未巡检 — 点击「检查粉丝牌禁言」开始");
   const medalCheckResults = gmSignal("medalCheckResults", []);
   const medalCheckFilter = gmSignal(
     "medalCheckFilter",
@@ -12986,7 +13812,7 @@ ${details}`;
         appendLog("直播间保安室：巡检结果已同步");
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        guardRoomSyncStatus.value = `同步失败：${msg}`;
+        guardRoomSyncStatus.value = `同步失败：${msg}。请检查保安室地址（必须是 https://）和同步密钥，或稍后重试。`;
         appendLog(`直播间保安室：同步失败：${msg}`);
       } finally {
         guardRoomSyncing.value = false;
@@ -13007,7 +13833,7 @@ ${details}`;
           medalCheckCopyStatus.value = "";
         }, 1800);
       } catch {
-        medalCheckCopyStatus.value = "复制失败，请检查浏览器剪贴板权限";
+        medalCheckCopyStatus.value = "复制失败，请检查浏览器剪贴板权限，或改用「下载报告」";
       }
     };
     const downloadMedalCheckResults = () => {
@@ -13041,11 +13867,18 @@ u$2(
           children: [
 u$2("div", { className: "cb-heading", style: { fontWeight: "bold", marginBottom: ".5em" }, children: "粉丝牌禁言巡检" }),
 u$2("div", { className: "cb-note", style: { marginBlock: ".5em", color: "#666" }, children: "只读取 B 站接口，不发送弹幕。结果会按限制、无法确认、主播注销、正常排序；上次巡检会自动保留。" }),
-u$2("div", { className: "cb-panel cb-stack", style: { marginBottom: ".5em" }, children: [
-u$2("div", { className: "cb-heading", style: { marginBottom: 0 }, children: "直播间保安室同步" }),
+u$2("details", { className: "cb-panel cb-stack", style: { marginBottom: ".5em" }, children: [
+u$2("summary", { style: { cursor: "pointer", userSelect: "none", fontWeight: "bold" }, className: "cb-heading", children: "直播间保安室同步（外部服务）" }),
+u$2("div", { className: "cb-note", style: { color: "#666", marginTop: ".5em" }, children: [
+                "保安室是独立的开源项目，需要自行搭建或加入。同步会上传：房间号、主播昵称、粉丝牌、限制信号、脚本版本。",
+u$2("strong", { children: "不会上传 cookie、csrf、localStorage 或完整接口数据。" }),
+                "填写密钥后，每次完成巡检会自动同步一次。"
+              ] }),
+u$2("label", { htmlFor: "guardRoomEndpoint", className: "cb-note", style: { color: "#666" }, children: "保安室地址（必须是 https://，例外：localhost）" }),
 u$2(
                 "input",
                 {
+                  id: "guardRoomEndpoint",
                   type: "text",
                   placeholder: "https://bilibili-guard-room.vercel.app",
                   value: guardRoomEndpoint.value,
@@ -13054,9 +13887,11 @@ u$2(
                   }
                 }
               ),
+u$2("label", { htmlFor: "guardRoomSyncKey", className: "cb-note", style: { color: "#666" }, children: "同步密钥（在保安室项目首页注册空间后获得，格式：spaceId@syncSecret）" }),
 u$2(
                 "input",
                 {
+                  id: "guardRoomSyncKey",
                   type: "text",
                   placeholder: "spaceId@syncSecret",
                   value: guardRoomSyncKey.value,
@@ -13071,15 +13906,17 @@ u$2(
                   {
                     type: "button",
                     disabled: guardRoomSyncing.value || medalCheckResults.value.length === 0,
+                    title: medalCheckResults.value.length === 0 ? "需要先完成一次巡检" : void 0,
                     onClick: () => void syncGuardRoomInspection(),
-                    children: guardRoomSyncing.value ? "同步中…" : "保存并同步"
+                    children: guardRoomSyncing.value ? "同步中…" : "同步当前结果"
                   }
                 ),
-                guardRoomSyncStatus.value && u$2("span", { className: "cb-note", children: guardRoomSyncStatus.value })
+                guardRoomSyncStatus.value && u$2("span", { className: "cb-note", role: "status", "aria-live": "polite", children: guardRoomSyncStatus.value })
               ] })
             ] }),
-u$2("div", { className: "cb-panel cb-stack", style: { marginBottom: ".5em" }, children: [
-u$2("div", { className: "cb-heading", style: { marginBottom: 0 }, children: "监控室代理状态（网站主控版）" }),
+u$2("details", { className: "cb-panel cb-stack", style: { marginBottom: ".5em" }, children: [
+u$2("summary", { style: { cursor: "pointer", userSelect: "none", fontWeight: "bold" }, className: "cb-heading", children: "高级：监控室代理（默认折叠）" }),
+u$2("div", { className: "cb-note", style: { color: "#666", marginTop: ".5em" }, children: "连接到保安室网站后用于远程协调监控。普通用户通常不需要打开。" }),
 u$2("div", { className: "cb-note", children: "监控、推荐、跳转和统一跟车配置现在都以网站为准。脚本这边只负责同步牌子房/关注房清单、拉取网站配置，并在当前直播页执行试运行。" }),
 u$2("label", { className: "cb-note cb-switch-row", children: [
 u$2(
@@ -13092,7 +13929,7 @@ u$2(
                     }
                   }
                 ),
-u$2("span", { children: "允许网站覆盖本地自动跟车配置（预设 / 试运行）" })
+u$2("span", { title: "开启后，连接的保安室网站可以远程下发预设和试运行开关；关闭后保留你的本地参数。", children: "允许直播间保安室远程下发自动跟车预设和试运行开关" })
               ] }),
               !guardRoomWebsiteControlEnabled.value && u$2("div", { className: "cb-note", children: "关闭时仍会同步监控状态，但不会把你的本地自定义参数改回 normal / 试运行。" }),
               guardRoomHandoffActive.value && u$2("div", { className: "cb-note", children: "当前页是从监控室接管跳转进来的，本页仍会按监控室指令执行试运行/自动启动。" }),
@@ -13164,8 +14001,16 @@ u$2(
                     }
                   ),
 u$2("button", { type: "button", disabled: medalCheckResults.value.length === 0, onClick: downloadMedalCheckResults, children: "下载报告" }),
-u$2("span", { style: { color: medalCheckStatus.value.includes("发现限制") ? "#a15c00" : "#666" }, children: medalCheckStatus.value }),
-                  medalCheckCopyStatus.value && u$2("span", { className: "cb-note", children: medalCheckCopyStatus.value })
+u$2(
+                    "span",
+                    {
+                      role: "status",
+                      "aria-live": "polite",
+                      style: { color: medalCheckStatus.value.includes("发现限制") ? "#a15c00" : "#666" },
+                      children: medalCheckStatus.value
+                    }
+                  ),
+                  medalCheckCopyStatus.value && u$2("span", { className: "cb-note", role: "status", "aria-live": "polite", children: medalCheckCopyStatus.value })
                 ]
               }
             ),
@@ -13629,7 +14474,8 @@ u$2(
                 }
               )
             ] }),
-u$2("div", { className: "cb-note", style: { marginBlock: ".5em", color: "#666" }, children: "每10分钟会自动同步云端替换规则" }),
+u$2("div", { className: "cb-note", style: { marginBlock: ".5em", color: "#666" }, children: "云端规则由社区维护，每 10 分钟会自动从 workers.vrp.moe 同步一次。" }),
+u$2("div", { className: "cb-note", style: { marginBlock: ".25em", color: "#666", fontSize: "0.85em" }, children: "应用顺序（从高到低）：当前直播间规则 → 本地全局规则 → 云端规则 → 原文。" }),
 u$2(
               "div",
               {
@@ -13964,6 +14810,188 @@ u$2(
       )
     ] });
   }
+  const SECTION_KEYWORDS = "影子屏蔽 屏蔽观察 自动学习 shadow ban";
+  function formatRelative(ts) {
+    const diff = Date.now() - ts;
+    if (diff < 6e4) return "刚刚";
+    if (diff < 36e5) return `${Math.floor(diff / 6e4)} 分钟前`;
+    if (diff < 864e5) return `${Math.floor(diff / 36e5)} 小时前`;
+    return `${Math.floor(diff / 864e5)} 天前`;
+  }
+  function ShadowObservationSection({ query = "" }) {
+    const visible = !query || SECTION_KEYWORDS.toLowerCase().includes(query);
+    const replaceTo = useSignal({});
+    if (!visible) return null;
+    const sorted = [...shadowBanObservations.value].sort((a2, b2) => b2.count - a2.count || b2.ts - a2.ts);
+    const top = sorted.slice(0, 50);
+    const keyOf = (text, roomId) => `${roomId ?? "global"}\0${text}`;
+    return u$2("details", { className: "cb-settings-accordion", children: [
+u$2("summary", { children: "影子屏蔽观察 / 自动学习" }),
+u$2(
+        "div",
+        {
+          className: "cb-section cb-stack",
+          style: { margin: ".5em 0", paddingBottom: "1em", borderBottom: "1px solid var(--Ga2, #eee)" },
+          children: [
+u$2("div", { className: "cb-row", children: [
+u$2(
+                "input",
+                {
+                  id: "autoLearnShadowRules",
+                  type: "checkbox",
+                  checked: autoLearnShadowRules.value,
+                  onInput: (e2) => {
+                    autoLearnShadowRules.value = e2.currentTarget.checked;
+                  }
+                }
+              ),
+u$2(
+                "label",
+                {
+                  for: "autoLearnShadowRules",
+                  title: "当 verifyBroadcast 检测到影子封禁、AI 规避又成功改写之后，自动把（敏感词→改写后）写入当前房间的本地替换规则。",
+                  children: "自动学习屏蔽词（AI 规避成功后写入本地房间规则）"
+                }
+              )
+            ] }),
+u$2("div", { className: "cb-note", style: { color: "#666", fontSize: "0.85em", paddingLeft: "1.4em" }, children: "学到的规则会作为本地房间规则保存，下次发送同样文本会先走替换。如果配置了 Guard Room，每条新规则会上报到云端供跨设备同步。" }),
+u$2("div", { className: "cb-heading", style: { fontWeight: "bold", marginTop: ".6em" }, children: [
+              "影子封禁观察列表",
+u$2("span", { style: { color: "#999", fontWeight: "normal", marginLeft: ".4em" }, children: [
+                "(共 ",
+                shadowBanObservations.value.length,
+                " 条，显示前 50)"
+              ] }),
+              top.length > 0 && u$2(
+                "button",
+                {
+                  type: "button",
+                  className: "cb-button-text",
+                  style: { float: "right", fontSize: "0.85em" },
+                  onClick: () => {
+                    if (!confirm("确定清空所有影子封禁观察记录吗？")) return;
+                    clearShadowBanObservations();
+                    appendLog("🧹 已清空影子封禁观察列表");
+                  },
+                  children: "全部清空"
+                }
+              )
+            ] }),
+            top.length === 0 ? u$2("div", { className: "cb-empty", style: { color: "#999" }, children: "暂无观察记录。当 AI 规避未开、或开了但 Laplace 没识别敏感词、或改写后仍未广播时，原句会出现在这里。" }) : u$2("div", { className: "cb-rule-list", children: top.map((obs) => {
+              const k2 = keyOf(obs.text, obs.roomId);
+              const editing = replaceTo.value[k2];
+              const showInput = typeof editing === "string";
+              return u$2(
+                "div",
+                {
+                  className: "cb-rule-item",
+                  style: { flexDirection: "column", alignItems: "stretch", gap: ".35em" },
+                  children: [
+u$2("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" }, children: [
+u$2("code", { style: { fontSize: "0.95em" }, children: obs.text }),
+u$2("span", { style: { color: "#999", fontSize: "0.85em" }, children: [
+                        "×",
+                        obs.count,
+                        obs.roomId !== void 0 && u$2(S$1, { children: [
+                          " · 房间 ",
+                          obs.roomId
+                        ] }),
+                        " · ",
+                        formatRelative(obs.ts),
+                        obs.evadedAlready && u$2(S$1, { children: " · AI改写后仍未广播" })
+                      ] })
+                    ] }),
+                    showInput && u$2("div", { className: "cb-row", style: { gap: ".4em", alignItems: "center" }, children: [
+u$2("span", { className: "cb-label", style: { color: "#999", fontSize: "0.85em" }, children: "改成" }),
+u$2(
+                        "input",
+                        {
+                          type: "text",
+                          style: { flex: 1 },
+                          value: editing,
+                          placeholder: "留空 = 用隐形字符变体",
+                          onInput: (e2) => {
+                            replaceTo.value = { ...replaceTo.value, [k2]: e2.currentTarget.value };
+                          }
+                        }
+                      ),
+u$2(
+                        "button",
+                        {
+                          type: "button",
+                          onClick: () => {
+                            const target = (replaceTo.value[k2] ?? "").trim() || processText(obs.text);
+                            if (obs.roomId === void 0) {
+                              appendLog("⚠️ 该条观察记录没有房间 id，无法转为本地房间规则");
+                              return;
+                            }
+                            const ok = promoteObservationToRule(obs, target);
+                            if (ok) {
+                              appendLog(`📚 已加为房间 ${obs.roomId} 的本地规则：${obs.text} → ${target}`);
+                              const { [k2]: _drop, ...rest } = replaceTo.value;
+                              replaceTo.value = rest;
+                            } else {
+                              appendLog("⚠️ 添加规则失败（可能已存在同 from 的规则，或 from===to）");
+                            }
+                          },
+                          children: "确认"
+                        }
+                      ),
+u$2(
+                        "button",
+                        {
+                          type: "button",
+                          onClick: () => {
+                            const { [k2]: _drop, ...rest } = replaceTo.value;
+                            replaceTo.value = rest;
+                          },
+                          children: "取消"
+                        }
+                      )
+                    ] }),
+                    !showInput && u$2("div", { className: "cb-row", style: { gap: ".4em" }, children: [
+u$2(
+                        "button",
+                        {
+                          type: "button",
+                          disabled: obs.roomId === void 0,
+                          title: obs.roomId === void 0 ? "没有房间 id 信息，无法加为房间规则" : "",
+                          onClick: () => {
+                            replaceTo.value = { ...replaceTo.value, [k2]: processText(obs.text) };
+                          },
+                          children: "加为本地规则"
+                        }
+                      ),
+u$2("button", { type: "button", onClick: () => removeShadowBanObservation(obs.text, obs.roomId), children: "删除" })
+                    ] })
+                  ]
+                },
+                k2
+              );
+            }) })
+          ]
+        }
+      )
+    ] });
+  }
+  function GroupHeading({ children, query }) {
+    if (query) return null;
+    return u$2(
+      "div",
+      {
+        className: "cb-group-heading",
+        style: {
+          margin: "1em 0 .25em",
+          fontSize: "0.75em",
+          fontWeight: "bold",
+          color: "#999",
+          letterSpacing: "0.04em",
+          textTransform: "uppercase"
+        },
+        children
+      }
+    );
+  }
   function SettingsTab() {
     const settingsSearch = useSignal("");
     const query = settingsSearch.value.trim().toLowerCase();
@@ -13984,9 +15012,10 @@ u$2(
           }
         )
       ] }),
-u$2(CloudReplacementSection, { query }),
-u$2(LocalGlobalReplacementSection, { query }),
-u$2(LocalRoomReplacementSection, { query }),
+u$2(GroupHeading, { query, children: "常用" }),
+u$2(CustomChatSection, { query }),
+u$2(DanmakuDirectSection, { query }),
+u$2(LayoutSection, { query }),
       (!query || "表情 emote emoji ID 复制".toLowerCase().includes(query)) && u$2("details", { className: "cb-settings-accordion", open: true, children: [
 u$2("summary", { children: "表情" }),
 u$2(
@@ -14001,10 +15030,15 @@ u$2("div", { style: { maxHeight: "200px", overflowY: "auto" }, children: u$2(Emo
           }
         )
       ] }),
+u$2(GroupHeading, { query, children: "替换规则" }),
+u$2(CloudReplacementSection, { query }),
+u$2(LocalGlobalReplacementSection, { query }),
+u$2(LocalRoomReplacementSection, { query }),
+u$2(ShadowObservationSection, { query }),
+u$2(GroupHeading, { query, children: "工具" }),
 u$2(MedalCheckSection, { query }),
-u$2(CustomChatSection, { query }),
-u$2(DanmakuDirectSection, { query }),
-u$2(LayoutSection, { query }),
+u$2(BackupSection, { query }),
+u$2(GroupHeading, { query, children: "系统" }),
       (!query || "日志设置 日志 行数".toLowerCase().includes(query)) && u$2("details", { className: "cb-settings-accordion", children: [
 u$2("summary", { children: "日志设置" }),
 u$2("div", { className: "cb-section cb-stack", style: { margin: ".5em 0", paddingBottom: "1em" }, children: [
@@ -14031,8 +15065,7 @@ u$2(
 u$2("span", { style: { color: "#999", fontSize: "0.9em" }, children: "(1-1000)" })
           ] })
         ] })
-      ] }),
-u$2(BackupSection, { query })
+      ] })
     ] });
   }
   const SONIOX_FLUSH_DELAY_MS = 5e3;
@@ -14072,7 +15105,7 @@ u$2(BackupSection, { query })
         const roomId = await ensureRoomId();
         const csrfToken = getCsrfToken();
         if (!csrfToken) {
-          appendLog("❌ 同传：未找到登录信息");
+          appendLog("❌ 同传：未找到 Bilibili 登录信息，请刷新 B 站页面或重新登录");
           return;
         }
         if (isLockedEmoticon(segment)) {
@@ -14306,7 +15339,8 @@ u$2(
 u$2("span", { className: "cb-note", children: "注册后把 API Key 粘贴到上方。" })
                 ]
               }
-            )
+            ),
+u$2("div", { className: "cb-note", style: { color: "#666", fontSize: "0.85em", marginTop: ".25em" }, children: "API Key 仅保存在你的浏览器（GM 存储）。开启同传后，麦克风音频流会通过 WebSocket 发送到 api.soniox.com 进行识别。" })
           ]
         }
       ),
@@ -14582,7 +15616,20 @@ u$2("button", { type: "button", className: "cb-button", onClick: this.handleRelo
       );
     }
   }
-  const ONBOARDING_STEPS = ["选择一个自动跟车预设", "先测试发送一条普通弹幕", "开启自动跟车试运行观察效果"];
+  const ONBOARDING_STEPS = [
+    {
+      title: "选一个自动跟车预设",
+      detail: "建议先选「正常」。预设决定多积极地跟车。"
+    },
+    {
+      title: "先手动发一条普通弹幕",
+      detail: "确认账号能正常发言，再交给脚本。"
+    },
+    {
+      title: "开启自动跟车「试运行」",
+      detail: "试运行只在日志里显示会发什么，不会真的发出去。先观察一会再决定是否真的发送。"
+    }
+  ];
   function Onboarding() {
     if (hasSeenWelcome.value || !dialogOpen.value) return null;
     const finish = (message) => {
@@ -14595,6 +15642,10 @@ u$2("button", { type: "button", className: "cb-button", onClick: this.handleRelo
       activeTab.value = "fasong";
       finish("👋 已套用新手建议：自动跟车使用正常预设，并先开启试运行。");
     };
+    const openAbout = () => {
+      activeTab.value = "about";
+      finish("👋 已跳过首次引导，已为你打开「关于」隐私说明。");
+    };
     return u$2(
       "div",
       {
@@ -14605,21 +15656,27 @@ u$2("button", { type: "button", className: "cb-button", onClick: this.handleRelo
           right: "min(336px, calc(100vw - 288px))",
           bottom: "46px",
           zIndex: 2147483647,
-          width: "min(280px, calc(100vw - 24px))",
+          width: "min(300px, calc(100vw - 24px))",
           border: "1px solid rgba(60, 60, 67, .18)",
           borderRadius: "8px",
           background: "rgba(255, 255, 255, .96)",
           color: "#1d1d1f",
           boxShadow: "0 18px 48px rgba(0,0,0,.22)",
           padding: "12px",
-          fontSize: "12px",
+          fontSize: "13px",
           lineHeight: 1.5
         },
         children: [
 u$2("div", { style: { fontWeight: 700, marginBottom: "6px" }, children: "第一次使用弹幕助手" }),
-u$2("ol", { style: { margin: "0 0 10px 18px", padding: 0 }, children: ONBOARDING_STEPS.map((step) => u$2("li", { children: step }, step)) }),
+u$2("div", { style: { color: "#555", marginBottom: "8px", fontSize: "12px" }, children: "弹幕助手可以循环发送弹幕、按热度自动跟车、接管聊天区，并查询粉丝牌房间状态。" }),
+u$2("ol", { style: { margin: "0 0 10px 18px", padding: 0 }, children: ONBOARDING_STEPS.map((step) => u$2("li", { style: { marginBottom: "4px" }, children: [
+u$2("div", { children: step.title }),
+u$2("div", { style: { color: "#666", fontSize: "12px" }, children: step.detail })
+          ] }, step.title)) }),
+u$2("div", { style: { color: "#666", fontSize: "12px", marginBottom: "8px" }, children: "部分功能（AI 规避、保安室同步、同传）会和外部服务通信，详见「关于 → 隐私说明」。" }),
 u$2("div", { style: { display: "flex", gap: "6px", flexWrap: "wrap" }, children: [
 u$2("button", { type: "button", className: "cb-btn", onClick: useRecommended, children: "使用建议配置" }),
+u$2("button", { type: "button", className: "cb-btn", onClick: openAbout, children: "查看隐私说明" }),
 u$2("button", { type: "button", className: "cb-btn", onClick: () => finish("👋 已跳过首次引导。"), children: "跳过" })
           ] })
         ]

@@ -183,6 +183,38 @@ export async function syncGuardRoomLiveDeskHeartbeat(input: LiveDeskHeartbeatInp
   }).catch(() => undefined)
 }
 
+export interface ShadowRuleSyncInput {
+  roomId: number
+  from: string
+  to: string
+  /** The full original message that triggered the shadow-ban learning. Truncated to 200 chars on the wire. */
+  sourceText: string
+}
+
+/** Reports an auto-learned shadow-ban replacement rule to the user-configured guard-room endpoint. */
+export async function syncGuardRoomShadowRule(input: ShadowRuleSyncInput): Promise<void> {
+  const endpoint = normalizeGuardRoomEndpoint(guardRoomEndpoint.value)
+  const syncKey = guardRoomSyncKey.value.trim()
+  if (!endpoint || !syncKey) return
+
+  await fetch(`${endpoint}/api/shadow-rules`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-sync-key': syncKey,
+    },
+    body: JSON.stringify({
+      kind: 'shadow_rule_learned',
+      roomId: input.roomId,
+      from: input.from,
+      to: input.to,
+      sourceText: input.sourceText.slice(0, 200),
+      occurredAt: new Date().toISOString(),
+      scriptVersion: VERSION,
+    }),
+  }).catch(() => undefined)
+}
+
 export async function syncGuardRoomWatchlist(rooms: GuardRoomWatchlistRoomInput[]): Promise<void> {
   const endpoint = normalizeGuardRoomEndpoint(guardRoomEndpoint.value)
   const syncKey = guardRoomSyncKey.value.trim()

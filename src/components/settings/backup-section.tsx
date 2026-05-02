@@ -26,14 +26,14 @@ export function BackupSection({ query = '' }: { query?: string }) {
     const json = exportSettings()
     navigator.clipboard.writeText(json).then(
       () => notifyUser('success', '配置已复制到剪贴板'),
-      () => notifyUser('error', '复制配置失败，请手动复制')
+      () => notifyUser('error', '复制配置失败，请手动复制', '可改用「导出配置」下载文件')
     )
   }
 
   function handleImport() {
     const result = importSettings(importText.value)
     if (!result.ok) {
-      importMsg.value = `❌ 导入失败：${result.error}`
+      importMsg.value = `❌ 导入失败：${result.error}（常见原因：JSON 格式错误，或来自不兼容的旧版本）`
       notifyUser('error', '配置导入失败', result.error)
       return
     }
@@ -68,6 +68,34 @@ export function BackupSection({ query = '' }: { query?: string }) {
         </div>
         {importOpen.value && (
           <div className='cb-stack' style={{ marginTop: '.5em', gap: '.5em' }}>
+            <div className='cb-note' style={{ color: '#a15c00', fontSize: '0.85em' }}>
+              ⚠️ 导入会覆盖现有设置，包括同步密钥、Soniox API Key 和保安室地址。建议导入前先备份当前配置。
+            </div>
+            <details style={{ fontSize: '0.85em' }}>
+              <summary style={{ cursor: 'pointer', color: '#666' }}>查看示例 JSON 结构</summary>
+              <pre
+                style={{
+                  background: 'var(--bg2, #f5f5f5)',
+                  padding: '.5em',
+                  borderRadius: '4px',
+                  fontSize: '0.8em',
+                  overflowX: 'auto',
+                  margin: '.25em 0 0',
+                  whiteSpace: 'pre',
+                }}
+              >
+                {`{
+  "__version": 1,
+  "__exportedAt": "2026-01-15T10:30:00.000Z",
+  "msgSendInterval": 4,
+  "autoBlendPreset": "normal",
+  "autoBlendDryRun": true,
+  "MsgTemplates": [{ "name": "默认", "msg": "..." }],
+  "customChatEnabled": false,
+  ...
+}`}
+              </pre>
+            </details>
             <textarea
               style={{ width: '100%', height: '80px', fontFamily: 'monospace', fontSize: '0.8em', resize: 'vertical' }}
               placeholder='粘贴配置 JSON...'
@@ -81,13 +109,17 @@ export function BackupSection({ query = '' }: { query?: string }) {
               确认导入（刷新后生效）
             </button>
             {importMsg.value && (
-              <span style={{ fontSize: '0.85em', color: importMsg.value.startsWith('✅') ? '#4caf50' : '#f44336' }}>
+              <span
+                role='status'
+                aria-live='polite'
+                style={{ fontSize: '0.85em', color: importMsg.value.startsWith('✅') ? '#4caf50' : '#f44336' }}
+              >
                 {importMsg.value}
               </span>
             )}
           </div>
         )}
-        <p style={{ color: '#999', fontSize: '0.8em', margin: '.25em 0 0' }}>
+        <p style={{ color: '#666', fontSize: '0.8em', margin: '.25em 0 0' }}>
           导出包含所有设置、模板、替换规则和跟车配置（不含烂梗缓存）。
         </p>
       </div>

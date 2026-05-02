@@ -68,6 +68,9 @@ export interface TryAiEvasionResult {
   success: boolean
   evadedMessage?: string
   error?: string
+  /** Sensitive words Laplace flagged on this attempt — exposed so callers can
+   *  learn (sensitiveWord → processText(sensitiveWord)) into local rules. */
+  sensitiveWords?: string[]
 }
 
 /**
@@ -107,11 +110,11 @@ export async function tryAiEvasion(
 
     if (retryResult.success) {
       appendLog(`✅ ${logPrefix}AI规避成功: ${evadedMessage}`)
-      return { success: true, evadedMessage }
+      return { success: true, evadedMessage, sensitiveWords: detection.sensitiveWords }
     }
 
     appendLog(`❌ ${logPrefix}AI规避失败: ${evadedMessage}，原因：${retryResult.error}`)
-    return { success: false, evadedMessage, error: retryResult.error }
+    return { success: false, evadedMessage, error: retryResult.error, sensitiveWords: detection.sensitiveWords }
   }
 
   appendLog(`⚠️ ${logPrefix}无法检测到敏感词，请手动检查`)

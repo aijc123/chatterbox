@@ -10,6 +10,7 @@ import { ignoreMemeCandidate } from '../lib/meme-contributor'
 import { applyReplacements } from '../lib/replacement'
 import { enqueueDanmaku, SendPriority } from '../lib/send-queue'
 import {
+  cachedRoomId,
   cachedStreamerUid,
   enableMemeContribution,
   maxLength,
@@ -424,10 +425,12 @@ export function MemesList() {
                     type='button'
                     style={{ fontSize: '11px', cursor: 'pointer', padding: '.1em .4em', flexShrink: 0 }}
                     onClick={() => {
+                      const id = cachedRoomId.peek()
+                      if (id === null) return
                       void navigator.clipboard.writeText(text)
                       const uid = cachedStreamerUid.value
                       window.open(`https://laplace.live/memes${uid ? `?contribute=${uid}` : ''}`, '_blank', 'noopener')
-                      ignoreMemeCandidate(text)
+                      ignoreMemeCandidate(text, id)
                     }}
                   >
                     复制+贡献
@@ -435,7 +438,10 @@ export function MemesList() {
                   <button
                     type='button'
                     style={{ fontSize: '11px', cursor: 'pointer', padding: '.1em .4em', flexShrink: 0 }}
-                    onClick={() => ignoreMemeCandidate(text)}
+                    onClick={() => {
+                      const id = cachedRoomId.peek()
+                      if (id !== null) ignoreMemeCandidate(text, id)
+                    }}
                   >
                     忽略
                   </button>

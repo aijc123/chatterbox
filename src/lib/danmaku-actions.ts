@@ -6,6 +6,7 @@ import { classifyRiskEvent, syncGuardRoomRiskEvent } from './guard-room-sync'
 import { appendLog } from './log'
 import { applyReplacements } from './replacement'
 import { enqueueDanmaku, SendPriority } from './send-queue'
+import { verifyBroadcast } from './send-verification'
 import { activeTab, aiEvasion, customChatEnabled, dialogOpen, fasongText, maxLength, msgSendInterval } from './store'
 import { processMessages } from './utils'
 
@@ -77,6 +78,18 @@ export async function repeatDanmaku(
     const result = await enqueueDanmaku(processed, roomId, csrfToken, SendPriority.MANUAL)
     const display = msg !== processed ? `${msg} → ${processed}` : processed
     appendLog(result, '+1', display)
+    if (result.success && !result.cancelled) {
+      void verifyBroadcast({
+        text: processed,
+        label: '+1',
+        display,
+        sinceTs: result.startedAt ?? Date.now(),
+        isEmoticon: result.isEmoticon,
+        enableAiEvasion: true,
+        roomId,
+        csrfToken,
+      })
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     appendLog(`🔴 +1 出错：${message}`)
@@ -138,6 +151,17 @@ export async function sendManualDanmaku(originalMessage: string): Promise<boolea
         if (aiEvasion.value) {
           await tryAiEvasion(segment, roomId, csrfToken, '')
         }
+      } else if (!result.cancelled) {
+        void verifyBroadcast({
+          text: segment,
+          label,
+          display: displayMsg,
+          sinceTs: result.startedAt ?? Date.now(),
+          isEmoticon: result.isEmoticon,
+          enableAiEvasion: true,
+          roomId,
+          csrfToken,
+        })
       }
 
       if (i < segments.length - 1) {

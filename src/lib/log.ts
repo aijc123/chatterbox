@@ -45,6 +45,16 @@ export function notifyUser(level: NotifyLevel, message: string, detail?: string)
   if (level === 'warning' || level === 'error') showUserNotice(fullMessage, level)
 }
 
+function formatTs(now: Date): string {
+  return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
+}
+
+function pushLine(line: string): void {
+  const max = maxLogLines.value
+  const lines = logLines.value
+  logLines.value = lines.length >= max ? [...lines.slice(lines.length - max + 1), line] : [...lines, line]
+}
+
 /**
  * Appends an entry to the shared log.
  *
@@ -55,8 +65,7 @@ export function notifyUser(level: NotifyLevel, message: string, detail?: string)
 export function appendLog(message: string): void
 export function appendLog(result: SendDanmakuResult, label: string, display: string): void
 export function appendLog(arg: string | SendDanmakuResult, label?: string, display?: string): void {
-  const now = new Date()
-  const ts = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
+  const ts = formatTs(new Date())
 
   const message =
     typeof arg === 'string'
@@ -67,14 +76,20 @@ export function appendLog(arg: string | SendDanmakuResult, label?: string, displ
           ? `${ts} ✅ ${label}: ${display}`
           : `${ts} ❌ ${label}: ${display}，原因：${formatDanmakuError(arg.error)}`
 
-  const max = maxLogLines.value
-  const lines = logLines.value
-  const next = lines.length >= max ? [...lines.slice(lines.length - max + 1), message] : [...lines, message]
-  logLines.value = next
+  pushLine(message)
 
   if (typeof arg === 'string') {
     maybeSurfaceLogMessage(arg)
   } else if (!arg.success && !arg.cancelled) {
     showUserNotice(`${label}: ${display}，原因：${formatDanmakuError(arg.error)}`, 'error')
   }
+}
+
+/**
+ * Appends a free-form log entry without triggering the auto-toast surfacing
+ * regex. Used by callers that want to write a `⚠️` line but suppress the
+ * Toast (e.g. duplicate shadow-ban warnings inside the auto-loop).
+ */
+export function appendLogQuiet(message: string): void {
+  pushLine(`${formatTs(new Date())} ${message}`)
 }

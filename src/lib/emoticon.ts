@@ -38,10 +38,55 @@ export function isLockedEmoticon(msg: string): boolean {
 }
 
 /**
+ * Returns the human-facing "why is this locked" reason for a given emoticon.
+ * Falls back to 权限不足 when the emoticon is unknown or carries no
+ * `unlock_show_text`. Single source of truth so log lines, picker toasts,
+ * and tooltips stay in sync.
+ */
+export function getEmoticonLockReason(emo: BilibiliEmoticon | null | undefined): string {
+  const reqText = emo?.unlock_show_text?.trim()
+  return reqText ? `需要 ${reqText}` : '权限不足'
+}
+
+/**
+ * Bundle of UI-level lock metadata for a single emoticon. Computed once and
+ * reused across the picker (toast + thumbnail) and the settings list (badge
+ * + dimmed thumbnail) so they cannot drift.
+ */
+export interface EmoticonLockMeta {
+  /** True iff the server has flagged the emote as unsendable for this user. */
+  isLocked: boolean
+  /** Trimmed `unlock_show_text` (`''` when missing or whitespace-only). */
+  lockText: string
+  /** Reason text used for toasts and log lines (`需要 X` or `权限不足`). */
+  reason: string
+  /** Background color for the lock badge (falls back to a translucent black). */
+  badgeColor: string
+  /** Tooltip suffix to append after the emoji name; empty when unlocked. */
+  titleSuffix: string
+  /** Short visible label inside the lock badge — `lockText` or 🔒 fallback. */
+  badgeLabel: string
+}
+
+/**
+ * Derives the lock-state UI metadata for a given emoticon. Always returns a
+ * full meta object (including for unlocked emotes) so call sites can use the
+ * same helper unconditionally and read `isLocked` to gate badge rendering.
+ */
+export function getEmoticonLockMeta(emo: BilibiliEmoticon | null | undefined): EmoticonLockMeta {
+  const isLocked = emo?.perm === 0
+  const lockText = emo?.unlock_show_text?.trim() || ''
+  const reason = lockText ? `需要 ${lockText}` : '权限不足'
+  const badgeColor = emo?.unlock_show_color || 'rgba(0,0,0,0.6)'
+  const titleSuffix = isLocked ? (lockText ? `🔒 该表情需要 ${lockText} 才能发送` : '🔒 该表情已被平台锁定') : ''
+  const badgeLabel = lockText || '🔒'
+  return { isLocked, lockText, reason, badgeColor, titleSuffix, badgeLabel }
+}
+
+/**
  * Builds the user-facing log line for a locked-emoticon rejection.
  */
 export function formatLockedEmoticonReject(msg: string, label: string): string {
-  const reqText = findEmoticon(msg)?.unlock_show_text?.trim()
-  const reason = reqText ? `需要 ${reqText}` : '权限不足'
+  const reason = getEmoticonLockReason(findEmoticon(msg))
   return `🔒 ${label}：${msg} 已被平台锁定（${reason}），已阻止发送`
 }

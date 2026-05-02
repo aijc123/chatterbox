@@ -1,4 +1,8 @@
+import { useEffect, useRef } from 'preact/hooks'
+
 import { VERSION } from '../lib/const'
+import { activeTab, hasSeenWelcome, lastSeenVersion } from '../lib/store'
+import { shouldShowVersionUpdateBadge } from '../lib/version-update'
 
 const SECTION_STYLE = {
   margin: '.5em 0',
@@ -69,6 +73,14 @@ const EXTERNAL_SERVICES: ExternalService[] = [
 ]
 
 export function AboutTab() {
+  const initialSeenRef = useRef(lastSeenVersion.value)
+  const isFreshUpdate = shouldShowVersionUpdateBadge(initialSeenRef.current, VERSION)
+  useEffect(() => {
+    if (lastSeenVersion.value !== VERSION) {
+      lastSeenVersion.value = VERSION
+    }
+  }, [])
+
   return (
     <>
       <div className='cb-section cb-stack' style={SECTION_STYLE}>
@@ -76,7 +88,24 @@ export function AboutTab() {
           B站独轮车 + 自动跟车
         </div>
         <div className='cb-note' style={{ display: 'flex', flexDirection: 'column', gap: '.25em', color: '#666' }}>
-          <span>版本: {VERSION}</span>
+          <span>
+            版本: {VERSION}
+            {isFreshUpdate && (
+              <span
+                style={{
+                  marginLeft: '.5em',
+                  padding: '1px 6px',
+                  borderRadius: '999px',
+                  background: '#ffe7c2',
+                  color: '#a15c00',
+                  fontSize: '0.8em',
+                }}
+                title={`从 v${initialSeenRef.current} 更新到 v${VERSION}`}
+              >
+                🆕 已更新
+              </span>
+            )}
+          </span>
           <span>
             作者:{' '}
             <a href='https://github.com/aijc123' target='_blank' rel='noopener' style={LINK_STYLE}>
@@ -100,6 +129,19 @@ export function AboutTab() {
             <a href='https://github.com/laplace-live/chatterbox' target='_blank' rel='noopener' style={LINK_STYLE}>
               LAPLACE Chatterbox
             </a>
+          </span>
+          <span style={{ marginTop: '.5em' }}>
+            <button
+              type='button'
+              className='cb-btn'
+              onClick={() => {
+                hasSeenWelcome.value = false
+                activeTab.value = 'fasong'
+              }}
+              title='下次打开「发送」页签时会再次显示首次引导'
+            >
+              重新查看新手引导
+            </button>
           </span>
         </div>
       </div>

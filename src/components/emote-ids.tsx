@@ -1,5 +1,6 @@
 import { useSignal } from '@preact/signals'
 
+import { getEmoticonLockMeta } from '../lib/emoticon'
 import { notifyUser } from '../lib/log'
 import { cachedEmoticonPackages } from '../lib/store'
 
@@ -47,15 +48,20 @@ export function EmoteIds() {
           <div className='cb-row' style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
             {pkg.emoticons.map(emo => {
               const isCopied = copiedId.value === emo.emoticon_unique
+              const meta = getEmoticonLockMeta(emo)
+              const titleParts: string[] = [emo.emoji, `点击复制: ${emo.emoticon_unique}`]
+              if (meta.titleSuffix) titleParts.push(meta.titleSuffix)
               return (
                 <button
                   type='button'
                   key={emo.emoticon_id}
                   className='cb-emote'
                   data-copied={isCopied}
-                  title={`${emo.emoji}\n点击复制: ${emo.emoticon_unique}`}
+                  data-locked={meta.isLocked}
+                  title={titleParts.join('\n')}
                   onClick={() => void handleCopy(emo.emoticon_unique)}
                   style={{
+                    position: 'relative',
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
@@ -73,10 +79,37 @@ export function EmoteIds() {
                   <img
                     src={emo.url}
                     alt={emo.emoji}
-                    style={{ width: '48px', height: '48px', objectFit: 'contain' }}
                     loading='lazy'
+                    style={{
+                      width: '48px',
+                      height: '48px',
+                      objectFit: 'contain',
+                      // Locked emotes stay clickable (so the user can still
+                      // copy the unique key) but are dimmed to signal that
+                      // direct sending will be blocked downstream.
+                      opacity: meta.isLocked && !isCopied ? 0.5 : 1,
+                    }}
                   />
                   {isCopied ? '已复制' : emo.emoji}
+                  {meta.isLocked && !isCopied && (
+                    <span
+                      style={{
+                        position: 'absolute',
+                        top: 1,
+                        right: 1,
+                        padding: '0 4px',
+                        fontSize: '9px',
+                        lineHeight: '12px',
+                        color: '#fff',
+                        borderRadius: '2px',
+                        background: meta.badgeColor,
+                        pointerEvents: 'none',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {meta.badgeLabel}
+                    </span>
+                  )}
                 </button>
               )
             })}

@@ -21,7 +21,7 @@ import {
   guardRoomWebsiteControlEnabled,
 } from '../../lib/store'
 
-const medalCheckStatus = gmSignal('medalCheckStatus', '未检查')
+const medalCheckStatus = gmSignal('medalCheckStatus', '尚未巡检 — 点击「检查粉丝牌禁言」开始')
 const medalCheckResults = gmSignal<MedalRestrictionCheck[]>('medalCheckResults', [])
 const medalCheckFilter = gmSignal<'issues' | 'restricted' | 'unknown' | 'deactivated' | 'ok' | 'all'>(
   'medalCheckFilter',
@@ -248,7 +248,7 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
       appendLog('直播间保安室：巡检结果已同步')
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      guardRoomSyncStatus.value = `同步失败：${msg}`
+      guardRoomSyncStatus.value = `同步失败：${msg}。请检查保安室地址（必须是 https://）和同步密钥，或稍后重试。`
       appendLog(`直播间保安室：同步失败：${msg}`)
     } finally {
       guardRoomSyncing.value = false
@@ -270,7 +270,7 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
         medalCheckCopyStatus.value = ''
       }, 1800)
     } catch {
-      medalCheckCopyStatus.value = '复制失败，请检查浏览器剪贴板权限'
+      medalCheckCopyStatus.value = '复制失败，请检查浏览器剪贴板权限，或改用「下载报告」'
     }
   }
 
@@ -309,11 +309,20 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
         <div className='cb-note' style={{ marginBlock: '.5em', color: '#666' }}>
           只读取 B 站接口，不发送弹幕。结果会按限制、无法确认、主播注销、正常排序；上次巡检会自动保留。
         </div>
-        <div className='cb-panel cb-stack' style={{ marginBottom: '.5em' }}>
-          <div className='cb-heading' style={{ marginBottom: 0 }}>
-            直播间保安室同步
+        <details className='cb-panel cb-stack' style={{ marginBottom: '.5em' }}>
+          <summary style={{ cursor: 'pointer', userSelect: 'none', fontWeight: 'bold' }} className='cb-heading'>
+            直播间保安室同步（外部服务）
+          </summary>
+          <div className='cb-note' style={{ color: '#666', marginTop: '.5em' }}>
+            保安室是独立的开源项目，需要自行搭建或加入。同步会上传：房间号、主播昵称、粉丝牌、限制信号、脚本版本。
+            <strong>不会上传 cookie、csrf、localStorage 或完整接口数据。</strong>
+            填写密钥后，每次完成巡检会自动同步一次。
           </div>
+          <label htmlFor='guardRoomEndpoint' className='cb-note' style={{ color: '#666' }}>
+            保安室地址（必须是 https://，例外：localhost）
+          </label>
           <input
+            id='guardRoomEndpoint'
             type='text'
             placeholder='https://bilibili-guard-room.vercel.app'
             value={guardRoomEndpoint.value}
@@ -321,7 +330,11 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
               guardRoomEndpoint.value = e.currentTarget.value
             }}
           />
+          <label htmlFor='guardRoomSyncKey' className='cb-note' style={{ color: '#666' }}>
+            同步密钥（在保安室项目首页注册空间后获得，格式：spaceId@syncSecret）
+          </label>
           <input
+            id='guardRoomSyncKey'
             type='text'
             placeholder='spaceId@syncSecret'
             value={guardRoomSyncKey.value}
@@ -333,16 +346,24 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
             <button
               type='button'
               disabled={guardRoomSyncing.value || medalCheckResults.value.length === 0}
+              title={medalCheckResults.value.length === 0 ? '需要先完成一次巡检' : undefined}
               onClick={() => void syncGuardRoomInspection()}
             >
-              {guardRoomSyncing.value ? '同步中…' : '保存并同步'}
+              {guardRoomSyncing.value ? '同步中…' : '同步当前结果'}
             </button>
-            {guardRoomSyncStatus.value && <span className='cb-note'>{guardRoomSyncStatus.value}</span>}
+            {guardRoomSyncStatus.value && (
+              <span className='cb-note' role='status' aria-live='polite'>
+                {guardRoomSyncStatus.value}
+              </span>
+            )}
           </div>
-        </div>
-        <div className='cb-panel cb-stack' style={{ marginBottom: '.5em' }}>
-          <div className='cb-heading' style={{ marginBottom: 0 }}>
-            监控室代理状态（网站主控版）
+        </details>
+        <details className='cb-panel cb-stack' style={{ marginBottom: '.5em' }}>
+          <summary style={{ cursor: 'pointer', userSelect: 'none', fontWeight: 'bold' }} className='cb-heading'>
+            高级：监控室代理（默认折叠）
+          </summary>
+          <div className='cb-note' style={{ color: '#666', marginTop: '.5em' }}>
+            连接到保安室网站后用于远程协调监控。普通用户通常不需要打开。
           </div>
           <div className='cb-note'>
             监控、推荐、跳转和统一跟车配置现在都以网站为准。脚本这边只负责同步牌子房/关注房清单、拉取网站配置，并在当前直播页执行试运行。
@@ -355,7 +376,9 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
                 guardRoomWebsiteControlEnabled.value = e.currentTarget.checked
               }}
             />
-            <span>允许网站覆盖本地自动跟车配置（预设 / 试运行）</span>
+            <span title='开启后，连接的保安室网站可以远程下发预设和试运行开关；关闭后保留你的本地参数。'>
+              允许直播间保安室远程下发自动跟车预设和试运行开关
+            </span>
           </label>
           {!guardRoomWebsiteControlEnabled.value && (
             <div className='cb-note'>关闭时仍会同步监控状态，但不会把你的本地自定义参数改回 normal / 试运行。</div>
@@ -406,7 +429,7 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
               ? `${guardRoomAppliedProfile.value.dryRunDefault ? '默认试运行' : '默认真发'} / ${guardRoomAppliedProfile.value.autoBlendEnabled ? '允许自动跟车' : '只观察'} / ${guardRoomAppliedProfile.value.conservativeMode} 档`
               : '尚未收到'}
           </div>
-        </div>
+        </details>
         <div
           className='cb-row'
           style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.5em' }}
@@ -424,10 +447,18 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
           <button type='button' disabled={medalCheckResults.value.length === 0} onClick={downloadMedalCheckResults}>
             下载报告
           </button>
-          <span style={{ color: medalCheckStatus.value.includes('发现限制') ? '#a15c00' : '#666' }}>
+          <span
+            role='status'
+            aria-live='polite'
+            style={{ color: medalCheckStatus.value.includes('发现限制') ? '#a15c00' : '#666' }}
+          >
             {medalCheckStatus.value}
           </span>
-          {medalCheckCopyStatus.value && <span className='cb-note'>{medalCheckCopyStatus.value}</span>}
+          {medalCheckCopyStatus.value && (
+            <span className='cb-note' role='status' aria-live='polite'>
+              {medalCheckCopyStatus.value}
+            </span>
+          )}
         </div>
         {medalCheckResults.value.length > 0 && (
           <div className='cb-stack'>

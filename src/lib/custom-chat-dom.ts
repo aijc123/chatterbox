@@ -50,6 +50,7 @@ import { ensureCustomChatStyles } from './custom-chat-style'
 import { calculateVirtualContentHeight, calculateVirtualRange } from './custom-chat-virtualizer'
 import { copyText, repeatDanmaku, sendManualDanmaku, stealDanmaku } from './danmaku-actions'
 import { type DanmakuEvent, subscribeDanmaku } from './danmaku-stream'
+import { mountSendActionsIsland } from './emote-picker-mount'
 import { hasRecentWsDanmaku } from './live-ws-source'
 import {
   customChatCss,
@@ -89,6 +90,7 @@ let unsubscribeEvents: (() => void) | null = null
 let unsubscribeWsStatus: (() => void) | null = null
 let disposeSettings: (() => void) | null = null
 let disposeComposer: (() => void) | null = null
+let disposeActionsIsland: (() => void) | null = null
 let fallbackMountTimer: ReturnType<typeof setTimeout> | null = null
 let nativeEventObserver: MutationObserver | null = null
 // The container the native observer is currently bound to. Used so we can
@@ -1461,11 +1463,19 @@ function createRoot(): HTMLElement {
 
   const sendRow = document.createElement('div')
   sendRow.className = 'lc-chat-send-row'
+  const actionsHost = document.createElement('div')
+  actionsHost.className = 'lc-chat-actions-host'
   const sendBtn = makeButton('lc-chat-send', '发送', '发送弹幕', () => void sendFromComposer())
   const hint = document.createElement('span')
   hint.className = 'lc-chat-hint'
   hint.textContent = '偷 / +1 / 复制，设置可贴 CSS'
-  sendRow.append(sendBtn, hint)
+  sendRow.append(actionsHost, sendBtn, hint)
+  // Tear down the previous Preact island before mounting a new one. mount()
+  // and mountFallback() recreate the panel via createRoot(), so without this
+  // teardown the old EmotePicker's document listeners (resize/mousedown/
+  // keydown) would leak across remounts.
+  disposeActionsIsland?.()
+  disposeActionsIsland = mountSendActionsIsland(actionsHost, msg => void sendManualDanmaku(msg))
 
   composer.append(inputWrap, sendRow)
   panel.append(toolbar, menu, debugEl, listEl, composer)
@@ -1739,6 +1749,10 @@ export function stopCustomChatDom(): void {
   if (disposeComposer) {
     disposeComposer()
     disposeComposer = null
+  }
+  if (disposeActionsIsland) {
+    disposeActionsIsland()
+    disposeActionsIsland = null
   }
   abortRootEventListeners()
   nativeEventObserver?.disconnect()

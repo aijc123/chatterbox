@@ -15,12 +15,8 @@ import {
   shortAutoBlendText,
 } from './auto-blend-status'
 import { detectTrend, type TrendEvent } from './auto-blend-trend'
-import {
-  type CustomChatEvent,
-  findRecentCustomChatDanmakuSource,
-  subscribeCustomChatEvents,
-} from './custom-chat-events'
-import { type DanmakuEvent, subscribeDanmaku } from './danmaku-stream'
+import { subscribeCustomChatEvents } from './custom-chat-events'
+import { subscribeDanmaku } from './danmaku-stream'
 import { formatLockedEmoticonReject, isEmoticonUnique, isLockedEmoticon } from './emoticon'
 import { classifyRiskEvent, syncGuardRoomRiskEvent } from './guard-room-sync'
 import { startLiveWsSource, stopLiveWsSource } from './live-ws-source'
@@ -34,6 +30,7 @@ import {
 } from './moderation'
 import { applyReplacements } from './replacement'
 import { enqueueDanmaku, SendPriority } from './send-queue'
+import { SEND_ECHO_TIMEOUT_MS, waitForSentEcho } from './send-verification'
 import {
   autoBlendBurstSettleMs,
   autoBlendCandidateText,
@@ -53,6 +50,7 @@ import {
   autoBlendThreshold,
   autoBlendUseReplacements,
   autoBlendWindowSec,
+  cachedRoomId,
   maxLength,
   msgSendInterval,
   randomChar,
@@ -102,16 +100,12 @@ let firstRateLimitHitAt = 0
 let moderationStopReason: string | null = null
 let consecutiveSilentDrops = 0
 const SILENT_DROP_CHECK_THRESHOLD = 3
-const recentDomDanmaku: Array<{ text: string; uid: string | null; observedAt: number }> = []
 
 // Let a freshly-started wave breathe briefly before following it. With a
 // threshold of 2, firing on the exact second message makes every log look like
 // "just started, 2 messages" and prevents all-trending mode from seeing the
 // rest of the same wave.
 const RATE_LIMIT_BACKOFF_MS = 2 * 60 * 1000
-const SEND_ECHO_TIMEOUT_MS = 4000
-const RECENT_DOM_DANMAKU_HISTORY_MS = 15_000
-const RECENT_DOM_DANMAKU_HISTORY_MAX = 240
 
 function getBurstSettleMs(): number {
   return Math.max(0, autoBlendBurstSettleMs.value)
@@ -260,96 +254,6 @@ function updateStatusText(): void {
   })
 }
 
-function pruneRecentDomDanmaku(now = Date.now()): void {
-  while (recentDomDanmaku.length > 0 && now - recentDomDanmaku[0].observedAt > RECENT_DOM_DANMAKU_HISTORY_MS) {
-    recentDomDanmaku.shift()
-  }
-  while (recentDomDanmaku.length > RECENT_DOM_DANMAKU_HISTORY_MAX) {
-    recentDomDanmaku.shift()
-  }
-}
-
-function rememberRecentDomDanmaku(text: string, uid: string | null, observedAt: number): void {
-  if (!text) return
-  pruneRecentDomDanmaku(observedAt)
-  recentDomDanmaku.push({ text, uid, observedAt })
-}
-
-function findRecentDomDanmakuSource(text: string, uid: string | null, sinceTs: number): 'dom' | null {
-  const target = text.trim()
-  if (!target) return null
-  pruneRecentDomDanmaku()
-  for (let i = recentDomDanmaku.length - 1; i >= 0; i--) {
-    const event = recentDomDanmaku[i]
-    if (event.observedAt < sinceTs) break
-    if (event.text !== target) continue
-    if (uid && event.uid && event.uid !== uid) continue
-    return 'dom'
-  }
-  return null
-}
-
-function matchesCustomChatEchoEvent(event: CustomChatEvent, target: string, uid: string | null): boolean {
-  return event.kind === 'danmaku' && event.text.trim() === target && (!uid || !event.uid || event.uid === uid)
-}
-
-function matchesDomEchoEvent(event: DanmakuEvent, target: string, uid: string | null): boolean {
-  return event.text.trim() === target && (!uid || !event.uid || event.uid === uid)
-}
-
-function waitForSentEcho(
-  text: string,
-  uid: string | null,
-  sinceTs: number,
-  timeoutMs = SEND_ECHO_TIMEOUT_MS
-): Promise<'ws' | 'dom' | 'local' | null> {
-  const target = text.trim()
-  if (!target) return Promise.resolve(null)
-  // Only count real broadcast echoes (ws/dom) as immediate confirmation.
-  // 'local' is emitted synchronously inside sendDanmaku and would always
-  // short-circuit this check before any WS echo has a chance to arrive.
-  const recentCustomSource = findRecentCustomChatDanmakuSource(target, uid, sinceTs)
-  if (recentCustomSource && recentCustomSource !== 'local') return Promise.resolve(recentCustomSource)
-  const recentDomSource = findRecentDomDanmakuSource(target, uid, sinceTs)
-  if (recentDomSource) return Promise.resolve(recentDomSource)
-
-  return new Promise(resolve => {
-    let done = false
-    let unsubscribeEvents = () => {}
-    let unsubscribeDom = () => {}
-    const finish = (source: 'ws' | 'dom' | 'local' | null) => {
-      if (done) return
-      done = true
-      clearTimeout(timer)
-      unsubscribeEvents()
-      unsubscribeDom()
-      resolve(source)
-    }
-    // After timeout, fall back to 'local' if the API echo exists — means the
-    // message was sent and shown locally but no broadcast was detected.
-    const timer = setTimeout(() => {
-      const localFallback = findRecentCustomChatDanmakuSource(target, uid, sinceTs)
-      finish(localFallback === 'local' ? 'local' : null)
-    }, timeoutMs)
-    unsubscribeEvents = subscribeCustomChatEvents(event => {
-      if (!matchesCustomChatEchoEvent(event, target, uid)) return
-      // Ignore local events mid-wait; only real broadcast sources count.
-      if (event.source !== 'local') finish(event.source)
-    })
-    unsubscribeDom = subscribeDanmaku({
-      onMessage: event => {
-        if (!matchesDomEchoEvent(event, target, uid)) return
-        finish('dom')
-      },
-    })
-    // Late check: only real broadcast sources.
-    const lateCustomSource = findRecentCustomChatDanmakuSource(target, uid, sinceTs)
-    const lateDomSource = findRecentDomDanmakuSource(target, uid, sinceTs)
-    const lateSource = (lateCustomSource !== 'local' ? lateCustomSource : null) ?? lateDomSource
-    if (lateSource) finish(lateSource)
-  })
-}
-
 function pruneExpired(now: number, force = false): void {
   const windowMs = autoBlendWindowSec.value * 1000
   if (!force && windowMs === lastPruneWindowMs && now < nextTrendPruneAt) return
@@ -432,7 +336,6 @@ function recordDanmaku(rawText: string, uid: string | null, isReply: boolean): v
 
   const text = rawText.trim()
   if (!text) return
-  rememberRecentDomDanmaku(text, uid, now)
   if (isReply && !autoBlendIncludeReply.value) return
 
   // Always exclude self to prevent positive feedback loops.
@@ -693,7 +596,7 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
 
         if (result.success && !result.cancelled && !isEmote && !memeRecorded) {
           memeRecorded = true
-          recordMemeCandidate(originalText)
+          recordMemeCandidate(originalText, roomId)
         }
 
         cooldownUntil = Math.max(cooldownUntil, Date.now() + autoBlendCooldownSec.value * 1000)
@@ -728,7 +631,6 @@ export function startAutoBlend(): void {
   firstRateLimitHitAt = 0
   moderationStopReason = null
   consecutiveSilentDrops = 0
-  recentDomDanmaku.length = 0
   nextTrendPruneAt = Number.POSITIVE_INFINITY
   lastPruneWindowMs = 0
   autoBlendStatusText.value = '观察中'
@@ -787,8 +689,8 @@ export function stopAutoBlend(): void {
   trendMap.clear()
   nextTrendPruneAt = Number.POSITIVE_INFINITY
   lastPruneWindowMs = 0
-  recentDomDanmaku.length = 0
-  clearMemeSession()
+  const currentRoomId = cachedRoomId.peek()
+  if (currentRoomId !== null) clearMemeSession(currentRoomId)
   cooldownUntil = 0
   autoBlendStatusText.value = '已关闭'
   autoBlendCandidateText.value = '暂无'
