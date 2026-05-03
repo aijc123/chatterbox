@@ -268,6 +268,30 @@ export async function fetchSbhzmMemes(source: MemeSource, force = false): Promis
   return normalized
 }
 
+/**
+ * 轻量保鲜探测:只拉首页(~100 条最新),让 userscript 用户每次打开梗库面板时
+ * 顺手把 SBHZM 新增内容贡献给后端 mirror 库。Phase D.1 起这是后端 SBHZM 数据
+ * 保鲜的**主要**机制,后端 cron 只在用户长期不在线时低频兜底。
+ *
+ * 与 `fetchSbhzmMemes` 的差异:
+ *  - 只调一次 fetch(首页 100 条),不走 50 页全量分页
+ *  - 不写入 `memoryCache`(否则全量 fetchSbhzmMemes 会拿到只有首页的"瘦版"缓存)
+ *  - 失败不弹通知(背景任务,不打扰用户)
+ *
+ * 调用方负责把结果推到后端(`mirrorToCbBackend(items, 'sbhzm')`)。
+ */
+export async function fetchSbhzmFirstPage(source: MemeSource): Promise<SbhzmMeme[]> {
+  const { items: raw } = await fetchPage(source, 1)
+  if (raw.length === 0) return []
+  const byContent = new Map<string, RawSbhzmMeme>()
+  for (const r of raw) {
+    const c = (r.content ?? '').trim()
+    if (!c) continue
+    if (!byContent.has(c)) byContent.set(c, r)
+  }
+  return [...byContent.values()].map(normalizeMeme).filter((m): m is SbhzmMeme => m !== null)
+}
+
 /** 测试用：清空内存缓存。 */
 export function _clearSbhzmCacheForTests(): void {
   memoryCache.clear()

@@ -4,13 +4,14 @@ import { useEffect, useLayoutEffect, useRef } from 'preact/hooks'
 
 import { ensureRoomId, getCsrfToken } from '../lib/api'
 import { fetchCbMergedMemes, mirrorToCbBackend, reportCbMemeCopy } from '../lib/cb-backend-client'
-import { BASE_URL } from '../lib/const'
 import { formatLockedEmoticonReject, isLockedEmoticon } from '../lib/emoticon'
+import { fetchLaplaceMemes, reportLaplaceMemeCopy } from '../lib/laplace-client'
 import { appendLog, notifyUser } from '../lib/log'
 import { ignoreMemeCandidate } from '../lib/meme-contributor'
 import { getMemeSourceForRoom, type MemeSource } from '../lib/meme-sources'
 import { applyReplacements } from '../lib/replacement'
 import { fetchSbhzmMemes, type LaplaceMemeWithSource } from '../lib/sbhzm-client'
+import { maybeProbeSbhzmFreshness } from '../lib/sbhzm-freshness-probe'
 import { enqueueDanmaku, SendPriority } from '../lib/send-queue'
 import {
   cachedRoomId,
@@ -61,18 +62,6 @@ function sortMemes(memes: LaplaceInternal.HTTPS.Workers.MemeWithUser[], sortBy: 
     if (sortBy === 'copyCount') return b.copyCount - a.copyCount
     return b.createdAt.localeCompare(a.createdAt)
   })
-}
-
-async function fetchLaplaceMemes(
-  roomId: number,
-  sortBy: MemeSortBy
-): Promise<LaplaceInternal.HTTPS.Workers.MemeWithUser[]> {
-  const resp = await fetch(`${BASE_URL.LAPLACE_MEMES}?roomId=${roomId}&sortBy=${sortBy}&sort=desc`)
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`)
-  const json: LaplaceInternal.HTTPS.Workers.MemeListResponse = await resp.json()
-  const data = json.data ?? []
-  sortMemes(data, sortBy)
-  return data
 }
 
 /**
@@ -172,17 +161,6 @@ async function fetchAllMemes(
   return merged
 }
 
-async function reportMemeCopy(memeId: number): Promise<number | null> {
-  try {
-    const resp = await fetch(`${BASE_URL.LAPLACE_MEME_COPY}/${memeId}`, { method: 'POST' })
-    if (!resp.ok) return null
-    const json: LaplaceInternal.HTTPS.Workers.MemeCopyResponse = await resp.json()
-    return json.copyCount
-  } catch {
-    return null
-  }
-}
-
 function SourceBadge({ source }: { source: 'laplace' | 'sbhzm' | 'cb' | undefined }) {
   if (!source || source === 'laplace') return null
   // sbhzm 绿色 H,cb(chatterbox-cloud)蓝色 C,占位很小避免抢内容
@@ -264,7 +242,7 @@ function MemeItem({
         if (meme._source === 'cb') {
           newCount = await reportCbMemeCopy(meme.id)
         } else if (meme._source === 'laplace' || meme._source == null) {
-          newCount = await reportMemeCopy(meme.id)
+          newCount = await reportLaplaceMemeCopy(meme.id)
         }
         if (newCount !== null) onUpdateCount(meme.id, newCount)
       }
@@ -290,7 +268,7 @@ function MemeItem({
       if (meme._source === 'cb') {
         newCount = await reportCbMemeCopy(meme.id)
       } else if (meme._source === 'laplace' || meme._source == null) {
-        newCount = await reportMemeCopy(meme.id)
+        newCount = await reportLaplaceMemeCopy(meme.id)
       }
       if (newCount !== null) onUpdateCount(meme.id, newCount)
     }
@@ -541,6 +519,13 @@ export function MemesList() {
     const timer = setInterval(() => void loadMemes({ silent: true }), MEME_RELOAD_INTERVAL)
     return () => clearInterval(timer)
   }, [sortBy.value, memesPanelOpen.value, memeSource])
+
+  // SBHZM 保鲜探测:每次 memes-list mount 时,30 分钟节流地拉一次 SBHZM 首页 +
+  // mirror 推到后端。Phase D.1 起这是 SBHZM 数据保鲜的主要机制(后端 cron 只
+  // 在用户长期离线时兜底)。详见 src/lib/sbhzm-freshness-probe.ts。
+  useEffect(() => {
+    void maybeProbeSbhzmFreshness(memeSource)
+  }, [memeSource])
 
   return (
     <>

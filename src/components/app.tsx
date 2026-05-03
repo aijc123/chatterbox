@@ -1,6 +1,11 @@
 import { useEffect } from 'preact/hooks'
 
-import { installOptimizedLayoutStyle, installPanelStyles, startCustomChatRoomRearm } from '../lib/app-lifecycle'
+import {
+  installOptimizedLayoutStyle,
+  installPanelStyles,
+  startCbBackendHealthProbe,
+  startCustomChatRoomRearm,
+} from '../lib/app-lifecycle'
 import { startAutoBlend, stopAutoBlend } from '../lib/auto-blend'
 import { startCustomChat, stopCustomChat } from '../lib/custom-chat'
 import { startDanmakuDirect, stopDanmakuDirect } from '../lib/danmaku-direct'
@@ -39,6 +44,8 @@ export function App() {
   }, [])
 
   useEffect(() => startCustomChatRoomRearm(), [])
+
+  useEffect(() => startCbBackendHealthProbe(), [])
 
   useEffect(() => {
     if (danmakuDirectMode.value) {

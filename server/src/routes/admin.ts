@@ -15,17 +15,25 @@ import { Hono } from 'hono'
 import type { AppEnv } from '../types'
 
 import { requireAdmin } from '../lib/auth'
-import { fetchMemesWithTags, isLikelyValidContent, type MemeRow, setMemeTags, upsertTagByName } from '../lib/db'
+import { fetchMemesWithTags, isLikelyValidContent, type MemeRow, setMemeTags, upsertTagsByNames } from '../lib/db'
 import { contentHash, normalizeContent } from '../lib/hash'
-import { pullSbhzmIntoCache } from '../lib/upstream-sbhzm'
+import { ADMIN_REFRESH_PAGES, pullSbhzmIntoMirror } from '../lib/upstream-sbhzm'
 
 export const adminRoutes = new Hono<AppEnv>()
 adminRoutes.use('*', requireAdmin)
 
-/** 手动触发 SBHZM 上游拉取,不必等 cron。本地开发和应急场景都用得着。 */
+/**
+ * 手动触发 SBHZM 上游拉取,绕过 cron 的 liveness gate。
+ * Phase D.1 起直接 INSERT OR IGNORE 进 memes 表(替代旧的 cache 表),且拉满 50 页。
+ * 本地开发和应急场景都用得着。
+ */
 adminRoutes.post('/refresh-sbhzm', async c => {
   const t0 = Date.now()
-  const result = await pullSbhzmIntoCache(c.env.DB)
+  const actor = c.get('actor')
+  const result = await pullSbhzmIntoMirror(c.env.DB, {
+    pages: ADMIN_REFRESH_PAGES,
+    actor: actor.label,
+  })
   return c.json({ ...result, elapsedMs: Date.now() - t0 })
 })
 
@@ -87,15 +95,9 @@ adminRoutes.post('/memes/:id/approve', async c => {
     .run()
 
   if (tagNames) {
-    const tagIds: number[] = []
-    for (const name of tagNames) {
-      try {
-        tagIds.push(await upsertTagByName(c.env.DB, name))
-      } catch {
-        // 跳过空名等异常 tag
-      }
-    }
-    await setMemeTags(c.env.DB, id, tagIds)
+    // 一次 batch 把所有 tag 推下去,空名静默跳过。
+    const tagMap = await upsertTagsByNames(c.env.DB, tagNames)
+    await setMemeTags(c.env.DB, id, [...tagMap.values()])
   }
 
   const actor = c.get('actor')
@@ -210,16 +212,9 @@ adminRoutes.patch('/memes/:id', async c => {
   }
 
   if (Array.isArray(body.tagNames)) {
-    const tagIds: number[] = []
-    for (const name of body.tagNames) {
-      if (typeof name !== 'string') continue
-      try {
-        tagIds.push(await upsertTagByName(c.env.DB, name))
-      } catch {
-        /* skip */
-      }
-    }
-    await setMemeTags(c.env.DB, id, tagIds)
+    const names = body.tagNames.filter((n): n is string => typeof n === 'string')
+    const tagMap = await upsertTagsByNames(c.env.DB, names)
+    await setMemeTags(c.env.DB, id, [...tagMap.values()])
   }
 
   const actor = c.get('actor')

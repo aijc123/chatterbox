@@ -99,27 +99,41 @@ export async function fetchMemesWithTags(db: D1Database, memeRows: MemeRow[]): P
 }
 
 /**
- * 给已有 tag 名做 upsert(没有就创建,有就返回 id)。
+ * 把一组 tag 写入 meme_tags(先清后插,适合 patch 场景)。
  *
- * 用 `INSERT OR IGNORE` + 二次 SELECT 而不是 `INSERT ... RETURNING`,因为 D1 在
- * 多语句一次发的批处理里 RETURNING 行为不稳定(实测 wrangler 会吞返回值)。两次
- * round-trip 在 D1 边缘节点延迟可忽略。
+ * 用 D1 batch:DELETE + 全部 INSERT 在一个 round-trip 里走,避免每个 tag 一次
+ * sub-request(Workers 的 50 sub-request 上限会被多 tag 行为撞到)。
  */
-export async function upsertTagByName(db: D1Database, name: string): Promise<number> {
-  const trimmed = name.trim()
-  if (!trimmed) throw new Error('tag name empty')
-  await db.prepare('INSERT OR IGNORE INTO tags (name) VALUES (?)').bind(trimmed).run()
-  const row = await db.prepare('SELECT id FROM tags WHERE name = ?').bind(trimmed).first<{ id: number }>()
-  if (!row) throw new Error('tag insert succeeded but lookup returned null')
-  return row.id
+export async function setMemeTags(db: D1Database, memeId: number, tagIds: number[]): Promise<void> {
+  const stmts: D1PreparedStatement[] = [db.prepare('DELETE FROM meme_tags WHERE meme_id = ?').bind(memeId)]
+  for (const tagId of tagIds) {
+    stmts.push(db.prepare('INSERT OR IGNORE INTO meme_tags (meme_id, tag_id) VALUES (?, ?)').bind(memeId, tagId))
+  }
+  await db.batch(stmts)
 }
 
-/** 把一组 tag 写入 meme_tags(先清后插,适合 patch 场景)。 */
-export async function setMemeTags(db: D1Database, memeId: number, tagIds: number[]): Promise<void> {
-  await db.prepare('DELETE FROM meme_tags WHERE meme_id = ?').bind(memeId).run()
-  for (const tagId of tagIds) {
-    await db.prepare('INSERT OR IGNORE INTO meme_tags (meme_id, tag_id) VALUES (?, ?)').bind(memeId, tagId).run()
-  }
+/**
+ * 批量 upsert 一组 tag 名,返回 name → id 的 Map。
+ *
+ * 单次 round-trip:一个 batch 把 N 个 INSERT OR IGNORE 推下去,再用一个 IN(...)
+ * 查回所有 id。空名 / 全空白名静默跳过;不抛异常(调用方通常有"忽略坏 tag"的语义)。
+ *
+ * 用 `INSERT OR IGNORE` + 后续 SELECT 而不是 `INSERT ... RETURNING`,因为 D1 的
+ * batch 里 RETURNING 行为实测不稳定(wrangler 偶发吞返回值)。
+ */
+export async function upsertTagsByNames(db: D1Database, names: string[]): Promise<Map<string, number>> {
+  const trimmed = Array.from(new Set(names.map(n => n.trim()).filter(n => n.length > 0)))
+  if (trimmed.length === 0) return new Map()
+  const inserts = trimmed.map(name => db.prepare('INSERT OR IGNORE INTO tags (name) VALUES (?)').bind(name))
+  await db.batch(inserts)
+  const placeholders = trimmed.map(() => '?').join(',')
+  const rows = await db
+    .prepare(`SELECT id, name FROM tags WHERE name IN (${placeholders})`)
+    .bind(...trimmed)
+    .all<{ id: number; name: string }>()
+  const out = new Map<string, number>()
+  for (const r of rows.results ?? []) out.set(r.name, r.id)
+  return out
 }
 
 /**

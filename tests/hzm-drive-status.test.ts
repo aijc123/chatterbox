@@ -55,4 +55,52 @@ describe('formatHzmDriveStatus', () => {
       formatHzmDriveStatus({ enabled: true, mode: 'heuristic', dryRun: false, lastActionAt: null, now: NOW })
     ).toBe('观察中')
   })
+
+  test('returns "观察中（公屏冷清）" when gate is closed and no recent action', () => {
+    expect(
+      formatHzmDriveStatus({
+        enabled: true,
+        mode: 'heuristic',
+        dryRun: false,
+        lastActionAt: null,
+        now: NOW,
+        gateOpen: false,
+      })
+    ).toBe('观察中（公屏冷清）')
+  })
+
+  test('"运行中" overrides "公屏冷清" within the recent-action window', () => {
+    // 刚发完（5s 内）即使闸门关了，仍显示运行中——已经发生的真实动作比静态闸门信号更重要
+    expect(
+      formatHzmDriveStatus({
+        enabled: true,
+        mode: 'llm',
+        dryRun: false,
+        lastActionAt: NOW - 1_000,
+        now: NOW,
+        gateOpen: false,
+      })
+    ).toBe('运行中 · LLM')
+  })
+
+  test('gateOpen omitted defaults to true (backwards-compatible with old call sites)', () => {
+    // 老调用方不传 gateOpen 时不应被强行降级到"公屏冷清"
+    expect(
+      formatHzmDriveStatus({ enabled: true, mode: 'heuristic', dryRun: false, lastActionAt: null, now: NOW })
+    ).toBe('观察中')
+  })
+
+  test('dryRun overrides gate state', () => {
+    // 试运行时不管闸门状态，都显示"试运行（不发送）"
+    expect(
+      formatHzmDriveStatus({
+        enabled: true,
+        mode: 'heuristic',
+        dryRun: true,
+        lastActionAt: null,
+        now: NOW,
+        gateOpen: false,
+      })
+    ).toBe('试运行（不发送）')
+  })
 })

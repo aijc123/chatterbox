@@ -1,7 +1,32 @@
 import { VERSION } from './const'
 import { guardRoomCurrentRiskLevel } from './guard-room-live-desk-state'
+import { notifyUser } from './log'
 import { describeRestrictionDuration, isAccountRestrictedError, isMutedError, isRateLimitError } from './moderation'
 import { guardRoomEndpoint, guardRoomSyncKey } from './store'
+
+/**
+ * Per-session set of `${endpoint}::${kind}` pairs that have already surfaced
+ * a warning toast. Heartbeats and risk events fire frequently — without
+ * dedup, a single network outage would spam the user.
+ */
+const warnedSyncFailures = new Set<string>()
+
+function warnGuardRoomSyncFailureOnce(endpoint: string, kind: string, detail: string): void {
+  const key = `${endpoint}::${kind}`
+  if (warnedSyncFailures.has(key)) return
+  warnedSyncFailures.add(key)
+  notifyUser('warning', `Guard Room ${kind} 同步失败`, detail)
+}
+
+/** Test-only: reset the per-session dedup set. */
+export function _resetGuardRoomSyncWarnings(): void {
+  warnedSyncFailures.clear()
+}
+
+function describeFetchError(err: unknown): string {
+  if (err instanceof Error) return err.message
+  return String(err)
+}
 
 type RiskEventKind =
   | 'send_failed'
@@ -136,14 +161,19 @@ export async function syncGuardRoomRiskEvent(input: RiskEventInput): Promise<voi
     advice: input.advice?.slice(0, 500),
   }
 
-  await fetch(`${endpoint}/api/risk-events`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-sync-key': syncKey,
-    },
-    body: JSON.stringify(payload),
-  }).catch(() => undefined)
+  try {
+    const response = await fetch(`${endpoint}/api/risk-events`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-sync-key': syncKey,
+      },
+      body: JSON.stringify(payload),
+    })
+    if (!response.ok) warnGuardRoomSyncFailureOnce(endpoint, 'risk-events', `HTTP ${response.status}`)
+  } catch (err) {
+    warnGuardRoomSyncFailureOnce(endpoint, 'risk-events', describeFetchError(err))
+  }
 }
 
 export async function createGuardRoomLiveDeskSession(name = '老大爷值班台'): Promise<{ id: string } | null> {
@@ -151,16 +181,25 @@ export async function createGuardRoomLiveDeskSession(name = '老大爷值班台'
   const syncKey = guardRoomSyncKey.value.trim()
   if (!endpoint || !syncKey) return null
 
-  const response = await fetch(`${endpoint}/api/live-desk/sessions`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-sync-key': syncKey,
-    },
-    body: JSON.stringify({ name }),
-  }).catch(() => null)
+  let response: Response | null = null
+  try {
+    response = await fetch(`${endpoint}/api/live-desk/sessions`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-sync-key': syncKey,
+      },
+      body: JSON.stringify({ name }),
+    })
+  } catch (err) {
+    warnGuardRoomSyncFailureOnce(endpoint, 'live-desk-session', describeFetchError(err))
+    return null
+  }
 
-  if (!response?.ok) return null
+  if (!response.ok) {
+    warnGuardRoomSyncFailureOnce(endpoint, 'live-desk-session', `HTTP ${response.status}`)
+    return null
+  }
   return (await response.json()) as { id: string }
 }
 
@@ -169,18 +208,23 @@ export async function syncGuardRoomLiveDeskHeartbeat(input: LiveDeskHeartbeatInp
   const syncKey = guardRoomSyncKey.value.trim()
   if (!endpoint || !syncKey) return
 
-  await fetch(`${endpoint}/api/live-desk/heartbeats`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-sync-key': syncKey,
-    },
-    body: JSON.stringify({
-      ...input,
-      scriptVersion: VERSION,
-      candidateText: input.candidateText?.slice(0, 120),
-    }),
-  }).catch(() => undefined)
+  try {
+    const response = await fetch(`${endpoint}/api/live-desk/heartbeats`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-sync-key': syncKey,
+      },
+      body: JSON.stringify({
+        ...input,
+        scriptVersion: VERSION,
+        candidateText: input.candidateText?.slice(0, 120),
+      }),
+    })
+    if (!response.ok) warnGuardRoomSyncFailureOnce(endpoint, 'heartbeat', `HTTP ${response.status}`)
+  } catch (err) {
+    warnGuardRoomSyncFailureOnce(endpoint, 'heartbeat', describeFetchError(err))
+  }
 }
 
 export interface ShadowRuleSyncInput {
@@ -197,22 +241,27 @@ export async function syncGuardRoomShadowRule(input: ShadowRuleSyncInput): Promi
   const syncKey = guardRoomSyncKey.value.trim()
   if (!endpoint || !syncKey) return
 
-  await fetch(`${endpoint}/api/shadow-rules`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-sync-key': syncKey,
-    },
-    body: JSON.stringify({
-      kind: 'shadow_rule_learned',
-      roomId: input.roomId,
-      from: input.from,
-      to: input.to,
-      sourceText: input.sourceText.slice(0, 200),
-      occurredAt: new Date().toISOString(),
-      scriptVersion: VERSION,
-    }),
-  }).catch(() => undefined)
+  try {
+    const response = await fetch(`${endpoint}/api/shadow-rules`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-sync-key': syncKey,
+      },
+      body: JSON.stringify({
+        kind: 'shadow_rule_learned',
+        roomId: input.roomId,
+        from: input.from,
+        to: input.to,
+        sourceText: input.sourceText.slice(0, 200),
+        occurredAt: new Date().toISOString(),
+        scriptVersion: VERSION,
+      }),
+    })
+    if (!response.ok) warnGuardRoomSyncFailureOnce(endpoint, 'shadow-rule', `HTTP ${response.status}`)
+  } catch (err) {
+    warnGuardRoomSyncFailureOnce(endpoint, 'shadow-rule', describeFetchError(err))
+  }
 }
 
 export async function syncGuardRoomWatchlist(rooms: GuardRoomWatchlistRoomInput[]): Promise<void> {
@@ -237,14 +286,23 @@ export async function fetchGuardRoomControlProfile(): Promise<GuardRoomControlPr
   const syncKey = guardRoomSyncKey.value.trim()
   if (!endpoint || !syncKey) return null
 
-  const response = await fetch(`${endpoint}/api/control-profile/current`, {
-    method: 'GET',
-    headers: {
-      'x-sync-key': syncKey,
-    },
-  }).catch(() => null)
+  let response: Response | null = null
+  try {
+    response = await fetch(`${endpoint}/api/control-profile/current`, {
+      method: 'GET',
+      headers: {
+        'x-sync-key': syncKey,
+      },
+    })
+  } catch (err) {
+    warnGuardRoomSyncFailureOnce(endpoint, 'control-profile', describeFetchError(err))
+    return null
+  }
 
-  if (!response?.ok) return null
+  if (!response.ok) {
+    warnGuardRoomSyncFailureOnce(endpoint, 'control-profile', `HTTP ${response.status}`)
+    return null
+  }
   return (await response.json()) as GuardRoomControlProfileResponse
 }
 

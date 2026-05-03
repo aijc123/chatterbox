@@ -16,12 +16,20 @@ import type { HzmLlmProvider } from './store-hzm'
 
 import { BASE_URL } from './const'
 import { gmFetch } from './gm-fetch'
+import { appendLog } from './log'
 
 export interface LlmCandidate {
   id: string
   content: string
   tags: string[]
 }
+
+/**
+ * Hard cap on `candidates` sent to the LLM. The system prompt advertises ≤30
+ * but a buggy caller could pass thousands, blowing up token cost (and
+ * latency) without bounded warning. Truncate + log if exceeded.
+ */
+export const LLM_CANDIDATES_HARD_CAP = 256
 
 export interface ChooseMemeOptions {
   provider: HzmLlmProvider
@@ -227,16 +235,24 @@ export async function testLLMConnection(opts: {
 export async function chooseMemeWithLLM(opts: ChooseMemeOptions): Promise<string | null> {
   if (!opts.apiKey || opts.candidates.length === 0) return null
 
+  let effectiveOpts = opts
+  if (opts.candidates.length > LLM_CANDIDATES_HARD_CAP) {
+    appendLog(
+      `⚠️ 智驾：candidates 超过上限 ${LLM_CANDIDATES_HARD_CAP}（实际 ${opts.candidates.length}），已截断以避免请求超额`
+    )
+    effectiveOpts = { ...opts, candidates: opts.candidates.slice(0, LLM_CANDIDATES_HARD_CAP) }
+  }
+
   let parsed: LlmResponseChoice | null = null
-  if (opts.provider === 'anthropic') {
-    parsed = await callAnthropic(opts)
-  } else if (opts.provider === 'openai') {
-    parsed = await callOpenAI(opts)
+  if (effectiveOpts.provider === 'anthropic') {
+    parsed = await callAnthropic(effectiveOpts)
+  } else if (effectiveOpts.provider === 'openai') {
+    parsed = await callOpenAI(effectiveOpts)
   } else {
     // openai-compat
-    const base = (opts.baseURL ?? '').trim()
+    const base = (effectiveOpts.baseURL ?? '').trim()
     if (!base) throw new Error('openai-compat 需要填 base URL（例如 https://api.deepseek.com）')
-    parsed = await callOpenAI(opts, buildOpenAICompatChatURL(base))
+    parsed = await callOpenAI(effectiveOpts, buildOpenAICompatChatURL(base))
   }
 
   if (!parsed) return null
@@ -247,12 +263,14 @@ export async function chooseMemeWithLLM(opts: ChooseMemeOptions): Promise<string
   if (id === '-1') return null
 
   if (id) {
-    const found = opts.candidates.find(c => c.id === id)
+    const found = effectiveOpts.candidates.find(c => c.id === id)
     if (found) return found.content
   }
 
   // 一些模型可能直接吐 content 而非 id，再容错一次：尝试根据 raw 字符串匹配 content 子串
-  const byContent = opts.candidates.find(c => c.content === raw || raw.includes(c.content) || c.content.includes(raw))
+  const byContent = effectiveOpts.candidates.find(
+    c => c.content === raw || raw.includes(c.content) || c.content.includes(raw)
+  )
   return byContent?.content ?? null
 }
 

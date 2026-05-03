@@ -44,21 +44,30 @@ function NumberInput({
   width?: string
   onChange: (n: number) => void
 }) {
+  const rangeText = max !== undefined ? `${min}–${max}` : `≥${min}`
+  const rangeHint = max !== undefined ? `允许范围：${min}–${max}` : `最小值：${min}`
   return (
-    <input
-      type='number'
-      autocomplete='off'
-      min={String(min)}
-      max={max !== undefined ? String(max) : undefined}
-      style={{ width }}
-      value={value}
-      onInput={e => {
-        let v = parseInt(e.currentTarget.value, 10)
-        if (Number.isNaN(v) || v < min) v = min
-        if (max !== undefined && v > max) v = max
-        onChange(v)
-      }}
-    />
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
+      <input
+        type='number'
+        autocomplete='off'
+        min={String(min)}
+        max={max !== undefined ? String(max) : undefined}
+        title={rangeHint}
+        aria-label={rangeHint}
+        style={{ width }}
+        value={value}
+        onInput={e => {
+          let v = parseInt(e.currentTarget.value, 10)
+          if (Number.isNaN(v) || v < min) v = min
+          if (max !== undefined && v > max) v = max
+          onChange(v)
+        }}
+      />
+      <span className='cb-soft' aria-hidden='true' style={{ fontSize: '10px', whiteSpace: 'nowrap' }}>
+        {rangeText}
+      </span>
+    </span>
   )
 }
 

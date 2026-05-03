@@ -43,7 +43,7 @@ mock.module('../src/lib/log', () => ({
   appendLogQuiet: () => {},
 }))
 
-const { tryAiEvasion } = await import('../src/lib/ai-evasion')
+const { tryAiEvasion, _resetAiEvasionCircuitForTests } = await import('../src/lib/ai-evasion')
 const { aiEvasion } = await import('../src/lib/store')
 
 beforeEach(() => {
@@ -51,6 +51,10 @@ beforeEach(() => {
   detectionShouldFail = false
   detectionResponseBody = { completion: { hasSensitiveContent: false } }
   enqueueResult = { success: true, message: '', isEmoticon: false }
+  // 重置熔断器:bun test 在同一进程内串行运行所有 test 文件,前面 ai-evasion-errors
+  // 跑完后 ai-evasion 模块的内部熔断器可能处于 open 状态,会让本文件的成功路径
+  // 全部走短路返回 hasSensitiveContent=false,从而误判为失败。
+  _resetAiEvasionCircuitForTests()
 })
 
 describe('tryAiEvasion result shape (Layer 2 contract)', () => {

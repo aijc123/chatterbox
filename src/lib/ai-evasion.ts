@@ -1,3 +1,5 @@
+import { signal } from '@preact/signals'
+
 import { BASE_URL } from './const'
 import { formatLockedEmoticonReject, isLockedEmoticon } from './emoticon'
 import { appendLog } from './log'
@@ -12,10 +14,64 @@ interface DetectionResult {
   categories?: string[]
 }
 
+// ---------------------------------------------------------------------------
+// 简易熔断器 —— 防止上游 LAPLACE chat-audit 挂了之后每条消息都吃一次失败延迟,
+// 以及防止满屏 "AI检测服务出错" 日志洪水。
+//
+// 状态机:
+//  - closed:正常调用上游
+//  - open:连续 CIRCUIT_FAIL_THRESHOLD 次失败 → 熔断 CIRCUIT_OPEN_DURATION_MS,
+//          期间 detectSensitiveWords 立刻返回"无敏感词",不再打到上游
+//  - half-open(隐式):open 时间到了之后下一次调用会真正穿透;成功 → closed,
+//          失败 → 重新 open
+//
+// 暴露 `aiEvasionDegraded` signal 方便 UI 层显示"AI 检测临时不可用"提示。
+// ---------------------------------------------------------------------------
+const CIRCUIT_FAIL_THRESHOLD = 3
+const CIRCUIT_OPEN_DURATION_MS = 60_000
+
+let consecutiveFailures = 0
+let circuitOpenedAt: number | null = null
+
+/** AI 检测是否处于降级状态(供 UI 横幅订阅;无需持久化)。 */
+export const aiEvasionDegraded = signal(false)
+
+function isCircuitOpen(now: number): boolean {
+  if (circuitOpenedAt === null) return false
+  return now - circuitOpenedAt < CIRCUIT_OPEN_DURATION_MS
+}
+
+function onAuditSuccess(): void {
+  if (consecutiveFailures > 0 || circuitOpenedAt !== null) {
+    appendLog('✅ AI 检测服务已恢复')
+  }
+  consecutiveFailures = 0
+  circuitOpenedAt = null
+  aiEvasionDegraded.value = false
+}
+
+function onAuditFailure(reason: string): void {
+  consecutiveFailures++
+  if (consecutiveFailures >= CIRCUIT_FAIL_THRESHOLD && circuitOpenedAt === null) {
+    circuitOpenedAt = Date.now()
+    aiEvasionDegraded.value = true
+    appendLog(
+      `⚠️ AI 检测服务连续 ${CIRCUIT_FAIL_THRESHOLD} 次失败,暂停 ${CIRCUIT_OPEN_DURATION_MS / 1000}s 后重试(${reason})`
+    )
+  } else {
+    // open 状态下也可能再撞失败(half-open probe 失败),仅打一行简短日志,避免刷屏。
+    appendLog(`⚠️ AI 检测服务出错:${reason}`)
+  }
+}
+
 /**
  * Calls Laplace chat-audit API to detect sensitive words.
  */
 async function detectSensitiveWords(text: string): Promise<DetectionResult> {
+  if (isCircuitOpen(Date.now())) {
+    // 降级:静默返回"无敏感词",上游恢复前不再产生网络等待和日志噪声。
+    return { hasSensitiveContent: false }
+  }
   try {
     const resp = await fetch(BASE_URL.LAPLACE_CHAT_AUDIT, {
       method: 'POST',
@@ -26,12 +82,19 @@ async function detectSensitiveWords(text: string): Promise<DetectionResult> {
     })
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
     const data: { completion?: DetectionResult } = await resp.json()
+    onAuditSuccess()
     return data.completion ?? { hasSensitiveContent: false }
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    appendLog(`⚠️ AI检测服务出错：${msg}`)
+    onAuditFailure(err instanceof Error ? err.message : String(err))
     return { hasSensitiveContent: false }
   }
+}
+
+/** 测试用:重置熔断器到 closed 状态。 */
+export function _resetAiEvasionCircuitForTests(): void {
+  consecutiveFailures = 0
+  circuitOpenedAt = null
+  aiEvasionDegraded.value = false
 }
 
 function insertInvisibleChars(word: string): string {

@@ -65,9 +65,15 @@ if (typeof window !== 'undefined') {
  * Creates a signal whose value is read from and persisted to GM storage
  * under the given key. The signal is registered so that applyImportedSettings
  * can update it in-memory without requiring a page refresh.
+ *
+ * If a `validate` is supplied, it is also applied to the value read from GM
+ * storage at startup. A corrupted or downgraded backup (e.g. a numeric
+ * setting saved as `"abc"` or `-999`) falls back to `defaultValue` instead of
+ * propagating bad state into the rest of the app.
  */
 export function gmSignal<T>(key: string, defaultValue: T, options?: GmSignalOptions<T>) {
-  const initialValue = GM_getValue(key, defaultValue)
+  const stored = GM_getValue(key, defaultValue)
+  const initialValue = options?.validate && stored !== defaultValue && !options.validate(stored) ? defaultValue : stored
   const s = signal<T>(initialValue)
   registry.set(key, s as Signal<unknown>)
   lastPersistedValues.set(key, initialValue)
@@ -83,6 +89,37 @@ export function gmSignal<T>(key: string, defaultValue: T, options?: GmSignalOpti
     schedulePersist(key, nextValue)
   })
   return s
+}
+
+export type NumericGmSignalOptions = {
+  /** Inclusive lower bound. Default: -Infinity. */
+  min?: number
+  /** Inclusive upper bound. Default: +Infinity. */
+  max?: number
+  /** When true, only accept integer values (rejects e.g. 1.5). */
+  integer?: boolean
+}
+
+/**
+ * Variant of {@link gmSignal} for numeric settings. Validates both the value
+ * read from GM storage at startup and any value received via
+ * {@link applyImportedSettings}. Rejects NaN, Infinity, non-numbers, and
+ * out-of-bounds values, falling back to `defaultValue`.
+ *
+ * Use this for any persisted numeric signal whose unchecked value would
+ * destabilize a runtime loop (e.g. a negative interval, a `"abc"` from a
+ * corrupt backup).
+ */
+export function numericGmSignal(key: string, defaultValue: number, options?: NumericGmSignalOptions) {
+  const min = options?.min ?? Number.NEGATIVE_INFINITY
+  const max = options?.max ?? Number.POSITIVE_INFINITY
+  const integer = options?.integer === true
+  const validate = (val: unknown): val is number => {
+    if (typeof val !== 'number' || !Number.isFinite(val)) return false
+    if (integer && !Number.isInteger(val)) return false
+    return val >= min && val <= max
+  }
+  return gmSignal<number>(key, defaultValue, { validate })
 }
 
 /**

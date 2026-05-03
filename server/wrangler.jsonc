@@ -19,9 +19,11 @@
       "migrations_dir": "migrations"
     }
   ],
-  // Phase C:每 15 分钟从 SBHZM 拉一次最新快照写到 D1。本地 `wrangler dev` 不会自动
-  // 跑 cron,手动触发用 `/admin/refresh-sbhzm`(带 admin 鉴权)。
+  // Phase D.1:每 6 小时跑一次 cron `pullSbhzmIfStale` —— 先查 contributions 表,
+  // 若过去 12h 有用户级 SBHZM mirror 活动就跳过,否则低频拉首 10 页兜底。前端
+  // 才是保鲜主力(每次打开梗库面板时 mirror 一次首页)。本地 `wrangler dev` 不会
+  // 自动跑 cron,手动触发用 `/admin/refresh-sbhzm`(带 admin 鉴权,绕过 gate,拉满 50 页)。
   "triggers": {
-    "crons": ["*/15 * * * *"]
+    "crons": ["0 */6 * * *"]
   }
 }

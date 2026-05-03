@@ -222,6 +222,9 @@ function bindEvents(roomId: number, live: LiveWS): void {
     const level = info[4]
     const uid = String(user[0])
     const userLevel = Number(level?.[0] ?? 0)
+    if (uid === (getDedeUid() ?? '')) {
+      console.log(`[CB][WS-SELF] t=${Date.now()} text="${text}" uid=${uid} room=${roomId}`)
+    }
     rememberWsDanmaku(text, uid)
     const badges: string[] = []
     if (badge?.[0]) badges.push(`${badge[1]} ${badge[0]}`)

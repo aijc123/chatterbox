@@ -111,6 +111,8 @@ export function AutoSendControls() {
               type='number'
               min='0'
               autocomplete='off'
+              title='允许范围：≥0 秒'
+              aria-label='发送间隔（秒），允许范围 ≥0'
               style={{ width: '40px' }}
               value={msgSendInterval.value}
               onInput={e => {
@@ -118,12 +120,17 @@ export function AutoSendControls() {
                 msgSendInterval.value = v >= 0 ? v : 0
               }}
             />
+            <span className='cb-soft' aria-hidden='true' style={{ fontSize: '10px' }}>
+              ≥0
+            </span>
             <span>秒，</span>
             <span>超过</span>
             <input
               type='number'
               min='1'
               autocomplete='off'
+              title='允许范围：≥1 字'
+              aria-label='自动分段字数阈值，允许范围 ≥1'
               style={{ width: '30px' }}
               value={maxLength.value}
               onInput={e => {
@@ -131,6 +138,9 @@ export function AutoSendControls() {
                 maxLength.value = v >= 1 ? v : 1
               }}
             />
+            <span className='cb-soft' aria-hidden='true' style={{ fontSize: '10px' }}>
+              ≥1
+            </span>
             <span>字自动分段</span>
           </div>
           <span className='cb-row'>

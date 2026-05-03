@@ -37,7 +37,7 @@ export function LogPanel() {
           ref={ref}
           readOnly
           value={logLines.value.join('\n')}
-          placeholder={`此处将输出日志（最多保留 ${maxLogLines.value} 条）`}
+          placeholder={`活动日志会在这里显示（自动发送、跟车、同传、错误等；最多保留 ${maxLogLines.value} 条）`}
           style={{
             boxSizing: 'border-box',
             height: '60px',

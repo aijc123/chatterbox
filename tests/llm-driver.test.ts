@@ -417,3 +417,56 @@ describe('chooseMemeWithLLM — response parsing', () => {
     expect(userMsg.candidates).toEqual(candidates)
   })
 })
+
+describe('chooseMemeWithLLM — candidate cap', () => {
+  test('truncates candidates above LLM_CANDIDATES_HARD_CAP and emits a warn log', async () => {
+    const { LLM_CANDIDATES_HARD_CAP } = await import('../src/lib/llm-driver')
+    const { logLines } = await import('../src/lib/log')
+    logLines.value = []
+    const overSized = Array.from({ length: LLM_CANDIDATES_HARD_CAP + 50 }, (_, i) => ({
+      id: String(i),
+      content: `meme-${i}`,
+      tags: [],
+    }))
+    mockResponseFactory = () => ({ content: [{ text: '0' }] })
+    const result = await chooseMemeWithLLM({
+      provider: 'anthropic',
+      apiKey: 'k',
+      model: 'm',
+      roomName: 'r',
+      recentChat: [],
+      candidates: overSized,
+    })
+    expect(result).toBe('meme-0')
+    const body = JSON.parse(captured[0].body ?? '{}')
+    const userMsg = JSON.parse(body.messages[0].content)
+    expect(userMsg.candidates).toHaveLength(LLM_CANDIDATES_HARD_CAP)
+    const warned = logLines.value.some(line => line.includes('candidates 超过上限'))
+    expect(warned).toBe(true)
+  })
+
+  test('does not truncate or warn when candidates is at or below the cap', async () => {
+    const { LLM_CANDIDATES_HARD_CAP } = await import('../src/lib/llm-driver')
+    const { logLines } = await import('../src/lib/log')
+    logLines.value = []
+    const sized = Array.from({ length: LLM_CANDIDATES_HARD_CAP }, (_, i) => ({
+      id: String(i),
+      content: `meme-${i}`,
+      tags: [],
+    }))
+    mockResponseFactory = () => ({ content: [{ text: '5' }] })
+    await chooseMemeWithLLM({
+      provider: 'anthropic',
+      apiKey: 'k',
+      model: 'm',
+      roomName: 'r',
+      recentChat: [],
+      candidates: sized,
+    })
+    const body = JSON.parse(captured[0].body ?? '{}')
+    const userMsg = JSON.parse(body.messages[0].content)
+    expect(userMsg.candidates).toHaveLength(LLM_CANDIDATES_HARD_CAP)
+    const warned = logLines.value.some(line => line.includes('candidates 超过上限'))
+    expect(warned).toBe(false)
+  })
+})

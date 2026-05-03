@@ -80,6 +80,31 @@ export const hzmRateLimitPerMin = gmSignal<number>('hzmRateLimitPerMin', 6)
 /** LLM 调用频率（每 N tick 一次）。1 = 每次都调；3 = 每 3 次调一次（其余走启发式）。 */
 export const hzmLlmRatio = gmSignal<number>('hzmLlmRatio', 3)
 
+// ---------------------------------------------------------------------------
+// 活跃度闸门（heuristic + llm 共享）
+// ---------------------------------------------------------------------------
+//
+// 旧版本只要 tick 触发就一定选梗发送，导致冷清房间也照刷不误。新版本在
+// tick 头部加一道闸门：最近 windowSec 内必须既有 ≥minDanmu 条公屏，又有
+// ≥minDistinctUsers 个不同 uid。一人独刷不算活，避免被刷屏诱发误触。
+
+/** 活跃度统计窗口（秒）。默认 45s——比较激进，中小房也能响应。 */
+export const hzmActivityWindowSec = gmSignal<number>('hzmActivityWindowSec', 45)
+
+/** 窗口内至少 N 条公屏弹幕才算"活"。 */
+export const hzmActivityMinDanmu = gmSignal<number>('hzmActivityMinDanmu', 3)
+
+/** 窗口内至少 N 个不同 uid——防止一个人狂刷被当作活跃。 */
+export const hzmActivityMinDistinctUsers = gmSignal<number>('hzmActivityMinDistinctUsers', 2)
+
+/**
+ * 启发式选梗严格模式。
+ * - true（默认）：trending / keywordToTag / selectedTags 都没命中时**本 tick 不发**，
+ *   不再随机兜底。配合活跃度闸门解决"空屏也刷"。
+ * - false：保留旧行为——以上都没中就从全候选池随机选一条。
+ */
+export const hzmStrictHeuristic = gmSignal<boolean>('hzmStrictHeuristic', true)
+
 export type HzmLlmProvider = 'anthropic' | 'openai' | 'openai-compat'
 const VALID_PROVIDERS: HzmLlmProvider[] = ['anthropic', 'openai', 'openai-compat']
 const isValidProvider = (v: unknown): v is HzmLlmProvider =>

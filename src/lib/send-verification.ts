@@ -248,6 +248,7 @@ export async function verifyBroadcast(input: VerifyBroadcastInput): Promise<void
 
   const uid = getDedeUid() ?? null
   const source = await waitForSentEcho(input.text, uid, input.sinceTs, input.timeoutMs)
+  console.log(`[CB][VERIFY] t=${Date.now()} text="${input.text}" source=${source} wsStatus=${currentWsStatus}`)
   if (source === 'ws' || source === 'dom') return
 
   // For self-sent messages, WS-self is the only trustworthy broadcast proof
@@ -259,6 +260,22 @@ export async function verifyBroadcast(input: VerifyBroadcastInput): Promise<void
   // of emitting a misleading ⚠️ warning + bogus rewrite candidates.
   if (currentWsStatus !== 'live') {
     appendLogQuiet(`⚪ ${input.label}: ${input.display}（广播校验跳过：WS 未就绪 ${currentWsStatus}）`)
+    return
+  }
+
+  // Conservative fallback (pending diagnosis): WS is live but no self-WS echo
+  // arrived. If a self-DOM echo for the same text was observed within the
+  // verification window, treat it as "at least locally inserted" and skip the
+  // ⚠️ warning. Trade-off: a true shadow-ban also produces a self-DOM echo
+  // (B站 inserts your own message regardless), so this regresses true-positive
+  // detection until we know whether B站 ever pushes self-DANMU_MSG over WS.
+  // The `[CB][WS-SELF]` and `[CB][VERIFY]` console diagnostics let us decide.
+  const target = input.text.trim()
+  const recentSelfDom = recentDomDanmaku.some(
+    ev => ev.observedAt >= input.sinceTs && ev.text === target && uid !== null && ev.uid === uid
+  )
+  if (recentSelfDom) {
+    appendLogQuiet(`⚪ ${input.label}: ${input.display}（仅本地回显，未拿到 WS 广播证据 — 可能是 B站 不向自身推送）`)
     return
   }
 

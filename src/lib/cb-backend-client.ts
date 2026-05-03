@@ -22,10 +22,11 @@ import type { LaplaceInternal } from '@laplace.live/internal'
 import type { LaplaceMemeWithSource } from './sbhzm-client'
 
 import { BASE_URL } from './const'
+import { FetchCache } from './fetch-cache'
 import { type GmFetchResponse, gmFetch } from './gm-fetch'
 import { appendLog } from './log'
 import { memeContentKey } from './meme-content-key'
-import { cbBackendEnabled, cbBackendUrlOverride } from './store-meme'
+import { cbBackendEnabled, cbBackendHealthDetail, cbBackendHealthState, cbBackendUrlOverride } from './store-meme'
 
 type LaplaceMeme = LaplaceInternal.HTTPS.Workers.MemeWithUser
 
@@ -84,6 +85,16 @@ export function getCbBackendBaseUrl(): string {
 }
 
 /**
+ * 30 秒。和 memes-list 30s polling 间隔对齐:同一窗口内 panel 反复打开 / 多 tab
+ * 同房间不会重复打到 cb,polling 触发的下一轮才真正穿透到上游。fatal 失败的
+ * "空"结果**不进缓存**(见下方 fetcher 的 throw 分支),否则后端短暂抖动会被
+ * 30s 缓存放大成"30s 内永远走旧逻辑"。
+ */
+const CB_MERGED_TTL_MS = 30_000
+
+const mergedCache = new FetchCache<CbMergedResult>()
+
+/**
  * 从后端拉取已合并的梗列表(Phase C:聚合 cb+LAPLACE+SBHZM)。
  *
  * 后端响应里每条 meme 已经带 `_source` 标(cb/laplace/sbhzm),客户端不需要再
@@ -91,15 +102,13 @@ export function getCbBackendBaseUrl(): string {
  * 自己直连兜底。
  *
  * 失败:`fatal=true` 表示整个后端不可达,调用方应整体走旧路径(直拉 LAPLACE/SBHZM)。
+ * 失败结果**不会被缓存**——抛进 fetch-cache 的 reject 分支,下次调用立刻重试。
  */
 export async function fetchCbMergedMemes(opts: FetchCbOptions = {}): Promise<CbMergedResult> {
-  const empty: CbMergedResult = {
-    items: [],
-    sources: { laplace: false, sbhzm: false, cb: false },
-    fatal: true,
-  }
   const base = getCbBackendBaseUrl()
-  if (!base) return empty
+  if (!base) {
+    return { items: [], sources: { laplace: false, sbhzm: false, cb: false }, fatal: true }
+  }
 
   const params = new URLSearchParams()
   if (opts.roomId != null) params.set('roomId', String(opts.roomId))
@@ -107,48 +116,72 @@ export async function fetchCbMergedMemes(opts: FetchCbOptions = {}): Promise<CbM
   if (opts.perPage) params.set('perPage', String(opts.perPage))
   if (opts.source) params.set('source', opts.source)
   const qs = params.toString()
+  const url = `${base}/memes${qs ? `?${qs}` : ''}`
+  // key 用完整 URL —— base 切换(本地调试 vs 线上)、roomId、sortBy、perPage、source
+  // 任一不同都视作不同视图,各自缓存。
+  const key = url
 
-  let resp: GmFetchResponse
   try {
-    resp = await gmFetch(`${base}/memes${qs ? `?${qs}` : ''}`, {
-      method: 'GET',
-      headers: { Accept: 'application/json' },
-      timeoutMs: 10_000,
-    })
-  } catch (err) {
-    appendLog(`⚠️ chatterbox-cloud 网络错误:${err instanceof Error ? err.message : String(err)}`)
-    return empty
-  }
-  if (!resp.ok) {
-    appendLog(`⚠️ chatterbox-cloud HTTP ${resp.status}`)
-    return empty
-  }
-  let body: CbMemeListResponse
-  try {
-    body = resp.json<CbMemeListResponse>()
-  } catch (err) {
-    appendLog(`⚠️ chatterbox-cloud JSON 解析失败:${err instanceof Error ? err.message : String(err)}`)
-    return empty
-  }
-  if (!Array.isArray(body.items)) return empty
+    return await mergedCache.get({
+      key,
+      ttlMs: CB_MERGED_TTL_MS,
+      fetcher: async () => {
+        let resp: GmFetchResponse
+        try {
+          resp = await gmFetch(url, {
+            method: 'GET',
+            headers: { Accept: 'application/json' },
+            timeoutMs: 10_000,
+          })
+        } catch (err) {
+          appendLog(`⚠️ chatterbox-cloud 网络错误:${err instanceof Error ? err.message : String(err)}`)
+          throw err
+        }
+        if (!resp.ok) {
+          appendLog(`⚠️ chatterbox-cloud HTTP ${resp.status}`)
+          throw new Error(`HTTP ${resp.status}`)
+        }
+        let body: CbMemeListResponse
+        try {
+          body = resp.json<CbMemeListResponse>()
+        } catch (err) {
+          appendLog(`⚠️ chatterbox-cloud JSON 解析失败:${err instanceof Error ? err.message : String(err)}`)
+          throw err
+        }
+        if (!Array.isArray(body.items)) {
+          throw new Error('chatterbox-cloud 响应缺少 items')
+        }
 
-  const items = body.items
-    .filter((m): m is LaplaceMemeWithSource => !!m && typeof m.content === 'string' && m.content.trim().length > 0)
-    .map(m => {
-      // 后端通常已经 _source 标好;但万一漏标,fallback 到 'cb'。
-      const tag = m._source === 'laplace' || m._source === 'sbhzm' || m._source === 'cb' ? m._source : 'cb'
-      return { ...m, _source: tag } as LaplaceMemeWithSource
-    })
+        const items = body.items
+          .filter(
+            (m): m is LaplaceMemeWithSource => !!m && typeof m.content === 'string' && m.content.trim().length > 0
+          )
+          .map(m => {
+            // 后端通常已经 _source 标好;但万一漏标,fallback 到 'cb'。
+            const tag = m._source === 'laplace' || m._source === 'sbhzm' || m._source === 'cb' ? m._source : 'cb'
+            return { ...m, _source: tag } as LaplaceMemeWithSource
+          })
 
-  return {
-    items,
-    sources: {
-      laplace: !!body.sources?.laplace,
-      sbhzm: !!body.sources?.sbhzm,
-      cb: !!body.sources?.cb,
-    },
-    fatal: false,
+        return {
+          items,
+          sources: {
+            laplace: !!body.sources?.laplace,
+            sbhzm: !!body.sources?.sbhzm,
+            cb: !!body.sources?.cb,
+          },
+          fatal: false,
+        }
+      },
+    })
+  } catch {
+    // fetcher 抛错 —— 维持原 API 契约,以 fatal=true 形式返回,调用方据此整体降级。
+    return { items: [], sources: { laplace: false, sbhzm: false, cb: false }, fatal: true }
   }
+}
+
+/** 测试用:清空 cb merged memes 缓存。 */
+export function _clearCbMergedCacheForTests(): void {
+  mergedCache._clearForTests()
 }
 
 /** 兼容旧 Phase A/B 签名:返回扁平的 cb-only 数组。Phase C 之后 memes-list 不再用,但留着不删。 */
@@ -394,4 +427,25 @@ export async function checkCbBackendHealth(): Promise<CbHealthResponse | null> {
   } catch {
     return null
   }
+}
+
+/**
+ * 探测后端并把结果写入 `cbBackendHealthState` / `cbBackendHealthDetail`。
+ *
+ * 设计动机:`checkCbBackendHealth` 只返回值,不更新全局状态——按钮探测和启动期
+ * 自动探测两条路径都需要把状态点常驻在 UI 上,所以在这里统一做 signal 写入,
+ * 避免两边各写一份逻辑然后渐渐分裂。
+ */
+export async function probeAndUpdateCbBackendHealth(): Promise<CbHealthResponse | null> {
+  cbBackendHealthState.value = 'probing'
+  cbBackendHealthDetail.value = '探测中…'
+  const result = await checkCbBackendHealth()
+  if (!result) {
+    cbBackendHealthState.value = 'fail'
+    cbBackendHealthDetail.value = `不通: ${getCbBackendBaseUrl() || '(未配置)'}`
+    return null
+  }
+  cbBackendHealthState.value = 'ok'
+  cbBackendHealthDetail.value = `phase=${result.phase} cb=${result.upstreams.cb}`
+  return result
 }

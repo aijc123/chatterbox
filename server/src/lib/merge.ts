@@ -45,23 +45,23 @@ export interface MergeInputs {
  * `own` 元素已经从 D1 出来,自带 content_hash(在 db.ts 持久化)。但我们这里
  * 不依赖那个值 —— 重新对 normalize 后的 content 做 hash,保证三个源用一套口径
  * (避免历史数据的 hash 算法漂移)。
+ *
+ * 性能注意:contentHash 是 crypto.subtle.digest 的异步调用,串行 await 会让
+ * 每条 meme 多吃一次微任务。一次性 Promise.all 全部 hash 后再做"按优先级取首"。
  */
 export async function mergeMemes(inputs: MergeInputs, sortBy: SortBy): Promise<CbMeme[]> {
+  const ordered: CbMeme[] = [...inputs.own, ...inputs.laplace, ...inputs.sbhzm]
+  const hashes = await Promise.all(ordered.map(m => contentHash(m.content)))
+
   const seen = new Set<string>()
   const merged: CbMeme[] = []
-
-  const consume = async (list: CbMeme[]) => {
-    for (const m of list) {
-      const h = await contentHash(m.content)
-      if (seen.has(h)) continue
-      seen.add(h)
-      merged.push(m)
-    }
+  for (const [i, m] of ordered.entries()) {
+    // hashes 与 ordered 一一对应,长度相等;非空断言只是哄 noUncheckedIndexedAccess。
+    const h = hashes[i] as string
+    if (seen.has(h)) continue
+    seen.add(h)
+    merged.push(m)
   }
-
-  await consume(inputs.own)
-  await consume(inputs.laplace)
-  await consume(inputs.sbhzm)
 
   return sortMemes(merged, sortBy)
 }

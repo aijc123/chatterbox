@@ -1,5 +1,4 @@
-import type { Signal } from '@preact/signals'
-import { useSignal } from '@preact/signals'
+import { type Signal, signal, useSignal } from '@preact/signals'
 import type { RefObject } from 'preact'
 import { createPortal } from 'preact/compat'
 import { useEffect, useLayoutEffect, useRef } from 'preact/hooks'
@@ -14,14 +13,21 @@ import { cachedEmoticonPackages, cachedRoomId } from '../lib/store'
 // box) and both share the global cachedEmoticonPackages signal, so we de-dupe
 // concurrent fetches at module scope rather than per-instance.
 let emoticonFetchInFlight: Promise<void> | null = null
+/** Last emoticon-fetch error message; reset on successful retry. */
+const emoticonFetchError = signal<string | null>(null)
 
 function ensureEmoticonsLoaded(): Promise<void> {
   if (cachedEmoticonPackages.value.length > 0) return Promise.resolve()
   if (emoticonFetchInFlight) return emoticonFetchInFlight
+  emoticonFetchError.value = null
   emoticonFetchInFlight = (async () => {
     try {
       const roomId = await ensureRoomId()
       await fetchEmoticons(roomId)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      emoticonFetchError.value = msg
+      notifyUser('warning', '表情包加载失败', msg)
     } finally {
       emoticonFetchInFlight = null
     }
@@ -120,10 +126,19 @@ export function EmotePicker({ open, anchorRef, onSend, onClose }: EmotePickerPro
   if (!isOpen) return null
 
   if (packages.length === 0) {
-    // Distinguish "no room id yet" from "fetch in flight". Without a roomId,
-    // fetchEmoticons never runs, so the loading message would hang forever.
+    // Distinguish four states so the empty UI doesn't hang on "加载中…":
+    //   - no room id yet → fetch can't run
+    //   - fetch errored → show the message + retry
+    //   - fetch in flight → loading
+    //   - genuinely empty (no packages for this room) → calm message
     const inRoom = !!cachedRoomId.value
-    const message = inRoom ? '表情数据加载中…' : '请先进入直播间，载入你的表情包'
+    const fetchError = emoticonFetchError.value
+    const fetching = emoticonFetchInFlight !== null
+    let message: string
+    if (!inRoom) message = '请先进入直播间，载入你的表情包'
+    else if (fetchError) message = `表情数据加载失败：${fetchError}`
+    else if (fetching) message = '表情数据加载中…'
+    else message = '此房间暂无可用表情包'
     // Portal to document.body. Both candidate hosts (`#laplace-chatterbox-
     // dialog` for the normal send tab and `.lc-chat-composer` for the custom
     // chat composer) set `backdrop-filter`, which makes them the containing
@@ -132,25 +147,42 @@ export function EmotePicker({ open, anchorRef, onSend, onClose }: EmotePickerPro
     return createPortal(
       <div
         ref={rootRef}
+        role='status'
+        aria-live='polite'
         style={{
           position: 'fixed',
           ...pos.value,
           width: `${PICKER_W}px`,
-          height: '64px',
+          minHeight: '64px',
           zIndex: 2147483646,
           background: PICKER_BG,
           border: `1px solid ${PICKER_BORDER}`,
           borderRadius: '6px',
           boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
           padding: '12px',
-          color: PICKER_MUTED,
+          color: fetchError ? '#a15c00' : PICKER_MUTED,
           fontSize: '12px',
           display: 'flex',
+          flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
+          gap: '6px',
+          textAlign: 'center',
         }}
       >
-        {message}
+        <span>{message}</span>
+        {fetchError && inRoom && (
+          <button
+            type='button'
+            onClick={() => {
+              emoticonFetchError.value = null
+              void ensureEmoticonsLoaded()
+            }}
+            style={{ fontSize: '11px', padding: '2px 8px', cursor: 'pointer' }}
+          >
+            重试
+          </button>
+        )}
       </div>,
       document.body
     )

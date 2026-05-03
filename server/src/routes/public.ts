@@ -23,6 +23,17 @@ const DEFAULT_PER_PAGE = 100
 const MAX_PER_PAGE = 500
 
 /**
+ * GET /memes 内查 own 表的硬上限。merge/dedup/sort 当前发生在内存里(因为要和
+ * SBHZM cron cache 合并),所以 SQL 级 LIMIT/OFFSET 不能直接换成"按页只拿一页",
+ * 否则跨页排序会乱。这里设一个保守的上限,挡住 own 表无限增长导致每次请求都
+ * materialize 整张表的 worst case。
+ *
+ * 命中上限时只取最新 INNER_FETCH_LIMIT 行(ORDER BY id DESC),并打 warn log
+ * 让我们知道何时该把 merge/sort 真正下沉到 SQL(详见 audit Phase 3)。
+ */
+const INNER_FETCH_LIMIT = 5000
+
+/**
  * Phase D 主入口:返回 cb 自建库内容(已包含被 userscript 用户经 bulk-mirror
  * 投喂上来的 LAPLACE/SBHZM 镜像) + SBHZM 当前 cron 快照(过渡用,等 mirror 库
  * 充分覆盖之后可以下线)。
@@ -53,10 +64,17 @@ publicRoutes.get('/memes', async c => {
 
   // 1) 自建表的所有已批准行(包含 source_origin='cb'/'laplace'/'sbhzm' 三种)。
   //    rowToCbMeme 会把 source_origin 翻译成 _source,merge 层据此区分来源。
-  const ownResult = await c.env.DB.prepare(
-    "SELECT * FROM memes WHERE status = 'approved' ORDER BY id ASC"
-  ).all<MemeRow>()
+  //    bounded by INNER_FETCH_LIMIT —— 命中上限时取最新行,merge/sort 走内存。
+  const ownResult = await c.env.DB.prepare("SELECT * FROM memes WHERE status = 'approved' ORDER BY id DESC LIMIT ?")
+    .bind(INNER_FETCH_LIMIT)
+    .all<MemeRow>()
   const ownRows = ownResult.results ?? []
+  if (ownRows.length === INNER_FETCH_LIMIT) {
+    // 库已经长到要下沉 SQL 排序的规模了。打 warn 让我们不会无声漂过这个临界点。
+    console.warn(
+      `[public/memes] ownRows hit INNER_FETCH_LIMIT=${INNER_FETCH_LIMIT}; results may exclude older approved memes`
+    )
+  }
   const ownAll = await fetchMemesWithTags(c.env.DB, ownRows)
 
   // 2) SBHZM cron 快照(过渡机制) —— 即便 mirror 库还没覆盖到 SBHZM,这里也
@@ -103,6 +121,8 @@ publicRoutes.get('/memes', async c => {
       cb: wantCb,
     },
   }
+  // s-maxage 让 CF 边缘缓存吸收重复请求(60s 容忍审核延迟);浏览器侧不缓存避免拿到陈旧分页。
+  c.header('Cache-Control', 'public, s-maxage=60, max-age=0')
   return c.json(body)
 })
 
@@ -113,6 +133,8 @@ publicRoutes.get('/memes/random', async c => {
   ).first<MemeRow>()
   if (!row) return c.json({ error: 'empty', detail: 'no approved memes' }, 404)
   const [withTags] = await fetchMemesWithTags(c.env.DB, [row])
+  // 随机 endpoint 故意不缓存:每次请求要给不同结果。
+  c.header('Cache-Control', 'no-store')
   return c.json(withTags)
 })
 
@@ -181,8 +203,13 @@ publicRoutes.post('/memes', async c => {
     const existingTags = await c.env.DB.prepare(`SELECT id, name FROM tags WHERE name IN (${placeholders})`)
       .bind(...tagNames)
       .all<{ id: number; name: string }>()
-    for (const t of existingTags.results ?? []) {
-      await c.env.DB.prepare('INSERT OR IGNORE INTO meme_tags (meme_id, tag_id) VALUES (?, ?)').bind(newId, t.id).run()
+    const tagRows = existingTags.results ?? []
+    if (tagRows.length > 0) {
+      // 一次 batch 把所有 meme_tags 关联推下去,避免 N 次 sub-request。
+      const stmts = tagRows.map(t =>
+        c.env.DB.prepare('INSERT OR IGNORE INTO meme_tags (meme_id, tag_id) VALUES (?, ?)').bind(newId, t.id)
+      )
+      await c.env.DB.batch(stmts)
     }
   }
 
@@ -233,6 +260,8 @@ publicRoutes.get('/tags', async c => {
     description: string | null
     count: number
   }>()
+  // tag 列表变化频率比 meme 列表更低,5 分钟边缘缓存足够。
+  c.header('Cache-Control', 'public, s-maxage=300, max-age=0')
   return c.json({ items: result.results ?? [] })
 })
 

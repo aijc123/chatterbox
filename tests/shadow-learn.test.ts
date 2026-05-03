@@ -20,6 +20,11 @@ const appendLogCalls: string[] = []
 mock.module('../src/lib/log', () => ({
   appendLog: (msg: string) => appendLogCalls.push(msg),
   appendLogQuiet: (msg: string) => appendLogCalls.push(msg),
+  // notifyUser is consumed transitively (guard-room-sync imports it). The
+  // mock has to expose every export the real module does or the importer
+  // throws "Export named 'notifyUser' not found".
+  notifyUser: (level: string, message: string, detail?: string) =>
+    appendLogCalls.push(`${level}:${message}${detail ? `:${detail}` : ''}`),
 }))
 
 const {

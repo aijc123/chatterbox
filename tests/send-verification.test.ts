@@ -102,6 +102,10 @@ mock.module('../src/lib/danmaku-stream', () => ({
 mock.module('../src/lib/log', () => ({
   appendLog: (msg: string) => appendLogCalls.push(msg),
   appendLogQuiet: (msg: string) => appendLogQuietCalls.push(msg),
+  // notifyUser is consumed transitively (guard-room-sync imports it). Mocks
+  // must expose every export the real module does or the import throws.
+  notifyUser: (level: string, message: string, detail?: string) =>
+    appendLogCalls.push(`${level}:${message}${detail ? `:${detail}` : ''}`),
 }))
 
 // NOTE: do NOT mock `../src/lib/ai-evasion` — bun's process-wide module mock
@@ -481,6 +485,30 @@ describe('verifyBroadcast — WS readiness gate', () => {
     })
 
     expect(appendLogCalls.some(m => /⚠️ B站原生: shadow.*接口成功但未检测到广播/.test(m))).toBe(true)
+  })
+
+  test('WS live + only self-DOM echo: ⚪ fallback, no ⚠️, no candidates (pending self-WS diagnosis)', async () => {
+    // B站 inserts your own message into .chat-items unconditionally. Until we
+    // confirm whether self-DANMU_MSG is ever pushed over WS to the sender's
+    // own connection, treat "WS live + DOM-self seen + no WS-self" as a quiet
+    // ⚪ rather than a misleading ⚠️ + heuristic candidates.
+    setMockWsStatus('live')
+    const sinceTs = Date.now() - 10
+    rememberRecentDomDanmaku('分分分', '42', Date.now())
+
+    await verifyBroadcast({
+      text: '分分分',
+      label: 'B站原生',
+      display: '分分分',
+      sinceTs,
+      timeoutMs: 30,
+    })
+
+    expect(appendLogCalls.some(m => /⚠️/.test(m))).toBe(false)
+    expect(appendLogQuietCalls.some(m => /⚠️/.test(m))).toBe(false)
+    expect(appendLogQuietCalls.some(m => /🛠/.test(m))).toBe(false)
+    expect(shadowBanObservations.value).toHaveLength(0)
+    expect(appendLogQuietCalls.some(m => /⚪ B站原生: 分分分.*仅本地回显/.test(m))).toBe(true)
   })
 
   test('WS confirms broadcast: gate is moot, no warning regardless of status mirror', async () => {

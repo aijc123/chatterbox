@@ -61,7 +61,7 @@ export function SttTab() {
       const roomId = await ensureRoomId()
       const csrfToken = getCsrfToken()
       if (!csrfToken) {
-        appendLog('❌ 同传：未找到 Bilibili 登录信息，请刷新 B 站页面或重新登录')
+        appendLog(`❌ 同传：未找到 Bilibili 登录信息，请刷新 B 站页面或重新登录（未发送：${segment}）`)
         return
       }
       if (isLockedEmoticon(segment)) {
@@ -75,7 +75,7 @@ export function SttTab() {
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      appendLog(`🔴 同传发送出错：${msg}`)
+      appendLog(`🔴 同传发送出错：${msg}（未发送：${segment}）`)
     }
   }
 

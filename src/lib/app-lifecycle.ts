@@ -1,7 +1,9 @@
 import { effect } from '@preact/signals'
 
 import { GM_addStyle } from '$'
+import { probeAndUpdateCbBackendHealth } from './cb-backend-client'
 import { customChatEnabled, customChatHideNative, customChatUseWs, optimizeLayout } from './store'
+import { cbBackendEnabled, cbBackendHealthState, cbBackendUrlOverride } from './store-meme'
 import { extractRoomNumber } from './utils'
 
 const CUSTOM_CHAT_REARM_OFF_DELAY_MS = 80
@@ -713,4 +715,30 @@ export function installOptimizedLayoutStyle(): () => void {
   style.textContent = '.app-body { margin-left: 1rem !important; }'
   document.head.appendChild(style)
   return () => style.remove()
+}
+
+/**
+ * 启动期 + 启用切换时自动探测 chatterbox-cloud 的 /health,把结果写入
+ * `cbBackendHealthState` 让设置区块的状态点能常驻显示。
+ *
+ * 触发时机:
+ *  - `cbBackendEnabled` 由 false→true(用户刚打开开关)
+ *  - `cbBackendUrlOverride` 在启用状态下变化(开发期切换 prod ↔ localhost)
+ *  - 关闭开关后状态回到 'idle',下一次打开重新探测
+ *
+ * 不轮询,不在用户没启用时发任何请求。
+ */
+export function startCbBackendHealthProbe(): () => void {
+  let lastBaseProbed = ''
+  return effect(() => {
+    if (!cbBackendEnabled.value) {
+      cbBackendHealthState.value = 'idle'
+      lastBaseProbed = ''
+      return
+    }
+    const currentBase = cbBackendUrlOverride.value.trim()
+    if (currentBase === lastBaseProbed && cbBackendHealthState.peek() !== 'idle') return
+    lastBaseProbed = currentBase
+    void probeAndUpdateCbBackendHealth()
+  })
 }

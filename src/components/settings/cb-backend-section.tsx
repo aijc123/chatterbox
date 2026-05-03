@@ -1,8 +1,11 @@
-import { useSignal } from '@preact/signals'
-
-import { checkCbBackendHealth, getCbBackendBaseUrl } from '../../lib/cb-backend-client'
+import { probeAndUpdateCbBackendHealth } from '../../lib/cb-backend-client'
 import { BASE_URL } from '../../lib/const'
-import { cbBackendEnabled, cbBackendUrlOverride } from '../../lib/store-meme'
+import {
+  cbBackendEnabled,
+  cbBackendHealthDetail,
+  cbBackendHealthState,
+  cbBackendUrlOverride,
+} from '../../lib/store-meme'
 
 const SECTION_KEYWORDS = '梗库后端 chatterbox cloud cb 后端 自建 backend localhost'
 
@@ -13,28 +16,59 @@ const SECTION_KEYWORDS = '梗库后端 chatterbox cloud cb 后端 自建 backend
  * 列表会同时拉一份 chatterbox-cloud 的源,Phase A 只有 3 条写死样例。
  *
  * Phase B/C 会在这里加上"提交贡献时调后端而非 sbhzm.cn"等开关。
+ *
+ * 状态点:summary 行常驻显示 idle/probing/ok/fail —— 由
+ * `app-lifecycle.ts → startCbBackendHealthProbe` 在启用开关或 URL 变化时
+ * 自动写入,这里直接订阅 signal。
  */
+function statusDotColor(state: typeof cbBackendHealthState.value): string {
+  switch (state) {
+    case 'ok':
+      return '#34c759'
+    case 'fail':
+      return '#ff3b30'
+    case 'probing':
+      return '#ff9500'
+    default:
+      return '#c7c7cc'
+  }
+}
+
+function statusLabel(state: typeof cbBackendHealthState.value): string {
+  switch (state) {
+    case 'ok':
+      return '已连通'
+    case 'fail':
+      return '不通'
+    case 'probing':
+      return '探测中'
+    default:
+      return '未启用'
+  }
+}
+
 export function CbBackendSection({ query = '' }: { query?: string }) {
-  const probeMsg = useSignal('')
-  const probing = useSignal(false)
   const visible = !query || SECTION_KEYWORDS.toLowerCase().includes(query)
   if (!visible) return null
 
   async function handleProbe() {
-    probing.value = true
-    probeMsg.value = '探测中...'
-    const result = await checkCbBackendHealth()
-    probing.value = false
-    if (!result) {
-      probeMsg.value = `❌ 不通: ${getCbBackendBaseUrl() || '(未配置)'}`
-      return
-    }
-    probeMsg.value = `✅ 通: phase=${result.phase} cb=${result.upstreams.cb}`
+    await probeAndUpdateCbBackendHealth()
   }
+
+  const probing = cbBackendHealthState.value === 'probing'
 
   return (
     <details className='cb-settings-accordion'>
-      <summary>梗库后端 (chatterbox-cloud)</summary>
+      <summary>
+        <span className='cb-accordion-title'>梗库后端 (chatterbox-cloud)</span>
+        <span
+          className='cb-status-dot'
+          role='img'
+          style={{ color: statusDotColor(cbBackendHealthState.value) }}
+          title={`${statusLabel(cbBackendHealthState.value)}: ${cbBackendHealthDetail.value || '尚未探测'}`}
+          aria-label={statusLabel(cbBackendHealthState.value)}
+        />
+      </summary>
       <div className='cb-section cb-stack' style={{ margin: '.5em 0', paddingBottom: '1em' }}>
         <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.5em' }}>
           梗库后端 (chatterbox-cloud)
@@ -69,10 +103,18 @@ export function CbBackendSection({ query = '' }: { query?: string }) {
           />
         </div>
         <div className='cb-row' style={{ display: 'flex', gap: '.5em', alignItems: 'center', marginTop: '.5em' }}>
-          <button className='cb-btn' onClick={handleProbe} disabled={probing.value} type='button'>
-            {probing.value ? '探测中…' : '测试连通性'}
+          <button className='cb-btn' onClick={handleProbe} disabled={probing} type='button'>
+            {probing ? '探测中…' : '测试连通性'}
           </button>
-          {probeMsg.value && <span style={{ fontSize: '0.85em' }}>{probeMsg.value}</span>}
+          <span
+            className='cb-status-dot'
+            style={{ color: statusDotColor(cbBackendHealthState.value), marginLeft: '4px' }}
+            aria-hidden='true'
+          />
+          <span style={{ fontSize: '0.85em' }}>
+            {statusLabel(cbBackendHealthState.value)}
+            {cbBackendHealthDetail.value ? `: ${cbBackendHealthDetail.value}` : ''}
+          </span>
         </div>
       </div>
     </details>

@@ -22,6 +22,20 @@ export const cbBackendEnabled = gmSignal('cbBackendEnabled', false)
 export const cbBackendUrlOverride = gmSignal('cbBackendUrlOverride', '')
 
 /**
+ * 后端连通性的常驻状态（运行时，不持久化）。
+ *  - 'idle'     启用开关关闭，未探测
+ *  - 'probing'  正在探测
+ *  - 'ok'       最近一次探测成功
+ *  - 'fail'     最近一次探测失败（5xx / 网络错 / JSON 错）
+ *
+ * 由 `app-lifecycle.ts` 在启用开关打开（或 URL 改变）时自动 ping 一次写入；
+ * 设置区块的「测试连通性」按钮也写入这个 signal，避免按钮状态和常驻状态分裂。
+ */
+export type CbBackendHealthState = 'idle' | 'probing' | 'ok' | 'fail'
+export const cbBackendHealthState = signal<CbBackendHealthState>('idle')
+export const cbBackendHealthDetail = signal<string>('')
+
+/**
  * 当前直播间的合并梗列表（运行时共享 signal）。
  *
  * 由 `MemesList` 组件每次成功 loadMemes 时写入；其它需要"按当前梗集做事"

@@ -132,7 +132,7 @@ describe('pickByHeuristic', () => {
     expect(out).toBe(A) // A 有 "满弟" tag
   })
 
-  test('keyword regex match → falls through to general pool when no meme has that tag', () => {
+  test('keyword regex match → falls through to general pool when no meme has that tag (strict=false)', () => {
     const customSource = {
       ...source,
       keywordToTag: { 牛奶: '不存在的标签' },
@@ -146,6 +146,7 @@ describe('pickByHeuristic', () => {
       blacklistTags: [],
       selectedTags: [],
       randomFn: () => 0,
+      strict: false,
     })
     expect(out).toBe(B) // 退回 pool 第一条
   })
@@ -164,7 +165,7 @@ describe('pickByHeuristic', () => {
     expect(out).toBe(B) // B 是唯一带 略弥 的
   })
 
-  test('selectedTags ignored when no meme matches selected', () => {
+  test('selectedTags ignored when no meme matches selected (strict=false → general pool)', () => {
     const out = pickByHeuristic({
       roomId: ROOM,
       source,
@@ -174,12 +175,13 @@ describe('pickByHeuristic', () => {
       blacklistTags: [],
       selectedTags: ['完全不存在的标签'],
       randomFn: () => 0, // 随机第一条
+      strict: false,
     })
     // 退回完整候选池（按原顺序）
     expect(out).toBe(A)
   })
 
-  test('blacklist takes precedence over keyword match', () => {
+  test('blacklist takes precedence over keyword match (strict=false → general pool)', () => {
     const out = pickByHeuristic({
       roomId: ROOM,
       source,
@@ -190,13 +192,14 @@ describe('pickByHeuristic', () => {
       blacklistTags: ['满弟'],
       selectedTags: [],
       randomFn: () => 0,
+      strict: false,
     })
     // A 被屏蔽 → 因为 matchedTag '满弟' 在剩余池中找不到，退回完整剩余池第一条
     expect(out).not.toBe(A)
     expect([B, C, D]).toContain(out as LaplaceMemeWithSource)
   })
 
-  test('randomFn drives selection deterministically', () => {
+  test('randomFn drives selection deterministically (strict=false)', () => {
     const memes = [A, B, C, D]
     const out0 = pickByHeuristic({
       roomId: ROOM,
@@ -207,6 +210,7 @@ describe('pickByHeuristic', () => {
       blacklistTags: [],
       selectedTags: [],
       randomFn: () => 0,
+      strict: false,
     })
     const out1 = pickByHeuristic({
       roomId: ROOM,
@@ -217,9 +221,108 @@ describe('pickByHeuristic', () => {
       blacklistTags: [],
       selectedTags: [],
       randomFn: () => 0.99,
+      strict: false,
     })
     expect(out0).toBe(A)
     expect(out1).toBe(D)
+  })
+
+  // ---------------------------------------------------------------------------
+  // 新增：trending-first 选梗 + strict 短路
+  // ---------------------------------------------------------------------------
+
+  test('trending-first: 高频公屏文本对应的 keyword 优先匹配', () => {
+    // 没有任何关键词出现在 recentDanmuText 整体里，但 detectTrend 会从 recentDanmu
+    // 里挑出高频条 "医生救救我"，然后用它去匹配 keywordToTag（'医生' → '满弟'）。
+    // 用 A（满弟 tag）验证 trending → tag → meme 的链路。
+    const recentDanmu = [
+      { ts: 100, text: '医生救救我', uid: 'u1' },
+      { ts: 110, text: '医生救救我', uid: 'u2' },
+      { ts: 120, text: '别的话题', uid: 'u3' },
+    ]
+    const out = pickByHeuristic({
+      roomId: ROOM,
+      source,
+      memes: POOL,
+      recentDanmuText: '别的话题', // 故意不让整体 join 命中
+      recentSent: [],
+      blacklistTags: [],
+      selectedTags: [],
+      randomFn: () => 0,
+      recentDanmu,
+      strict: true,
+    })
+    expect(out).toBe(A) // A 有 '满弟' tag
+  })
+
+  test('trending threshold 默认 2：单条 trending 不算', () => {
+    // 高频文本只出现 1 次 → trend.text = null → 走不到 trending 分支
+    // recentDanmuText 也不命中 → strict=true → 返回 null
+    const recentDanmu = [{ ts: 100, text: '医生', uid: 'u1' }]
+    const out = pickByHeuristic({
+      roomId: ROOM,
+      source,
+      memes: POOL,
+      recentDanmuText: '别的',
+      recentSent: [],
+      blacklistTags: [],
+      selectedTags: [],
+      randomFn: () => 0,
+      recentDanmu,
+      strict: true,
+    })
+    expect(out).toBeNull()
+  })
+
+  test('strict=true: 没匹配到任何信号 → null（不再随机兜底）', () => {
+    const out = pickByHeuristic({
+      roomId: ROOM,
+      source,
+      memes: POOL,
+      recentDanmuText: '今天天气真好',
+      recentSent: [],
+      blacklistTags: [],
+      selectedTags: [],
+      randomFn: () => 0,
+      strict: true,
+    })
+    expect(out).toBeNull()
+  })
+
+  test('strict=true: 即使 trending 命中、但对应 tag 没梗 → 仍然 null', () => {
+    const customSource = { ...source, keywordToTag: { 医生: '不存在的标签' } }
+    const recentDanmu = [
+      { ts: 100, text: '医生', uid: 'u1' },
+      { ts: 110, text: '医生', uid: 'u2' },
+    ]
+    const out = pickByHeuristic({
+      roomId: ROOM,
+      source: customSource,
+      memes: POOL,
+      recentDanmuText: '医生',
+      recentSent: [],
+      blacklistTags: [],
+      selectedTags: [],
+      randomFn: () => 0,
+      recentDanmu,
+      strict: true,
+    })
+    expect(out).toBeNull()
+  })
+
+  test('strict 默认值跟随 store 的 hzmStrictHeuristic（true）', async () => {
+    // 不显式传 strict，让函数读 store 默认值 true → 没信号时应当 null
+    const out = pickByHeuristic({
+      roomId: ROOM,
+      source,
+      memes: POOL,
+      recentDanmuText: '完全不相关',
+      recentSent: [],
+      blacklistTags: [],
+      selectedTags: [],
+      randomFn: () => 0,
+    })
+    expect(out).toBeNull()
   })
 
   test('malformed regex in keywordToTag is ignored (no throw)', () => {

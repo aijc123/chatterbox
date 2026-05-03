@@ -116,8 +116,20 @@ The script may call these services depending on enabled features:
 - `api.live.bilibili.com` for live-room APIs and danmaku sending.
 - `edge-workers.laplace.cn` for AI evasion checks.
 - `workers.vrp.moe` for remote replacement rules and meme lists.
+- `chatterbox-cloud.aijc-eric.workers.dev` (this repo's `server/`) — self-hosted meme aggregator that mirrors LAPLACE/SBHZM and accepts community contributions. Hardcoded default in `src/lib/const.ts` (`BASE_URL.CB_BACKEND`); overridable per-user via the `cbBackendUrlOverride` GM signal. Client wrapper lives in `src/lib/cb-backend-client.ts`.
 - `api.soniox.com` and `unpkg.com` for Soniox speech-to-text.
 - A user-configured Guard Room endpoint for optional fan-medal inspection summary sync.
+
+## Self-hosted Backend (`server/`)
+
+The `server/` directory holds **chatterbox-cloud**, a Cloudflare Workers + Hono + D1 service that powers the meme aggregator. It is independent from the userscript build (`bun run build` does not touch it) and ships under `package.json` `name: "chatterbox-cloud"`.
+
+- Entry point: `server/src/index.ts`. Routes split into `server/src/routes/public.ts` (anonymous) and `server/src/routes/admin.ts` (Bearer-token gated).
+- Storage: D1 with migrations under `server/migrations/`. Six tables (`memes`, `tags`, `meme_tags`, `contributions`, `api_keys`, `upstream_sbhzm_cache`).
+- Auth: SHA-256-hashed admin tokens in `api_keys`. Generate via `bun run gen-admin-key` (prints plaintext + INSERT statement once).
+- Cron: `*/15 * * * *` pulls SBHZM into `upstream_sbhzm_cache`; `GET /memes` reads the newest cache row.
+- Local dev: `cd server && bun run dev` (wrangler dev on `:8787`); set `cbBackendUrlOverride` in the userscript settings UI to point at it.
+- Detailed protocol and deploy steps: [server/README.md](server/README.md).
 
 ## Important Notes
 

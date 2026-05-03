@@ -98,3 +98,76 @@ describe('isValidImportedValue (gm-signal validator)', () => {
     expect(isValidImportedValue('strict-positive', 'x')).toBe(false)
   })
 })
+
+describe('gmSignal initial-value validation', () => {
+  beforeEach(() => {
+    writes.length = 0
+    store.clear()
+  })
+
+  test('falls back to defaultValue when stored value fails validate', () => {
+    store.set('initial-bad-num', 'abc')
+    const s = gmSignal('initial-bad-num', 5, {
+      validate: (val): val is number => typeof val === 'number' && Number.isFinite(val),
+    })
+    expect(s.value).toBe(5)
+  })
+
+  test('keeps stored value when it passes validate', () => {
+    store.set('initial-good-num', 42)
+    const s = gmSignal('initial-good-num', 5, {
+      validate: (val): val is number => typeof val === 'number' && Number.isFinite(val),
+    })
+    expect(s.value).toBe(42)
+  })
+
+  test('keeps stored value when no validator is supplied (back-compat)', () => {
+    store.set('initial-no-validator', 'still-loaded')
+    const s = gmSignal<unknown>('initial-no-validator', 'default')
+    expect(s.value).toBe('still-loaded')
+  })
+})
+
+describe('numericGmSignal', () => {
+  beforeEach(() => {
+    writes.length = 0
+    store.clear()
+  })
+
+  test('rejects non-numbers from storage and falls back to default', async () => {
+    const { numericGmSignal } = await import('../src/lib/gm-signal')
+    store.set('num-bad-string', 'oops')
+    const s = numericGmSignal('num-bad-string', 7)
+    expect(s.value).toBe(7)
+  })
+
+  test('rejects NaN and Infinity from storage', async () => {
+    const { numericGmSignal } = await import('../src/lib/gm-signal')
+    store.set('num-bad-nan', Number.NaN)
+    expect(numericGmSignal('num-bad-nan', 7).value).toBe(7)
+    store.set('num-bad-inf', Number.POSITIVE_INFINITY)
+    expect(numericGmSignal('num-bad-inf', 7).value).toBe(7)
+  })
+
+  test('clamps with min/max — out-of-range stored value falls back to default', async () => {
+    const { numericGmSignal } = await import('../src/lib/gm-signal')
+    store.set('num-low', -999)
+    expect(numericGmSignal('num-low', 1, { min: 0.1, max: 600 }).value).toBe(1)
+    store.set('num-high', 1e9)
+    expect(numericGmSignal('num-high', 1, { min: 0.1, max: 600 }).value).toBe(1)
+  })
+
+  test('integer:true rejects fractional stored values', async () => {
+    const { numericGmSignal } = await import('../src/lib/gm-signal')
+    store.set('num-frac', 1.5)
+    expect(numericGmSignal('num-frac', 4, { integer: true }).value).toBe(4)
+  })
+
+  test('keeps in-range integer/float stored values intact', async () => {
+    const { numericGmSignal } = await import('../src/lib/gm-signal')
+    store.set('num-ok-int', 38)
+    expect(numericGmSignal('num-ok-int', 1, { min: 1, max: 100, integer: true }).value).toBe(38)
+    store.set('num-ok-float', 0.5)
+    expect(numericGmSignal('num-ok-float', 1, { min: 0.1, max: 60 }).value).toBe(0.5)
+  })
+})

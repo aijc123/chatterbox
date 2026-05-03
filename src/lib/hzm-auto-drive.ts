@@ -24,6 +24,7 @@ import type { MemeSource } from './meme-sources'
 import type { LaplaceMemeWithSource } from './sbhzm-client'
 
 import { ensureRoomId, getCsrfToken } from './api'
+import { detectTrend } from './auto-blend-trend'
 import { subscribeDanmaku } from './danmaku-stream'
 import { formatHzmDriveStatus } from './hzm-drive-status'
 import { appendLog, notifyUser } from './log'
@@ -34,6 +35,9 @@ import {
   getBlacklistTags,
   getRecentSent,
   getSelectedTags,
+  hzmActivityMinDanmu,
+  hzmActivityMinDistinctUsers,
+  hzmActivityWindowSec,
   hzmDriveEnabled,
   hzmDriveIntervalSec,
   hzmDriveMode,
@@ -46,10 +50,13 @@ import {
   hzmLlmRatio,
   hzmPauseKeywordsOverride,
   hzmRateLimitPerMin,
+  hzmStrictHeuristic,
   pushRecentSent,
 } from './store-hzm'
 
-const RECENT_DANMU_TTL_MS = 30_000
+// 60s 而不是旧版 30s——为了确保活跃度闸门窗口（默认 45s）总能看到完整数据。
+// 闸门窗口可调，但保留缓冲到 60s 让用户配大窗口时不卡上限。
+const RECENT_DANMU_TTL_MS = 60_000
 const RECENT_DANMU_MAX = 200
 const PAUSE_HOLD_MS = 60_000
 const MIN_TICK_DELAY_MS = 2_000
@@ -57,6 +64,7 @@ const MIN_TICK_DELAY_MS = 2_000
 interface DanmuRecord {
   ts: number
   text: string
+  uid: string | null
 }
 
 let recentDanmu: DanmuRecord[] = []
@@ -90,7 +98,28 @@ function updateHzmStatusText(): void {
     dryRun: hzmDryRun.value,
     lastActionAt,
     now: Date.now(),
+    gateOpen: isActivityGateOpen(Date.now()),
   })
+}
+
+/**
+ * 活跃度闸门：最近窗口内是否有"足够多人在说话"。
+ *
+ * 必须同时满足两个阈值：
+ *  1. ≥ `hzmActivityMinDanmu` 条公屏弹幕（量）
+ *  2. ≥ `hzmActivityMinDistinctUsers` 个不同 uid（人数，防一人狂刷）
+ *
+ * 时间窗口由 `hzmActivityWindowSec` 控制。导出供测试与状态文本共用。
+ */
+export function isActivityGateOpen(now: number, records?: DanmuRecord[]): boolean {
+  const cutoff = now - hzmActivityWindowSec.value * 1000
+  const window = (records ?? recentDanmu).filter(d => d.ts >= cutoff)
+  if (window.length < hzmActivityMinDanmu.value) return false
+  const distinctUids = new Set<string>()
+  for (const d of window) {
+    if (d.uid) distinctUids.add(d.uid)
+  }
+  return distinctUids.size >= hzmActivityMinDistinctUsers.value
 }
 
 // 任何相关 signal 变化都让状态文本重算。
@@ -171,12 +200,18 @@ export function buildCandidatePool(opts: {
 }
 
 /**
- * 启发式选梗（纯函数，便于测试）：
- *  1. 公屏文本 vs `source.keywordToTag` 正则映射，命中 → 优先选该 tag
- *  2. 否则若用户勾了 selectedTags，按用户勾选 tag 过滤
- *  3. 最后从候选池随机选一条
+ * 启发式选梗（纯函数，便于测试）。
  *
- * 默认从 store 读 `selectedTags` / `blacklistTags` / `recentSent`，测试时可显式注入。
+ * 信号优先级（命中即用）：
+ *  1. **trending 文本**（如果给了 `recentDanmu`）：用 detectTrend 拿窗口内最高频
+ *     的一条公屏，再用它去匹配 keywordToTag。这是最强信号——观众正在刷的话题
+ *     直接对应到 tag 会让选梗特别贴脸。
+ *  2. **整体公屏文本**：旧逻辑，把 join 后的 recentDanmuText 整体匹配 keywordToTag。
+ *  3. **用户预选 selectedTags**：按预选 tag 过滤候选池。
+ *  4. **strict 短路**：以上都没命中且 `strict=true` → 返回 null（本 tick 不发）。
+ *     `strict=false` → 落到候选池随机选（旧行为）。
+ *
+ * 默认从 store 读所有可调项；测试时可显式注入。
  */
 export function pickByHeuristic(opts: {
   roomId: number
@@ -189,6 +224,22 @@ export function pickByHeuristic(opts: {
   selectedTags?: string[]
   /** 测试时可注入伪随机值（0..1）替代 Math.random，便于稳定断言。 */
   randomFn?: () => number
+  /**
+   * 最近窗口内的弹幕记录。给了就走 trending-first 选梗，能用 detectTrend 拿出
+   * 最高频公屏文本去匹配 keywordToTag。不给则跳过这一步，回落到老逻辑。
+   */
+  recentDanmu?: DanmuRecord[]
+  /**
+   * strict 模式：trending / keywordToTag / selectedTags 都没命中时是否短路。
+   * 不传则从 store 读 `hzmStrictHeuristic`，默认 true。
+   */
+  strict?: boolean
+  /**
+   * trending 文本的最低次数门槛——detectTrend 的 threshold。默认 2，单条不算 trending。
+   */
+  trendingThreshold?: number
+  /** trending 计算窗口。默认 30 秒，比闸门窗口短一些，更聚焦"最近一波"。 */
+  trendingWindowMs?: number
 }): LaplaceMemeWithSource | null {
   const pool = buildCandidatePool({
     roomId: opts.roomId,
@@ -198,23 +249,43 @@ export function pickByHeuristic(opts: {
   })
   if (pool.length === 0) return null
 
-  let matchedTag: string | null = null
-  for (const [pattern, tag] of Object.entries(opts.source.keywordToTag ?? {})) {
-    try {
-      if (new RegExp(pattern).test(opts.recentDanmuText)) {
-        matchedTag = tag
-        break
+  const keywordEntries = Object.entries(opts.source.keywordToTag ?? {})
+  const matchKeyword = (text: string): string | null => {
+    for (const [pattern, tag] of keywordEntries) {
+      try {
+        if (new RegExp(pattern).test(text)) return tag
+      } catch {
+        // skip malformed pattern
       }
-    } catch {
-      // skip malformed pattern
+    }
+    return null
+  }
+
+  // 信号 1：trending 文本（若提供了 recentDanmu）
+  let matchedTag: string | null = null
+  if (opts.recentDanmu && opts.recentDanmu.length > 0) {
+    const windowMs = opts.trendingWindowMs ?? 30_000
+    const threshold = opts.trendingThreshold ?? 2
+    const trend = detectTrend(
+      opts.recentDanmu.map(d => ({ text: d.text, ts: d.ts, uid: d.uid })),
+      windowMs,
+      threshold
+    )
+    if (trend.text) {
+      const tag = matchKeyword(trend.text)
+      if (tag) matchedTag = tag
     }
   }
 
-  let filtered = pool
+  // 信号 2：整体公屏文本（旧逻辑）
+  if (!matchedTag) matchedTag = matchKeyword(opts.recentDanmuText)
+
+  let filtered: LaplaceMemeWithSource[] | null = null
   if (matchedTag) {
     const byTag = pool.filter(m => m.tags.some(t => t.name === matchedTag))
     if (byTag.length > 0) filtered = byTag
   } else {
+    // 信号 3：用户预选 tag
     const selected = opts.selectedTags ?? getSelectedTags(opts.roomId)
     if (selected.length > 0) {
       const sel = new Set(selected)
@@ -223,37 +294,74 @@ export function pickByHeuristic(opts: {
     }
   }
 
+  // 4. 没命中任何信号——strict 短路 vs 旧版随机兜底
+  if (filtered === null) {
+    const strict = opts.strict ?? hzmStrictHeuristic.value
+    if (strict) return null
+    filtered = pool
+  }
+
   const rand = opts.randomFn ?? Math.random
   return filtered[Math.floor(rand() * filtered.length)] ?? null
 }
 
 /**
- * LLM 选梗（懒加载）。失败/无 key 直接返回 null，让调用方回退启发式。
+ * LLM 选梗结果三态：
+ *  - `pick`：选到了一条梗
+ *  - `abstain`：LLM 主动判定都不合适（返回 -1）；调用方应**尊重**，不要再回退启发式发别的
+ *  - `error`：LLM 调用失败（HTTP 报错、超时、未配 key、空池等）；调用方应回退启发式
+ *
+ * 旧版本只返回 `null`，调用方无法区分 abstain 和 error，结果一律回退启发式 → -1
+ * 在产品上完全失效。修这个，让 LLM 弃权能真正"安静下来"。
  */
-async function pickByLLM(roomId: number, source: MemeSource): Promise<LaplaceMemeWithSource | null> {
+export type LlmPickResult = { kind: 'pick'; meme: LaplaceMemeWithSource } | { kind: 'abstain' } | { kind: 'error' }
+
+/**
+ * Exported with DI hooks (`getMemes`, `recentChat`, `chooser`) for unit
+ * testing. Production callers (the tick loop) leave them undefined and the
+ * function reads from the module-level `memesProvider` / `getRecentDanmuTexts()`,
+ * and resolves `chooseMemeWithLLM` via dynamic import.
+ *
+ * The `chooser` DI hook avoids bun-test cross-file mock leakage (we can't use
+ * `mock.module('./llm-driver', ...)` here because llm-driver tests in the same
+ * process would inherit the stub). Same rationale as `_setGmXhrForTests` in
+ * [gm-fetch.ts](src/lib/gm-fetch.ts).
+ */
+export type LlmChooser = (opts: import('./llm-driver').ChooseMemeOptions) => Promise<string | null>
+
+export async function pickByLLM(
+  roomId: number,
+  source: MemeSource,
+  opts?: {
+    getMemes?: () => LaplaceMemeWithSource[]
+    recentChat?: string[]
+    chooser?: LlmChooser
+  }
+): Promise<LlmPickResult> {
   const apiKey = hzmLlmApiKey.value.trim()
-  if (!apiKey) return null
-  const all = memesProvider?.() ?? []
+  if (!apiKey) return { kind: 'error' }
+  const all = opts?.getMemes?.() ?? memesProvider?.() ?? []
   const pool = buildCandidatePool({ roomId, memes: all }).slice(0, 30)
-  if (pool.length === 0) return null
+  if (pool.length === 0) return { kind: 'error' }
 
   bumpDailyLlmCalls(roomId)
   try {
-    const { chooseMemeWithLLM } = await import('./llm-driver')
-    const chosenContent = await chooseMemeWithLLM({
+    const chooser = opts?.chooser ?? (await import('./llm-driver')).chooseMemeWithLLM
+    const chosenContent = await chooser({
       provider: hzmLlmProvider.value,
       apiKey,
       model: hzmLlmModel.value,
       baseURL: hzmLlmBaseURL.value.trim() || undefined,
       roomName: source.name,
-      recentChat: getRecentDanmuTexts().slice(-30),
+      recentChat: opts?.recentChat ?? getRecentDanmuTexts().slice(-30),
       candidates: pool.map(m => ({ id: String(m.id), content: m.content, tags: m.tags.map(t => t.name) })),
     })
-    if (!chosenContent) return null
-    return pool.find(m => m.content === chosenContent) ?? null
+    if (!chosenContent) return { kind: 'abstain' }
+    const meme = pool.find(m => m.content === chosenContent)
+    return meme ? { kind: 'pick', meme } : { kind: 'abstain' }
   } catch (err) {
     appendLog(`⚠️ 智驾 LLM 调用失败，回退启发式：${err instanceof Error ? err.message : String(err)}`)
-    return null
+    return { kind: 'error' }
   }
 }
 
@@ -314,13 +422,28 @@ async function tick(): Promise<void> {
       return
     }
 
+    // 活跃度闸门：公屏没活就闭嘴。静默退出，**不写日志**——不然冷清房间日志会爆。
+    // 状态文本通过 updateHzmStatusText() 反映为"观察中（公屏冷清）"。
+    if (!isActivityGateOpen(now)) {
+      updateHzmStatusText()
+      scheduleNext(hzmDriveIntervalSec.value)
+      return
+    }
+
     heuristicTickCount++
     let meme: LaplaceMemeWithSource | null = null
     const llmRatio = Math.max(1, hzmLlmRatio.value)
     const useLLM =
       hzmDriveMode.value === 'llm' && hzmLlmApiKey.value.trim() !== '' && heuristicTickCount % llmRatio === 0
     if (useLLM) {
-      meme = await pickByLLM(activeRoomId, activeSource)
+      const result = await pickByLLM(activeRoomId, activeSource)
+      if (result.kind === 'abstain') {
+        // LLM 主动 -1：尊重，本 tick 不发，**不**回退启发式。这是 -1 信号生效的关键。
+        scheduleNext(hzmDriveIntervalSec.value)
+        return
+      }
+      if (result.kind === 'pick') meme = result.meme
+      // result.kind === 'error' → meme 仍为 null，下面回退启发式
     }
     if (!meme) {
       meme = pickByHeuristic({
@@ -328,6 +451,7 @@ async function tick(): Promise<void> {
         source: activeSource,
         memes: memesProvider?.() ?? [],
         recentDanmuText: getRecentDanmuTexts().join(' '),
+        recentDanmu: recentDanmu,
       })
     }
     if (meme) {
@@ -385,7 +509,7 @@ export async function startHzmAutoDrive(opts: {
   unsubscribe = subscribeDanmaku({
     onMessage: ev => {
       if (!ev.text) return
-      recentDanmu.push({ ts: Date.now(), text: ev.text })
+      recentDanmu.push({ ts: Date.now(), text: ev.text, uid: ev.uid ?? null })
       if (recentDanmu.length > RECENT_DANMU_MAX) {
         recentDanmu.splice(0, recentDanmu.length - RECENT_DANMU_MAX)
       }

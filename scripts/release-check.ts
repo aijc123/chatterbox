@@ -1,4 +1,6 @@
-import { run } from './lib/release-checks.ts'
+import { join } from 'node:path'
+
+import { projectRoot, run } from './lib/release-checks.ts'
 
 interface Step {
   name: string
@@ -34,7 +36,15 @@ const steps: Step[] = [
   {
     name: 'Unit tests (bun test)',
     fn: () => {
-      run(['bun', 'test', '--isolate'])
+      // Scope to tests/ — server/ has its own vitest pool-workers suite that
+      // bun cannot run (it imports the virtual `cloudflare:test` module).
+      run(['bun', 'test', '--isolate', 'tests'])
+    },
+  },
+  {
+    name: 'Server tests (vitest pool-workers)',
+    fn: () => {
+      run(['bun', 'run', 'test'], { cwd: join(projectRoot, 'server') })
     },
   },
   {

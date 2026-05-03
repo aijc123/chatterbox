@@ -69,4 +69,24 @@ describe('send-queue', () => {
     await expect(manual).resolves.toMatchObject({ success: true, message: 'manual-after-warmup' })
     expect(sent).toEqual(['warmup', 'manual-after-warmup'])
   })
+
+  test('empty message resolves cancelled without consuming a rate-limit slot', async () => {
+    const before = sent.length
+    await expect(enqueueDanmaku('', 1, 'csrf', SendPriority.MANUAL)).resolves.toMatchObject({
+      success: false,
+      cancelled: true,
+      error: 'empty-text',
+    })
+    expect(sent.length).toBe(before)
+  })
+
+  test('whitespace-only message resolves cancelled without sending', async () => {
+    const before = sent.length
+    await expect(enqueueDanmaku('   \n\t  ', 1, 'csrf', SendPriority.AUTO)).resolves.toMatchObject({
+      success: false,
+      cancelled: true,
+      error: 'empty-text',
+    })
+    expect(sent.length).toBe(before)
+  })
 })

@@ -135,6 +135,13 @@ export function enqueueDanmaku(
   priority: SendPriority = SendPriority.AUTO
 ): Promise<SendDanmakuResult> {
   return new Promise((resolve, reject) => {
+    // Reject empty/whitespace-only messages without consuming a rate-limit
+    // slot. Bilibili would bounce these server-side anyway, but each rejected
+    // POST still counts against the per-account window.
+    if (message.trim().length === 0) {
+      resolve({ success: false, cancelled: true, message, isEmoticon: false, error: 'empty-text' })
+      return
+    }
     const item: QueueItem = { message, roomId, csrfToken, priority, resolve, reject, cancelled: false }
     insertByPriority(item)
 

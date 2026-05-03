@@ -14,6 +14,9 @@ import {
   type HzmDriveMode,
   type HzmLlmProvider,
   hasConfirmedHzmRealFire,
+  hzmActivityMinDanmu,
+  hzmActivityMinDistinctUsers,
+  hzmActivityWindowSec,
   hzmDriveEnabled,
   hzmDriveIntervalSec,
   hzmDriveMode,
@@ -28,6 +31,7 @@ import {
   hzmPanelOpen,
   hzmPauseKeywordsOverride,
   hzmRateLimitPerMin,
+  hzmStrictHeuristic,
   sendMsg,
   setBlacklistTags,
   setSelectedTags,
@@ -353,6 +357,65 @@ export function HzmDrivePanel({ source }: { source: MemeSource }) {
               </>
             )}
           </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '.25em' }}>
+            <span title='活跃度闸门：最近窗口内必须既有 ≥N 条公屏，又有 ≥M 个不同 uid，否则本 tick 不发——避免空屏照刷。'>
+              活跃度 最近
+            </span>
+            <input
+              type='number'
+              min='10'
+              max='300'
+              style={{ width: '46px' }}
+              value={hzmActivityWindowSec.value}
+              onInput={e => {
+                const v = parseInt(e.currentTarget.value, 10)
+                if (Number.isFinite(v) && v >= 10) hzmActivityWindowSec.value = v
+              }}
+              title='活跃度窗口（秒）。建议 30–90。'
+            />
+            <span>秒内 ≥</span>
+            <input
+              type='number'
+              min='1'
+              max='50'
+              style={{ width: '40px' }}
+              value={hzmActivityMinDanmu.value}
+              onInput={e => {
+                const v = parseInt(e.currentTarget.value, 10)
+                if (Number.isFinite(v) && v >= 1) hzmActivityMinDanmu.value = v
+              }}
+              title='窗口内最少弹幕条数。'
+            />
+            <span>条 / ≥</span>
+            <input
+              type='number'
+              min='1'
+              max='20'
+              style={{ width: '36px' }}
+              value={hzmActivityMinDistinctUsers.value}
+              onInput={e => {
+                const v = parseInt(e.currentTarget.value, 10)
+                if (Number.isFinite(v) && v >= 1) hzmActivityMinDistinctUsers.value = v
+              }}
+              title='窗口内最少不同人数。防一人独刷被当作活跃。'
+            />
+            <span>人在说话</span>
+          </div>
+
+          <label
+            style={{ display: 'flex', alignItems: 'center', gap: '.4em', cursor: 'pointer' }}
+            title='严格模式：弹幕里没匹配到关键词、用户也没勾偏好 tag 时，本 tick 不发。关掉则随机选一条（旧版行为）。'
+          >
+            <input
+              type='checkbox'
+              checked={hzmStrictHeuristic.value}
+              onInput={e => {
+                hzmStrictHeuristic.value = e.currentTarget.checked
+              }}
+            />
+            <span>严格选梗（无信号时不随机兜底）</span>
+          </label>
 
           {tagOptions.length > 0 ? (
             <>

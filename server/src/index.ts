@@ -17,7 +17,7 @@ import { cors } from 'hono/cors'
 import type { AppBindings, AppEnv } from './types'
 
 import { ADMIN_HTML } from './admin-ui'
-import { pullSbhzmIntoCache } from './lib/upstream-sbhzm'
+import { pullSbhzmIfStale } from './lib/upstream-sbhzm'
 import { adminRoutes } from './routes/admin'
 import { publicRoutes } from './routes/public'
 
@@ -73,16 +73,24 @@ app.route('/admin', adminRoutes)
 app.notFound(c => c.json({ error: 'not_found', path: new URL(c.req.url).pathname }, 404))
 
 app.onError((err, c) => {
+  // err.message 可能含 D1 query / 上游 fetch 细节,直接返给客户端会泄露内部结构。
+  // 走日志,响应只回一个稳定的错误码。
   console.error('[chatterbox-cloud]', err)
-  return c.json({ error: 'internal', message: err.message }, 500)
+  return c.json({ error: 'internal' }, 500)
 })
 
 /**
  * Worker 入口。除了 fetch 还要导出 scheduled 才能拿到 cron 触发。
  *
+ * Phase D.1 起 cron 走 `pullSbhzmIfStale`:
+ *  - 先查 contributions 表,若过去 12h 有用户级 SBHZM mirror → 跳过(用户在线,
+ *    前端正在贡献,后端不必出手)
+ *  - 否则才低频拉首 10 页 INSERT OR IGNORE 进 memes 表
+ *  - 每次顺便 GC 7 天前的旧 upstream_sbhzm_cache 行
+ *
  * `wrangler dev --local` 不会自动跑 cron;手动触发用:
- *   curl 'http://localhost:8787/__scheduled?cron=*+%2F+15+*+*+*+*'
- * 或者直接调用 admin 端的 /admin/refresh-sbhzm(更易用,带鉴权)。
+ *   curl 'http://localhost:8787/__scheduled?cron=0+*%2F6+*+*+*'
+ * 或者直接调用 admin 端的 /admin/refresh-sbhzm(更易用,带鉴权,绕过 gate)。
  */
 export default {
   fetch: app.fetch.bind(app),
@@ -90,9 +98,16 @@ export default {
     ctx.waitUntil(
       (async () => {
         const t0 = Date.now()
-        const result = await pullSbhzmIntoCache(env.DB)
+        const result = await pullSbhzmIfStale(env.DB)
         const elapsed = Date.now() - t0
-        console.log(`[cron sbhzm] ${result.ok ? 'ok' : 'failed'} count=${result.count} elapsed=${elapsed}ms`)
+        if (result.skipped) {
+          console.log(
+            `[cron sbhzm] skipped reason=${result.reason} actor=${result.recentActivity?.actor} elapsed=${elapsed}ms`
+          )
+        } else {
+          const p = result.pull
+          console.log(`[cron sbhzm] ran ok=${p?.ok} fetched=${p?.fetched} inserted=${p?.inserted} elapsed=${elapsed}ms`)
+        }
       })()
     )
   },

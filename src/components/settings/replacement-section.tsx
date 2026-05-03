@@ -2,10 +2,9 @@ import { useSignal } from '@preact/signals'
 import { useEffect, useRef } from 'preact/hooks'
 
 import { ensureRoomId, getCsrfToken, sendDanmaku } from '../../lib/api'
-import { BASE_URL } from '../../lib/const'
 import { appendLog } from '../../lib/log'
 import { isInfrastructureError } from '../../lib/moderation'
-import { type RemoteKeywords, sanitizeRemoteKeywords } from '../../lib/remote-keywords-sanitize'
+import { fetchRemoteKeywords } from '../../lib/remote-keywords-fetch'
 import { buildReplacementMap } from '../../lib/replacement'
 import { cachedRoomId, localGlobalRules, localRoomRules, remoteKeywords, remoteKeywordsLastSync } from '../../lib/store'
 
@@ -14,13 +13,6 @@ const SYNC_INTERVAL = 10 * 60 * 1000
 interface ReplacementRule {
   from?: string
   to?: string
-}
-
-async function fetchRemoteKeywords(): Promise<RemoteKeywords> {
-  const response = await fetch(BASE_URL.REMOTE_KEYWORDS)
-  if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-  const raw: unknown = await response.json()
-  return sanitizeRemoteKeywords(raw)
 }
 
 function ReplacementRuleList({

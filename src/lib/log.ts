@@ -67,11 +67,18 @@ export function appendLog(result: SendDanmakuResult, label: string, display: str
 export function appendLog(arg: string | SendDanmakuResult, label?: string, display?: string): void {
   const ts = formatTs(new Date())
 
+  const cancelledReason =
+    arg !== null && typeof arg === 'object' && 'cancelled' in arg && arg.cancelled
+      ? arg.error === 'empty-text'
+        ? '内容为空'
+        : '被手动发送中断'
+      : ''
+
   const message =
     typeof arg === 'string'
       ? `${ts} ${arg}`
       : arg.cancelled
-        ? `${ts} ⏭ ${label}: ${display}（被手动发送中断）`
+        ? `${ts} ⏭ ${label}: ${display}（${cancelledReason}）`
         : arg.success
           ? `${ts} ✅ ${label}: ${display}`
           : `${ts} ❌ ${label}: ${display}，原因：${formatDanmakuError(arg.error)}`
