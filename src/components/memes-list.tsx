@@ -8,6 +8,7 @@ import { formatLockedEmoticonReject, isLockedEmoticon } from '../lib/emoticon'
 import { fetchLaplaceMemes, reportLaplaceMemeCopy } from '../lib/laplace-client'
 import { appendLog, notifyUser } from '../lib/log'
 import { ignoreMemeCandidate } from '../lib/meme-contributor'
+import { filterBackendMemesForRoom } from '../lib/meme-room-filter'
 import { getMemeSourceForRoom, type MemeSource } from '../lib/meme-sources'
 import { applyReplacements } from '../lib/replacement'
 import { fetchSbhzmMemes, type LaplaceMemeWithSource } from '../lib/sbhzm-client'
@@ -87,6 +88,7 @@ async function fetchAllMemes(
   if (cbBackendEnabled.value) {
     const cb = await fetchCbMergedMemes({ roomId, sortBy, perPage: 500 })
     if (!cb.fatal) {
+      const cbItems = filterBackendMemesForRoom(cb.items, source !== null)
       // 后端能用 —— 走主路径。LAPLACE/SBHZM 仅在后端没拉到时本地兜底。
       // 兜底 fetch 成功后顺便 mirror 推回后端 —— 下次访问该数据就在自建库里了。
       const fallbacks: Array<Promise<LaplaceMemeWithSource[]>> = []
@@ -118,7 +120,7 @@ async function fetchAllMemes(
         )
       }
       const fallbackArrs = await Promise.all(fallbacks)
-      const merged: LaplaceMemeWithSource[] = ([] as LaplaceMemeWithSource[]).concat(cb.items, ...fallbackArrs)
+      const merged: LaplaceMemeWithSource[] = ([] as LaplaceMemeWithSource[]).concat(cbItems, ...fallbackArrs)
       sortMemes(merged, sortBy)
       return merged
     }

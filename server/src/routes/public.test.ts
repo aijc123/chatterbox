@@ -238,3 +238,46 @@ describe('GET /memes?source=cb — source filter', () => {
     expect(body.sources.laplace).toBe(false)
   })
 })
+
+describe('GET /memes — room-specific SBHZM visibility', () => {
+  const insert = (content: string, src: 'laplace' | 'sbhzm', hashSuffix: string) =>
+    env.DB.prepare(
+      `INSERT INTO memes (uid, content, status, content_hash, source_origin, created_at, updated_at)
+       VALUES (0, ?, 'approved', ?, ?, '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')`
+    )
+      .bind(content, `room-hash-${hashSuffix}`, src)
+      .run()
+
+  test('default all-source view hides SBHZM outside the registered room', async () => {
+    await insert('global-laplace', 'laplace', 'lp-room')
+    await insert('hzm-only', 'sbhzm', 'sb-room')
+
+    const r = await SELF.fetch('http://example.com/memes?roomId=12345')
+    expect(r.status).toBe(200)
+    const body = (await r.json()) as {
+      items: Array<{ content: string; _source: string }>
+      total: number
+      sources: { laplace: boolean; sbhzm: boolean }
+    }
+    expect(body.total).toBe(1)
+    expect(body.items.map(m => m.content)).toEqual(['global-laplace'])
+    expect(body.items.some(m => m._source === 'sbhzm')).toBe(false)
+    expect(body.sources.sbhzm).toBe(false)
+  })
+
+  test('default all-source view includes SBHZM in the registered room', async () => {
+    await insert('global-laplace', 'laplace', 'lp-hzm')
+    await insert('hzm-only', 'sbhzm', 'sb-hzm')
+
+    const r = await SELF.fetch('http://example.com/memes?roomId=1713546334')
+    expect(r.status).toBe(200)
+    const body = (await r.json()) as {
+      items: Array<{ content: string; _source: string }>
+      total: number
+      sources: { sbhzm: boolean }
+    }
+    expect(body.total).toBe(2)
+    expect(body.items.some(m => m.content === 'hzm-only' && m._source === 'sbhzm')).toBe(true)
+    expect(body.sources.sbhzm).toBe(true)
+  })
+})

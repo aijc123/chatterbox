@@ -15,6 +15,7 @@ import type { AppEnv, CbMeme, CbMemeListResponse } from '../types'
 import { fetchMemesWithTags, findMemeByHash, isLikelyValidContent, type MemeRow } from '../lib/db'
 import { contentHash, hashIp, normalizeContent } from '../lib/hash'
 import { mergeMemes, parseSortBy, sortMemes } from '../lib/merge'
+import { parsePositiveRoomId, shouldIncludeSbhzmSource } from '../lib/room-sources'
 import { readSbhzmFromCache } from '../lib/upstream-sbhzm'
 
 export const publicRoutes = new Hono<AppEnv>()
@@ -50,7 +51,7 @@ const INNER_FETCH_LIMIT = 5000
  *  - sortBy: 'lastCopiedAt' | 'copyCount' | 'createdAt' (默认 lastCopiedAt)
  *  - tag:    只返回带这个 tag 名的梗(post-merge 内存过滤)
  *  - source: 'cb' | 'laplace' | 'sbhzm' | 'all'(默认 'all')—— 调试/分源浏览
- *  - roomId: 当前没用(留作未来按房间过滤);现在所有源是全局聚合
+ *  - roomId: 当前直播间 real room id；只有登记了 SBHZM 专属源的房间才返回 SBHZM
  *  - page / perPage: 标准分页
  */
 publicRoutes.get('/memes', async c => {
@@ -61,6 +62,7 @@ publicRoutes.get('/memes', async c => {
   const sortBy = parseSortBy(url.searchParams.get('sortBy'))
   const tag = url.searchParams.get('tag')
   const sourceFilter = url.searchParams.get('source') ?? 'all'
+  const roomId = parsePositiveRoomId(url.searchParams.get('roomId'))
 
   // 1) 自建表的所有已批准行(包含 source_origin='cb'/'laplace'/'sbhzm' 三种)。
   //    rowToCbMeme 会把 source_origin 翻译成 _source,merge 层据此区分来源。
@@ -79,7 +81,7 @@ publicRoutes.get('/memes', async c => {
 
   // 2) SBHZM cron 快照(过渡机制) —— 即便 mirror 库还没覆盖到 SBHZM,这里也
   //    能兜底返回。等用户们经 bulk-mirror 把 SBHZM 内容也推得差不多了,可以下掉这个。
-  const wantSbhzm = sourceFilter === 'all' || sourceFilter === 'sbhzm'
+  const wantSbhzm = shouldIncludeSbhzmSource(sourceFilter, roomId)
   const sbhzmCache = wantSbhzm ? await readSbhzmFromCache(c.env.DB) : { items: [] as CbMeme[], ok: false }
 
   // 3) 把 own 按 source_origin 拆成三组,merge 时优先级 cb > laplace > sbhzm。

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.9.6
+// @version      2.9.7
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -58,7 +58,7 @@
 System.addImportMap({ imports: {"@soniox/speech-to-text-web":"user:@soniox/speech-to-text-web"} });
 System.set("user:@soniox/speech-to-text-web", (()=>{const _=SonioxSpeechToTextWeb;('default' in _)||(_.default=_);return _})());
 
-System.register("./__entry.js", ['./__monkey.entry-CkSmDqv9.js'], (function (exports, module) {
+System.register("./__entry.js", ['./__monkey.entry-EN1D8uhS.js'], (function (exports, module) {
 	'use strict';
 	return {
 		setters: [null],
@@ -70,7 +70,7 @@ System.register("./__entry.js", ['./__monkey.entry-CkSmDqv9.js'], (function (exp
 	};
 }));
 
-System.register("./__monkey.entry-CkSmDqv9.js", ['@soniox/speech-to-text-web'], (function (exports, module) {
+System.register("./__monkey.entry-EN1D8uhS.js", ['@soniox/speech-to-text-web'], (function (exports, module) {
   'use strict';
   var SonioxClient;
   return {
@@ -13668,7 +13668,7 @@ u$2("label", { for: "persistSendState", children: "保持当前直播间独轮�
         bumpDailyLlmCalls(roomId);
         try {
           const chooser = opts?.chooser ?? (await __vitePreload(async () => {
-            const { chooseMemeWithLLM } = await module.import('./llm-driver-t98gTXZx-xv5jxdQ9.js');
+            const { chooseMemeWithLLM } = await module.import('./llm-driver-BSNw2UG4-IgL5xakx.js');
             return { chooseMemeWithLLM };
           }, true ? void 0 : void 0)).chooseMemeWithLLM;
           const chosenContent = await chooser({
@@ -13952,7 +13952,7 @@ u$2("label", { for: "persistSendState", children: "保持当前直播间独轮�
           testError.value = "";
           try {
             const { testLLMConnection } = await __vitePreload(async () => {
-              const { testLLMConnection: testLLMConnection2 } = await module.import('./llm-driver-t98gTXZx-xv5jxdQ9.js');
+              const { testLLMConnection: testLLMConnection2 } = await module.import('./llm-driver-BSNw2UG4-IgL5xakx.js');
               return { testLLMConnection: testLLMConnection2 };
             }, true ? void 0 : void 0);
             const r2 = await testLLMConnection({
@@ -14513,6 +14513,10 @@ u$2("div", { className: "cb-body", children: u$2(
         } catch {
           return null;
         }
+      }
+      function filterBackendMemesForRoom(items, hasRoomSpecificSource) {
+        if (hasRoomSpecificSource) return [...items];
+        return items.filter((m2) => m2._source !== "sbhzm");
       }
       const TAG_COLOR_NAMES = ["red", "yellow", "fuchsia", "emerald", "blue", "orange", "purple", "pink", "cyan", "green"];
       function hashTagColor(name) {
@@ -15180,6 +15184,7 @@ u$2("span", { style: { color: "#888", marginLeft: "auto", fontSize: "10px" }, ch
         if (cbBackendEnabled.value) {
           const cb = await fetchCbMergedMemes({ roomId, sortBy, perPage: 500 });
           if (!cb.fatal) {
+            const cbItems = filterBackendMemesForRoom(cb.items, source !== null);
             const fallbacks = [];
             if (!cb.sources.laplace) {
               fallbacks.push(
@@ -15205,7 +15210,7 @@ u$2("span", { style: { color: "#888", marginLeft: "auto", fontSize: "10px" }, ch
               );
             }
             const fallbackArrs = await Promise.all(fallbacks);
-            const merged2 = [].concat(cb.items, ...fallbackArrs);
+            const merged2 = [].concat(cbItems, ...fallbackArrs);
             sortMemes(merged2, sortBy);
             return merged2;
           }
@@ -19586,7 +19591,7 @@ u$2(AlertDialog, {})
   };
 }));
 
-System.register("./llm-driver-t98gTXZx-xv5jxdQ9.js", ['./__monkey.entry-CkSmDqv9.js', '@soniox/speech-to-text-web'], (function (exports, module) {
+System.register("./llm-driver-BSNw2UG4-IgL5xakx.js", ['./__monkey.entry-EN1D8uhS.js', '@soniox/speech-to-text-web'], (function (exports, module) {
   'use strict';
   var appendLog, gmFetch, BASE_URL;
   return {
