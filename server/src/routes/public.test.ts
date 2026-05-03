@@ -194,6 +194,22 @@ describe('POST /memes/bulk-mirror — input validation', () => {
 })
 
 describe('GET /memes?source=cb — source filter', () => {
+  test('handles approved row counts above D1 bind-variable limits', async () => {
+    const items = Array.from({ length: 125 }, (_, i) => ({ content: `bulk-row-${i}`, id: i + 1 }))
+    const seed = await SELF.fetch('http://example.com/memes/bulk-mirror', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ source: 'laplace', items }),
+    })
+    expect(seed.status).toBe(200)
+
+    const r = await SELF.fetch('http://example.com/memes?perPage=1')
+    expect(r.status).toBe(200)
+    const body = (await r.json()) as { total: number; items: Array<{ content: string }> }
+    expect(body.total).toBe(125)
+    expect(body.items).toHaveLength(1)
+  })
+
   test('only returns rows whose source_origin matches the filter', async () => {
     // Insert one approved row per source.
     const insert = (content: string, src: 'cb' | 'laplace' | 'sbhzm', hashSuffix: string) =>

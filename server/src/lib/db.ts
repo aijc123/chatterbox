@@ -8,6 +8,8 @@ import type { CbMeme, CbTag } from '../types'
 
 import { normalizeContent } from './hash'
 
+const TAG_LOOKUP_CHUNK_SIZE = 90
+
 /** 数据库行 → API 形状的 meme(尚未带 tags;tags 在调用方 join 进来)。 */
 export interface MemeRow {
   id: number
@@ -62,38 +64,42 @@ export function rowToCbMeme(row: MemeRow, tags: CbTag[] = []): CbMeme {
 export async function fetchMemesWithTags(db: D1Database, memeRows: MemeRow[]): Promise<CbMeme[]> {
   if (memeRows.length === 0) return []
   const ids = memeRows.map(r => r.id)
-  const placeholders = ids.map(() => '?').join(',')
-  const tagRows = await db
-    .prepare(
-      `SELECT mt.meme_id, t.id, t.name, t.color, t.emoji, t.icon, t.description
-       FROM meme_tags mt
-       JOIN tags t ON t.id = mt.tag_id
-       WHERE mt.meme_id IN (${placeholders})`
-    )
-    .bind(...ids)
-    .all<{
-      meme_id: number
-      id: number
-      name: string
-      color: string | null
-      emoji: string | null
-      icon: string | null
-      description: string | null
-    }>()
-
   const byMemeId = new Map<number, CbTag[]>()
-  for (const t of tagRows.results ?? []) {
-    const list = byMemeId.get(t.meme_id) ?? []
-    list.push({
-      id: t.id,
-      name: t.name,
-      color: t.color,
-      emoji: t.emoji,
-      icon: t.icon,
-      description: t.description,
-      count: 0, // count 现阶段不维护,UI 不依赖。
-    })
-    byMemeId.set(t.meme_id, list)
+
+  for (let offset = 0; offset < ids.length; offset += TAG_LOOKUP_CHUNK_SIZE) {
+    const chunk = ids.slice(offset, offset + TAG_LOOKUP_CHUNK_SIZE)
+    const placeholders = chunk.map(() => '?').join(',')
+    const tagRows = await db
+      .prepare(
+        `SELECT mt.meme_id, t.id, t.name, t.color, t.emoji, t.icon, t.description
+         FROM meme_tags mt
+         JOIN tags t ON t.id = mt.tag_id
+         WHERE mt.meme_id IN (${placeholders})`
+      )
+      .bind(...chunk)
+      .all<{
+        meme_id: number
+        id: number
+        name: string
+        color: string | null
+        emoji: string | null
+        icon: string | null
+        description: string | null
+      }>()
+
+    for (const t of tagRows.results ?? []) {
+      const list = byMemeId.get(t.meme_id) ?? []
+      list.push({
+        id: t.id,
+        name: t.name,
+        color: t.color,
+        emoji: t.emoji,
+        icon: t.icon,
+        description: t.description,
+        count: 0, // count 现阶段不维护,UI 不依赖。
+      })
+      byMemeId.set(t.meme_id, list)
+    }
   }
   return memeRows.map(r => rowToCbMeme(r, byMemeId.get(r.id) ?? []))
 }
