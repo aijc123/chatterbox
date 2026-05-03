@@ -85,12 +85,40 @@ function parseAnthropicResponse(json: unknown): LlmResponseChoice | null {
   return text ? { rawId: text } : null
 }
 
+interface OpenAIChoice {
+  message?: { content?: string; reasoning_content?: string }
+  finish_reason?: string
+}
+
+/**
+ * Pull an id-like token (digits or "-1") from the tail of a reasoning trace.
+ *
+ * Reasoning models (Xiaomi MiMo, DeepSeek-R1, etc.) often route the answer
+ * into `reasoning_content` and leave `content` empty when `max_tokens` is
+ * tight. The model usually converges to the answer at the very end of its
+ * thinking, so we grab the last numeric run from the tail.
+ */
+function extractIdFromReasoning(reasoning: string): string | null {
+  const tail = reasoning.slice(-300)
+  const matches = tail.match(/-?\d+/g)
+  if (!matches || matches.length === 0) return null
+  return matches[matches.length - 1] ?? null
+}
+
 function parseOpenAIResponse(json: unknown): LlmResponseChoice | null {
   if (!json || typeof json !== 'object') return null
-  const choices = (json as { choices?: Array<{ message?: { content?: string } }> }).choices
+  const choices = (json as { choices?: OpenAIChoice[] }).choices
   if (!Array.isArray(choices) || choices.length === 0) return null
-  const text = choices[0]?.message?.content?.trim() ?? ''
-  return text ? { rawId: text } : null
+  const choice = choices[0]
+  if (!choice) return null
+  const content = choice.message?.content?.trim() ?? ''
+  if (content) return { rawId: content }
+  const reasoning = choice.message?.reasoning_content?.trim() ?? ''
+  if (reasoning) {
+    const fromReasoning = extractIdFromReasoning(reasoning)
+    if (fromReasoning) return { rawId: fromReasoning }
+  }
+  return null
 }
 
 async function callAnthropic(opts: ChooseMemeOptions): Promise<LlmResponseChoice | null> {
@@ -127,13 +155,19 @@ async function callOpenAI(opts: ChooseMemeOptions, urlOverride?: string): Promis
     },
     body: JSON.stringify({
       model: opts.model,
-      max_tokens: 64,
+      // 1024 instead of 64 so reasoning models (Xiaomi MiMo, DeepSeek-R1, o1,
+      // etc.) have room to think AND emit the id. With 64 tokens the entire
+      // budget gets consumed by reasoning_content and `content` is left empty
+      // (finish_reason=length), surfacing as a confusing "empty response"
+      // error in the UI. Non-reasoning models stop early after the tiny id so
+      // there's no real cost.
+      max_tokens: 1024,
       messages: [
         { role: 'system', content: SYSTEM_PROMPT_TEMPLATE(opts.roomName) },
         { role: 'user', content: buildUserMessage(opts) },
       ],
     }),
-    timeoutMs: 15000,
+    timeoutMs: 30000,
   })
   if (!resp.ok) {
     throw new Error(`OpenAI HTTP ${resp.status}: ${resp.text().slice(0, 200)}`)
@@ -206,13 +240,57 @@ export async function chooseMemeWithLLM(opts: ChooseMemeOptions): Promise<string
   }
 
   if (!parsed) return null
-  const id = parsed.rawId.trim()
-  if (!id || id === '-1') return null
+  const raw = parsed.rawId.trim()
+  if (!raw) return null
 
-  const found = opts.candidates.find(c => c.id === id)
-  if (found) return found.content
+  const id = normalizeIdFromLlmOutput(raw)
+  if (id === '-1') return null
 
-  // 一些模型可能直接吐 content 而非 id，再容错一次：尝试根据 id 字符串匹配 content 子串
-  const byContent = opts.candidates.find(c => c.content === id || id.includes(c.content) || c.content.includes(id))
+  if (id) {
+    const found = opts.candidates.find(c => c.id === id)
+    if (found) return found.content
+  }
+
+  // 一些模型可能直接吐 content 而非 id，再容错一次：尝试根据 raw 字符串匹配 content 子串
+  const byContent = opts.candidates.find(c => c.content === raw || raw.includes(c.content) || c.content.includes(raw))
   return byContent?.content ?? null
+}
+
+/**
+ * Pull a clean id (digits or "-1") out of the model's raw text response.
+ *
+ * Despite the system prompt saying "no markdown, just the id", real models do
+ * all of these:
+ *   - `1`                                    → "1"
+ *   - `"1"`                                  → "1"
+ *   - `\`\`\`json\n{"id":"1"}\n\`\`\``       → "1"  (Xiaomi MiMo loves this)
+ *   - `{"id": "1"}`                          → "1"
+ *   - `Selected id: 1`                       → "1"
+ *   - `-1`                                   → "-1"
+ *
+ * Strategy: try JSON first (handles structured wrappings), then fall back to a
+ * regex on the raw string to pluck the first id-like token.
+ */
+export function normalizeIdFromLlmOutput(raw: string): string | null {
+  const stripped = raw
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim()
+  if (!stripped) return null
+
+  try {
+    const parsed = JSON.parse(stripped) as unknown
+    if (typeof parsed === 'string') return parsed.trim() || null
+    if (typeof parsed === 'number') return String(parsed)
+    if (parsed && typeof parsed === 'object') {
+      const v = (parsed as Record<string, unknown>).id
+      if (typeof v === 'string') return v.trim() || null
+      if (typeof v === 'number') return String(v)
+    }
+  } catch {
+    // not JSON, fall through to regex
+  }
+
+  const m = stripped.match(/-1|\d+/)
+  return m ? m[0] : null
 }

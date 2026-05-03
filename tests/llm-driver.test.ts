@@ -219,6 +219,69 @@ describe('chooseMemeWithLLM — response parsing', () => {
     expect(captured.length).toBe(0)
   })
 
+  test('id normalization: model wraps id in markdown json fence', async () => {
+    // Real Xiaomi MiMo response: `\`\`\`json\n{"id":"1"}\n\`\`\``
+    mockResponseFactory = () => ({
+      choices: [{ message: { content: '```json\n{"id":"1"}\n```' } }],
+    })
+    const out = await chooseMemeWithLLM({
+      provider: 'openai-compat',
+      apiKey: 'k',
+      model: 'mimo-v2.5-pro',
+      baseURL: 'https://token-plan-sgp.xiaomimimo.com/v1',
+      roomName: 'r',
+      recentChat: ['ping'],
+      candidates,
+    })
+    expect(out).toBe('冲耳朵啊医生')
+  })
+
+  test('id normalization: bare JSON object with id field', async () => {
+    mockResponseFactory = () => ({
+      choices: [{ message: { content: '{"id":"2"}' } }],
+    })
+    const out = await chooseMemeWithLLM({
+      provider: 'openai',
+      apiKey: 'k',
+      model: 'm',
+      roomName: 'r',
+      recentChat: [],
+      candidates,
+    })
+    expect(out).toBe('好困想睡觉')
+  })
+
+  test('id normalization: prose-wrapped id ("Selected id: 2")', async () => {
+    mockResponseFactory = () => ({
+      choices: [{ message: { content: 'Selected id: 2' } }],
+    })
+    const out = await chooseMemeWithLLM({
+      provider: 'openai',
+      apiKey: 'k',
+      model: 'm',
+      roomName: 'r',
+      recentChat: [],
+      candidates,
+    })
+    expect(out).toBe('好困想睡觉')
+  })
+
+  test('id normalization: -1 inside json fence still abstains', async () => {
+    mockResponseFactory = () => ({
+      choices: [{ message: { content: '```json\n{"id":"-1"}\n```' } }],
+    })
+    const out = await chooseMemeWithLLM({
+      provider: 'openai-compat',
+      apiKey: 'k',
+      model: 'm',
+      baseURL: 'https://x.example.com',
+      roomName: 'r',
+      recentChat: [],
+      candidates,
+    })
+    expect(out).toBeNull()
+  })
+
   test('content fallback: model returned full content instead of id', async () => {
     mockResponseFactory = () => ({ choices: [{ message: { content: '冲耳朵啊医生' } }] })
     const out = await chooseMemeWithLLM({
@@ -271,6 +334,71 @@ describe('chooseMemeWithLLM — response parsing', () => {
       candidates,
     })
     expect(out).toBeNull()
+  })
+
+  test('reasoning-model fallback: empty content + reasoning_content tail digit → use the tail id', async () => {
+    // Xiaomi MiMo / DeepSeek-R1 / o1 etc. route the answer into
+    // `reasoning_content` and leave `content` empty when max_tokens is tight.
+    // We pick the last id-like token from the tail of the reasoning trace.
+    mockResponseFactory = () => ({
+      choices: [
+        {
+          finish_reason: 'length',
+          message: {
+            content: '',
+            reasoning_content: 'Hmm, between 1 and 2, "好困想睡觉" matches "很困" better. Answer: 2',
+          },
+        },
+      ],
+    })
+    const out = await chooseMemeWithLLM({
+      provider: 'openai-compat',
+      apiKey: 'k',
+      model: 'mimo-v2.5-pro',
+      baseURL: 'https://token-plan-sgp.xiaomimimo.com/v1',
+      roomName: 'r',
+      recentChat: ['很困'],
+      candidates,
+    })
+    expect(out).toBe('好困想睡觉')
+  })
+
+  test('reasoning-model fallback: empty content + reasoning_content with no digits → null', async () => {
+    mockResponseFactory = () => ({
+      choices: [
+        {
+          finish_reason: 'length',
+          message: {
+            content: '',
+            reasoning_content: 'still thinking about which one fits best…',
+          },
+        },
+      ],
+    })
+    const out = await chooseMemeWithLLM({
+      provider: 'openai',
+      apiKey: 'k',
+      model: 'm',
+      roomName: 'r',
+      recentChat: [],
+      candidates,
+    })
+    expect(out).toBeNull()
+  })
+
+  test('openai max_tokens bumped to 1024 so reasoning models get room to think', async () => {
+    mockResponseFactory = () => ({ choices: [{ message: { content: '1' } }] })
+    await chooseMemeWithLLM({
+      provider: 'openai-compat',
+      apiKey: 'k',
+      model: 'mimo-v2.5-pro',
+      baseURL: 'https://token-plan-sgp.xiaomimimo.com/v1',
+      roomName: 'r',
+      recentChat: [],
+      candidates,
+    })
+    const body = JSON.parse(captured[0].body ?? '{}')
+    expect(body.max_tokens).toBe(1024)
   })
 
   test('passes recentChat + candidates as JSON in user message', async () => {
