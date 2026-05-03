@@ -1,0 +1,18 @@
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 2%
+    patch:
+      default:
+        target: 80%
+
+comment: false
+
+ignore:
+  - "coverage/**"
+  - "dist/**"
+  - "node_modules/**"
+  - "server/node_modules/**"
+  - "tests/**"

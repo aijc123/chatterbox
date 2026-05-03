@@ -1,5 +1,8 @@
 # B站独轮车 + 自动跟车
 
+[![CI](https://github.com/aijc123/bilibili-live-wheel-auto-follow/actions/workflows/ci.yml/badge.svg)](https://github.com/aijc123/bilibili-live-wheel-auto-follow/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/aijc123/bilibili-live-wheel-auto-follow/branch/master/graph/badge.svg)](https://codecov.io/gh/aijc123/bilibili-live-wheel-auto-follow)
+
 一个给 B 站/哔哩哔哩直播间使用的弹幕助手 userscript。它从 [LAPLACE Chatterbox](https://github.com/laplace-live/chatterbox) fork 而来，保留并扩展了独轮车、同传、烂梗库、弹幕替换、AI 规避等能力，同时加入自动跟车、粉丝牌禁言巡检和可接管右侧评论区的 Chatterbox Chat。
 
 项目链接：
