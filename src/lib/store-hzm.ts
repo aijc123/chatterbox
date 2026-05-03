@@ -8,26 +8,62 @@
  * 房间号统一以字符串作为 key（与 store-meme.ts 等已有模块一致）。
  */
 
+import { effect, signal } from '@preact/signals'
+
+import { GM_deleteValue, GM_getValue, GM_setValue } from '$'
 import { gmSignal } from './gm-signal'
 
 // ---------------------------------------------------------------------------
 // 全局
 // ---------------------------------------------------------------------------
 
-export type HzmDriveMode = 'off' | 'heuristic' | 'llm'
+export type HzmDriveMode = 'heuristic' | 'llm'
 
-const VALID_MODES: HzmDriveMode[] = ['off', 'heuristic', 'llm']
+const VALID_MODES: HzmDriveMode[] = ['heuristic', 'llm']
 const isValidMode = (v: unknown): v is HzmDriveMode => typeof v === 'string' && (VALID_MODES as string[]).includes(v)
 
 /**
+ * One-shot migration: legacy `hzmDriveMode='off'` is split into `mode='heuristic' + enabled=false`.
+ * The new gmSignal below validates strictly, so we must scrub the persisted value first.
+ *
+ * Exported (with injectable get/set) so it's testable without relying on module-import order
+ * or bun's '$' mock — both of which are flaky when multiple test files share a process.
+ */
+export const HZM_DRIVE_MODE_MIGRATION_KEY = 'hzmDriveModeOffSplitMigrated'
+export function migrateLegacyHzmDriveMode(io: {
+  get: <T>(key: string, defaultValue: T) => T
+  set: (key: string, value: unknown) => void
+}): void {
+  if (io.get(HZM_DRIVE_MODE_MIGRATION_KEY, false)) return
+  if (io.get('hzmDriveMode', 'heuristic') === 'off') io.set('hzmDriveMode', 'heuristic')
+  io.set(HZM_DRIVE_MODE_MIGRATION_KEY, true)
+}
+migrateLegacyHzmDriveMode({ get: GM_getValue, set: GM_setValue })
+
+/**
  * 智驾模式：
- * - off：关闭
  * - heuristic：纯启发式（弹幕关键词 → tag → 随机选条）
  * - llm：每 N 次 tick 用 LLM 选条（其它 tick 仍走启发式）
  *
- * 默认 off，安全第一。
+ * 此 signal 仅表示"模式偏好"。开关由 `hzmDriveEnabled` 控制。
  */
-export const hzmDriveMode = gmSignal<HzmDriveMode>('hzmDriveMode', 'off', { validate: isValidMode })
+export const hzmDriveMode = gmSignal<HzmDriveMode>('hzmDriveMode', 'heuristic', { validate: isValidMode })
+
+/**
+ * 是否开车（运行时状态）。
+ * 用 signal（非 gmSignal），刷新后默认 false——避免离开页面后仍在自动发送。
+ * 与 `autoBlendEnabled` 的策略一致。
+ */
+export const hzmDriveEnabled = signal(false)
+
+/** 状态文本（运行时 signal，由 hzm-auto-drive.ts 更新）。 */
+export const hzmDriveStatusText = signal('已关闭')
+
+/** 面板展开状态（持久化）。默认收起，与自动跟车一致。 */
+export const hzmPanelOpen = gmSignal('hzmPanelOpen', false)
+
+/** 用户已确认过"非试运行直接开车会真发弹幕"提醒。 */
+export const hasConfirmedHzmRealFire = gmSignal('hasConfirmedHzmRealFire', false)
 
 /**
  * 试运行：选了梗但不真发，只 appendLog。
@@ -52,8 +88,50 @@ const isValidProvider = (v: unknown): v is HzmLlmProvider =>
 /** LLM provider。默认 anthropic（推荐 Haiku 4.5 做选梗）。 */
 export const hzmLlmProvider = gmSignal<HzmLlmProvider>('hzmLlmProvider', 'anthropic', { validate: isValidProvider })
 
-/** API key。注意：明文存于 GM 存储，泄露风险需用户知情。 */
-export const hzmLlmApiKey = gmSignal<string>('hzmLlmApiKey', '')
+/**
+ * 是否把 API key 持久化到 GM 存储。
+ *
+ * 默认开（保持老用户既有行为）。关掉后切换为"仅本会话"——key 留在内存，刷新页
+ * 面后清空，且 GM 存储里的旧值立即抹掉。这是缓解 GM 存储明文风险的用户级开关：
+ * 共用电脑、备份导出、其它扩展都不再能从盘上读到。
+ */
+export const hzmLlmApiKeyPersist = gmSignal<boolean>('hzmLlmApiKeyPersist', true)
+
+/**
+ * API key（运行时 signal）。
+ *
+ * 不直接用 gmSignal，因为持久化由 hzmLlmApiKeyPersist 决定。冷启动时若上次
+ * 选了"持久"就从 GM 读回；否则从空字符串起步（用户需手动重新粘贴）。
+ */
+export const hzmLlmApiKey = signal<string>(
+  GM_getValue<boolean>('hzmLlmApiKeyPersist', true) ? GM_getValue<string>('hzmLlmApiKey', '') : ''
+)
+
+// 唯一会写盘的地方——持久模式下落盘；切到非持久模式立刻删除 GM 里的旧值，
+// 这样用户从持久切到非持久时不会留下一个孤儿副本。
+let _isFirstPersistEffectRun = true
+effect(() => {
+  const persist = hzmLlmApiKeyPersist.value
+  const key = hzmLlmApiKey.value
+  if (_isFirstPersistEffectRun) {
+    _isFirstPersistEffectRun = false
+    return
+  }
+  if (persist) {
+    GM_setValue('hzmLlmApiKey', key)
+  } else {
+    GM_deleteValue('hzmLlmApiKey')
+  }
+})
+
+/**
+ * 显式清空 API key（运行时 + GM 存储）。
+ * UI 的"清除"按钮调用这个，避免 UI 自己直接 setValue('')。
+ */
+export function clearHzmLlmApiKey(): void {
+  hzmLlmApiKey.value = ''
+  GM_deleteValue('hzmLlmApiKey')
+}
 
 /** 模型名。默认 Haiku 4.5（最便宜的 Anthropic 选梗模型）。 */
 export const hzmLlmModel = gmSignal<string>('hzmLlmModel', 'claude-haiku-4-5-20251001')

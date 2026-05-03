@@ -1,0 +1,27 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "chatterbox-cloud",
+  "main": "src/index.ts",
+  // 用最近的 compatibility_date。Workers 行为基线随这个日期前进。
+  "compatibility_date": "2025-04-01",
+  // 不开 nodejs_compat —— 不需要,且 bun+unenv 在 Windows 下有解析 bug。
+  "observability": {
+    "enabled": true
+  },
+  // D1 绑定。本地 `wrangler dev --local` 会自动用 .wrangler/state/v3/d1 下的 SQLite 文件,
+  // 不需要 `database_id` 也能跑;部署到生产前先 `wrangler d1 create chatterbox-cloud`,
+  // 把返回的 id 填进来。
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "chatterbox-cloud",
+      "database_id": "1a18d893-f114-4890-800a-0f851ccbbf10",
+      "migrations_dir": "migrations"
+    }
+  ],
+  // Phase C:每 15 分钟从 SBHZM 拉一次最新快照写到 D1。本地 `wrangler dev` 不会自动
+  // 跑 cron,手动触发用 `/admin/refresh-sbhzm`(带 admin 鉴权)。
+  "triggers": {
+    "crons": ["*/15 * * * *"]
+  }
+}

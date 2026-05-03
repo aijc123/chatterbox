@@ -28,6 +28,7 @@ const {
   getRecentSent,
   getSelectedTags,
   hzmDailyStatsByRoom,
+  hzmDriveEnabled,
   hzmDriveMode,
   hzmRecentSentByRoom,
   hzmSelectedTagsByRoom,
@@ -55,11 +56,30 @@ describe('meme-sources registry', () => {
 
 describe('store-hzm per-room state', () => {
   beforeEach(() => {
-    hzmDriveMode.value = 'off'
+    // Reset to the new defaults: mode is just a preference, the on/off switch
+    // is a separate signal. (Old tests set mode='off' which no longer typechecks.)
+    hzmDriveMode.value = 'heuristic'
+    hzmDriveEnabled.value = false
     hzmSelectedTagsByRoom.value = {}
     hzmBlacklistTagsByRoom.value = {}
     hzmRecentSentByRoom.value = {}
     hzmDailyStatsByRoom.value = {}
+  })
+
+  test('hzmDriveEnabled and hzmDriveMode are independent — flipping one does not flip the other', () => {
+    expect(hzmDriveEnabled.value).toBe(false)
+    expect(hzmDriveMode.value).toBe('heuristic')
+
+    // Mode is a preference; switching it must NOT auto-enable.
+    hzmDriveMode.value = 'llm'
+    expect(hzmDriveEnabled.value).toBe(false)
+
+    // Toggling enabled must NOT clobber the user's mode choice.
+    hzmDriveEnabled.value = true
+    expect(hzmDriveMode.value).toBe('llm')
+
+    hzmDriveEnabled.value = false
+    expect(hzmDriveMode.value).toBe('llm')
   })
 
   test('selected/blacklist tags are isolated per room', () => {

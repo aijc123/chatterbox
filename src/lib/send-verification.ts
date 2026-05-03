@@ -17,11 +17,14 @@ import { requestAiSuggestion, tryAiEvasion } from './ai-evasion'
 import { getDedeUid } from './api'
 import {
   type CustomChatEvent,
+  type CustomChatWsStatus,
   findRecentCustomChatDanmakuSource,
   subscribeCustomChatEvents,
+  subscribeCustomChatWsStatus,
 } from './custom-chat-events'
 import { type DanmakuEvent, subscribeDanmaku } from './danmaku-stream'
 import { isEmoticonUnique } from './emoticon'
+import { startLiveWsSource } from './live-ws-source'
 import { appendLog, appendLogQuiet } from './log'
 import { learnShadowRules, recordShadowBanObservation } from './shadow-learn'
 import { formatCandidatesForLog, generateHeuristicCandidates, type ShadowBypassCandidate } from './shadow-suggestion'
@@ -107,6 +110,23 @@ function ensureDomTracking(): void {
   })
 }
 
+// WS source must be running for self-broadcast verification: B站 always inserts
+// the user's own message into the local DOM regardless of broadcast outcome,
+// so DOM-self echoes are filtered out as unreliable. Only WS-self echoes
+// (DANMU_MSG pushed by the server) prove a real broadcast. We therefore
+// ref-count `startLiveWsSource` ourselves on first verification — page-lifetime
+// consumer, never stopped — independent of the Custom Chat UI toggle.
+let wsTrackingStarted = false
+let currentWsStatus: CustomChatWsStatus = 'off'
+function ensureWsTracking(): void {
+  if (wsTrackingStarted) return
+  wsTrackingStarted = true
+  subscribeCustomChatWsStatus(status => {
+    currentWsStatus = status
+  })
+  startLiveWsSource()
+}
+
 /**
  * Resolves with the source of the broadcast echo if observed within `timeoutMs`,
  * otherwise resolves to `'local'` (only local API echo seen → likely shadow-ban)
@@ -126,6 +146,7 @@ export function waitForSentEcho(
   timeoutMs = SEND_ECHO_TIMEOUT_MS
 ): Promise<EchoSource> {
   ensureDomTracking()
+  ensureWsTracking()
   const target = text.trim()
   if (!target) return Promise.resolve(null)
   // The sender UID is also the "self UID" we use to filter unreliable
@@ -228,6 +249,18 @@ export async function verifyBroadcast(input: VerifyBroadcastInput): Promise<void
   const uid = getDedeUid() ?? null
   const source = await waitForSentEcho(input.text, uid, input.sinceTs, input.timeoutMs)
   if (source === 'ws' || source === 'dom') return
+
+  // For self-sent messages, WS-self is the only trustworthy broadcast proof
+  // (DOM-self is filtered as unreliable — see findRecentDomDanmakuSource).
+  // If the WS isn't actually `live` at this moment (still connecting after
+  // page load, errored, closed, or simply off because Custom Chat is
+  // disabled and auto-blend isn't running), we cannot distinguish a real
+  // shadow ban from "no listener". Fall back to a quiet info note instead
+  // of emitting a misleading ⚠️ warning + bogus rewrite candidates.
+  if (currentWsStatus !== 'live') {
+    appendLogQuiet(`⚪ ${input.label}: ${input.display}（广播校验跳过：WS 未就绪 ${currentWsStatus}）`)
+    return
+  }
 
   const message = `⚠️ ${input.label}: ${input.display}（接口成功但未检测到广播，可能被屏蔽）`
   let surfaceToast = input.surfaceToast !== false

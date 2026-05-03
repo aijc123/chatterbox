@@ -4,6 +4,9 @@ const writes: Array<{ key: string; value: unknown }> = []
 const store = new Map<string, unknown>()
 
 mock.module('$', () => ({
+  GM_deleteValue: (key: string) => {
+    store.delete(key)
+  },
   GM_getValue: <T>(key: string, defaultValue: T): T => (store.has(key) ? (store.get(key) as T) : defaultValue),
   GM_setValue: (key: string, value: unknown) => {
     writes.push({ key, value })

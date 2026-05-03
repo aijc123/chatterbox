@@ -1,6 +1,8 @@
 import { GM_getValue, GM_setValue } from '$'
 import { appendLog } from './log'
+import { memeContentKey } from './meme-content-key'
 import { enableMemeContribution, memeContributorCandidatesByRoom, memeContributorSeenTextsByRoom } from './store'
+import { currentMemesList } from './store-meme'
 
 const MAX_PER_HOUR = 5
 const MAX_CANDIDATES = 15
@@ -95,6 +97,28 @@ export function recordMemeCandidate(text: string, roomId: number): void {
   const candForRoom = memeContributorCandidatesByRoom.value[roomKey] ?? []
   if (seenForRoom.includes(text)) return
   if (candForRoom.includes(text)) return
+
+  // 已在库自动跳过 —— `currentMemesList` 是 `MemesList` 组件每次刷新后写入的当前
+  // 房间合并后梗集(cb 自建 + LAPLACE + SBHZM,任一启用源都包含在内)。如果待
+  // 贡献文本经规整后跟其中任一条等同,直接放进 seen 队列,不打扰用户。
+  //
+  // 早期 currentMemesList 可能还没载完(空数组)→ 此时所有候选放过,等下次 30s
+  // polling 后再过滤新检测的;已经在 candidates 里的不会动(老候选要靠用户手动忽略
+  // 或贡献来清,这是有意为之 —— 避免拉取异常时大批候选误删)。
+  const candidateKey = memeContentKey(text)
+  if (candidateKey) {
+    const libraryKeys = new Set(currentMemesList.value.map(m => memeContentKey(m.content)))
+    if (libraryKeys.has(candidateKey)) {
+      const nextSeen = [...seenForRoom, text]
+      memeContributorSeenTextsByRoom.value = {
+        ...memeContributorSeenTextsByRoom.value,
+        [roomKey]: nextSeen.length > MAX_SEEN ? nextSeen.slice(-MAX_SEEN) : nextSeen,
+      }
+      // 只在调试模式下记一行,避免 log 被刷屏。
+      // appendLog(`[贡献者] "${text}" 已在烂梗库,跳过`)
+      return
+    }
+  }
 
   // Hourly rate limit, scoped per room
   const stamps = nominationTimestampsByRoom.get(roomKey) ?? []

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.9.3
+// @version      2.9.4
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -19,8 +19,10 @@
 // @connect      bilibili-guard-room.vercel.app
 // @connect      localhost
 // @connect      sbhzm.cn
+// @connect      chatterbox-cloud.aijc-eric.workers.dev
 // @connect      api.anthropic.com
 // @connect      api.openai.com
+// @connect      *
 // @grant        GM_addElement
 // @grant        GM_addStyle
 // @grant        GM_addValueChangeListener
@@ -56,7 +58,7 @@
 System.addImportMap({ imports: {"@soniox/speech-to-text-web":"user:@soniox/speech-to-text-web"} });
 System.set("user:@soniox/speech-to-text-web", (()=>{const _=SonioxSpeechToTextWeb;('default' in _)||(_.default=_);return _})());
 
-System.register("./__entry.js", ['./__monkey.entry-7BW_mupv.js'], (function (exports, module) {
+System.register("./__entry.js", ['./__monkey.entry-ZMW0ferm.js'], (function (exports, module) {
 	'use strict';
 	return {
 		setters: [null],
@@ -68,7 +70,7 @@ System.register("./__entry.js", ['./__monkey.entry-7BW_mupv.js'], (function (exp
 	};
 }));
 
-System.register("./__monkey.entry-7BW_mupv.js", ['@soniox/speech-to-text-web'], (function (exports, module) {
+System.register("./__monkey.entry-ZMW0ferm.js", ['@soniox/speech-to-text-web'], (function (exports, module) {
   'use strict';
   var SonioxClient;
   return {
@@ -423,6 +425,7 @@ SBHZM_MEMES_RANDOM: "https://sbhzm.cn/api/public/memes/random",
 SBHZM_TAGS: "https://sbhzm.cn/api/public/tags",
 SBHZM_SUBMIT_MEME: "https://sbhzm.cn/api/admin/memes",
 SBHZM_SUBMIT_PAGE: "https://sbhzm.cn/submit",
+CB_BACKEND: "https://chatterbox-cloud.aijc-eric.workers.dev",
 ANTHROPIC_MESSAGES: "https://api.anthropic.com/v1/messages",
 OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
       });
@@ -1371,6 +1374,9 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
       const enableMemeContribution = gmSignal("enableMemeContribution", false);
       const memeContributorCandidatesByRoom = gmSignal("memeContributorCandidatesByRoom", {});
       const memeContributorSeenTextsByRoom = gmSignal("memeContributorSeenTextsByRoom", {});
+      const cbBackendEnabled = gmSignal("cbBackendEnabled", false);
+      const cbBackendUrlOverride = gmSignal("cbBackendUrlOverride", "");
+      const currentMemesList = y$1([]);
       const msgSendInterval = gmSignal("msgSendInterval", 1);
       const maxLength = gmSignal("maxLength", 38);
       const randomColor = gmSignal("randomColor", false);
@@ -1439,9 +1445,20 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
       const guardRoomSyncKey = gmSignal("guardRoomSyncKey", "");
       const guardRoomWebsiteControlEnabled = gmSignal("guardRoomWebsiteControlEnabled", false);
       const guardRoomHandoffActive = y$1(false);
-      const VALID_MODES = ["off", "heuristic", "llm"];
+      const VALID_MODES = ["heuristic", "llm"];
       const isValidMode = (v2) => typeof v2 === "string" && VALID_MODES.includes(v2);
-      const hzmDriveMode = gmSignal("hzmDriveMode", "off", { validate: isValidMode });
+      const HZM_DRIVE_MODE_MIGRATION_KEY = "hzmDriveModeOffSplitMigrated";
+      function migrateLegacyHzmDriveMode(io) {
+        if (io.get(HZM_DRIVE_MODE_MIGRATION_KEY, false)) return;
+        if (io.get("hzmDriveMode", "heuristic") === "off") io.set("hzmDriveMode", "heuristic");
+        io.set(HZM_DRIVE_MODE_MIGRATION_KEY, true);
+      }
+      migrateLegacyHzmDriveMode({ get: _GM_getValue, set: _GM_setValue });
+      const hzmDriveMode = gmSignal("hzmDriveMode", "heuristic", { validate: isValidMode });
+      const hzmDriveEnabled = y$1(false);
+      const hzmDriveStatusText = y$1("已关闭");
+      const hzmPanelOpen = gmSignal("hzmPanelOpen", false);
+      const hasConfirmedHzmRealFire = gmSignal("hasConfirmedHzmRealFire", false);
       const hzmDryRun = gmSignal("hzmDryRun", true);
       const hzmDriveIntervalSec = gmSignal("hzmDriveIntervalSec", 8);
       const hzmRateLimitPerMin = gmSignal("hzmRateLimitPerMin", 6);
@@ -1449,7 +1466,28 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
       const VALID_PROVIDERS = ["anthropic", "openai", "openai-compat"];
       const isValidProvider = (v2) => typeof v2 === "string" && VALID_PROVIDERS.includes(v2);
       const hzmLlmProvider = gmSignal("hzmLlmProvider", "anthropic", { validate: isValidProvider });
-      const hzmLlmApiKey = gmSignal("hzmLlmApiKey", "");
+      const hzmLlmApiKeyPersist = gmSignal("hzmLlmApiKeyPersist", true);
+      const hzmLlmApiKey = y$1(
+        _GM_getValue("hzmLlmApiKeyPersist", true) ? _GM_getValue("hzmLlmApiKey", "") : ""
+      );
+      let _isFirstPersistEffectRun = true;
+      j$1(() => {
+        const persist = hzmLlmApiKeyPersist.value;
+        const key = hzmLlmApiKey.value;
+        if (_isFirstPersistEffectRun) {
+          _isFirstPersistEffectRun = false;
+          return;
+        }
+        if (persist) {
+          _GM_setValue("hzmLlmApiKey", key);
+        } else {
+          _GM_deleteValue("hzmLlmApiKey");
+        }
+      });
+      function clearHzmLlmApiKey() {
+        hzmLlmApiKey.value = "";
+        _GM_deleteValue("hzmLlmApiKey");
+      }
       const hzmLlmModel = gmSignal("hzmLlmModel", "claude-haiku-4-5-20251001");
       const hzmLlmBaseURL = gmSignal("hzmLlmBaseURL", "");
       const hzmPauseKeywordsOverride = gmSignal("hzmPauseKeywordsOverride", "");
@@ -1673,7 +1711,7 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
       }
       const handlers = new Set();
       const wsStatusHandlers = new Set();
-      let currentWsStatus$1 = "off";
+      let currentWsStatus$2 = "off";
       const recentDanmakuHistory = [];
       const RECENT_DANMAKU_HISTORY_MS = 15e3;
       const RECENT_DANMAKU_HISTORY_MAX = 240;
@@ -1786,11 +1824,11 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
       }
       function subscribeCustomChatWsStatus(handler) {
         wsStatusHandlers.add(handler);
-        handler(currentWsStatus$1);
+        handler(currentWsStatus$2);
         return () => wsStatusHandlers.delete(handler);
       }
       function emitCustomChatWsStatus(status) {
-        currentWsStatus$1 = status;
+        currentWsStatus$2 = status;
         for (const handler of wsStatusHandlers) {
           handler(status);
         }
@@ -3119,1343 +3157,6 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
         return () => {
           subscriptions.delete(sub);
           maybeDetach();
-        };
-      }
-      const guardRoomLiveDeskSessionId = gmSignal("guardRoomLiveDeskSessionId", "");
-      const guardRoomLiveDeskHeartbeatSec = gmSignal("guardRoomLiveDeskHeartbeatSec", 30);
-      const guardRoomCurrentRiskLevel = y$1("pass");
-      const guardRoomAgentConnected = y$1(false);
-      const guardRoomAgentStatusText = y$1("未连接");
-      const guardRoomAgentLastSyncAt = y$1(null);
-      const guardRoomAgentWatchlistCount = y$1(0);
-      const guardRoomAgentLiveCount = y$1(0);
-      const guardRoomWatchlistRooms = y$1([]);
-      const guardRoomAppliedProfile = y$1(null);
-      function normalizeGuardRoomEndpoint$1(endpoint) {
-        const trimmed = endpoint.trim().replace(/\/+$/, "");
-        if (!trimmed) return "";
-        let parsed;
-        try {
-          parsed = new URL(trimmed);
-        } catch {
-          return "";
-        }
-        if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return "";
-        if (parsed.protocol === "http:") {
-          const host = parsed.hostname;
-          const bare = host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
-          const isLoopback = bare === "localhost" || bare === "127.0.0.1" || bare === "::1";
-          if (!isLoopback) return "";
-        }
-        return trimmed;
-      }
-      function classifyRiskEvent(error, errorData) {
-        if (isMutedError(error)) {
-          return {
-            kind: "muted",
-            level: "stop",
-            advice: `检测到房间禁言，先停车。禁言时长：${describeRestrictionDuration(error, errorData)}。`
-          };
-        }
-        if (isAccountRestrictedError(error)) {
-          return {
-            kind: "account_restricted",
-            level: "stop",
-            advice: `检测到账号级风控，先停发。限制时长：${describeRestrictionDuration(error, errorData)}。`
-          };
-        }
-        if (isRateLimitError(error)) {
-          return { kind: "rate_limited", level: "observe", advice: "发送频率过快，先降频或暂停自动跟车。" };
-        }
-        return { kind: "send_failed", level: "observe", advice: "发送失败，建议看一眼房间状态和替换词。" };
-      }
-      async function syncGuardRoomRiskEvent(input) {
-        const endpoint = normalizeGuardRoomEndpoint$1(guardRoomEndpoint.value);
-        const syncKey = guardRoomSyncKey.value.trim();
-        if (!endpoint || !syncKey) return;
-        guardRoomCurrentRiskLevel.value = input.level;
-        const payload = {
-          eventId: `risk-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          scriptVersion: VERSION,
-          occurredAt: ( new Date()).toISOString(),
-          ...input,
-          reason: input.reason?.slice(0, 500),
-          advice: input.advice?.slice(0, 500)
-        };
-        await fetch(`${endpoint}/api/risk-events`, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-sync-key": syncKey
-          },
-          body: JSON.stringify(payload)
-        }).catch(() => void 0);
-      }
-      async function syncGuardRoomLiveDeskHeartbeat(input) {
-        const endpoint = normalizeGuardRoomEndpoint$1(guardRoomEndpoint.value);
-        const syncKey = guardRoomSyncKey.value.trim();
-        if (!endpoint || !syncKey) return;
-        await fetch(`${endpoint}/api/live-desk/heartbeats`, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-sync-key": syncKey
-          },
-          body: JSON.stringify({
-            ...input,
-            scriptVersion: VERSION,
-            candidateText: input.candidateText?.slice(0, 120)
-          })
-        }).catch(() => void 0);
-      }
-      async function syncGuardRoomShadowRule(input) {
-        const endpoint = normalizeGuardRoomEndpoint$1(guardRoomEndpoint.value);
-        const syncKey = guardRoomSyncKey.value.trim();
-        if (!endpoint || !syncKey) return;
-        await fetch(`${endpoint}/api/shadow-rules`, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-sync-key": syncKey
-          },
-          body: JSON.stringify({
-            kind: "shadow_rule_learned",
-            roomId: input.roomId,
-            from: input.from,
-            to: input.to,
-            sourceText: input.sourceText.slice(0, 200),
-            occurredAt: ( new Date()).toISOString(),
-            scriptVersion: VERSION
-          })
-        }).catch(() => void 0);
-      }
-      async function syncGuardRoomWatchlist(rooms) {
-        const endpoint = normalizeGuardRoomEndpoint$1(guardRoomEndpoint.value);
-        const syncKey = guardRoomSyncKey.value.trim();
-        if (!endpoint || !syncKey) return;
-        await fetch(`${endpoint}/api/watchlists/sync`, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-sync-key": syncKey
-          },
-          body: JSON.stringify({ rooms })
-        }).then((response) => {
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        });
-      }
-      async function fetchGuardRoomControlProfile() {
-        const endpoint = normalizeGuardRoomEndpoint$1(guardRoomEndpoint.value);
-        const syncKey = guardRoomSyncKey.value.trim();
-        if (!endpoint || !syncKey) return null;
-        const response = await fetch(`${endpoint}/api/control-profile/current`, {
-          method: "GET",
-          headers: {
-            "x-sync-key": syncKey
-          }
-        }).catch(() => null);
-        if (!response?.ok) return null;
-        return await response.json();
-      }
-      const SHADOW_RULE_PER_ROOM_CAP = 50;
-      const SHADOW_RULE_MIN_LEN = 1;
-      const SHADOW_RULE_MAX_LEN = 60;
-      const OBSERVATION_CAP = 200;
-      function isValidSensitiveWord(word) {
-        const trimmed = word.trim();
-        return trimmed.length >= SHADOW_RULE_MIN_LEN && trimmed.length <= SHADOW_RULE_MAX_LEN && !trimmed.includes("\n");
-      }
-      function learnShadowRules(input) {
-        if (!autoLearnShadowRules.value) return;
-        const roomKey = String(input.roomId);
-        const currentByRoom = localRoomRules.value;
-        const existingRules = currentByRoom[roomKey] ?? [];
-        const existingFroms = new Set(existingRules.map((r2) => r2.from).filter((s2) => !!s2));
-        const newRules = [];
-        const learnedFroms = [];
-        for (const raw of input.sensitiveWords) {
-          if (!isValidSensitiveWord(raw)) continue;
-          const from = raw.trim();
-          if (existingFroms.has(from)) continue;
-          const to = processText(from);
-          if (to === from) continue;
-          newRules.push({ from, to });
-          existingFroms.add(from);
-          learnedFroms.push(from);
-        }
-        if (newRules.length === 0) return;
-        let merged = [...existingRules, ...newRules];
-        if (merged.length > SHADOW_RULE_PER_ROOM_CAP) {
-          merged = merged.slice(merged.length - SHADOW_RULE_PER_ROOM_CAP);
-        }
-        localRoomRules.value = { ...currentByRoom, [roomKey]: merged };
-        appendLog(`📚 已学到屏蔽词规则（房间 ${input.roomId}）：${learnedFroms.join("、")}`);
-        for (const rule of newRules) {
-          void syncGuardRoomShadowRule({
-            roomId: input.roomId,
-            from: rule.from,
-            to: rule.to,
-            sourceText: input.originalMessage
-          });
-        }
-      }
-      function recordShadowBanObservation(input) {
-        const text = input.text.trim();
-        if (!text) return;
-        const list = shadowBanObservations.value;
-        const idx = list.findIndex((o2) => o2.text === text && o2.roomId === input.roomId);
-        const now = Date.now();
-        if (idx >= 0) {
-          const updated = [...list];
-          const prev = updated[idx];
-          updated[idx] = {
-            ...prev,
-            ts: now,
-            count: prev.count + 1,
-            evadedAlready: prev.evadedAlready || input.evadedAlready,
-
-candidates: input.candidates ?? prev.candidates
-          };
-          shadowBanObservations.value = updated;
-          return;
-        }
-        const entry = {
-          text,
-          roomId: input.roomId,
-          ts: now,
-          count: 1,
-          evadedAlready: input.evadedAlready,
-          candidates: input.candidates
-        };
-        let next = [...list, entry];
-        if (next.length > OBSERVATION_CAP) {
-          next = next.slice(next.length - OBSERVATION_CAP);
-        }
-        shadowBanObservations.value = next;
-      }
-      function clearShadowBanObservations() {
-        shadowBanObservations.value = [];
-      }
-      function removeShadowBanObservation(text, roomId) {
-        shadowBanObservations.value = shadowBanObservations.value.filter((o2) => !(o2.text === text && o2.roomId === roomId));
-      }
-      function promoteObservationToRule(observation, to) {
-        const trimmedText = observation.text.trim();
-        const trimmedTo = to.trim();
-        if (!trimmedText || trimmedText === trimmedTo) return false;
-        if (observation.roomId === void 0) return false;
-        const roomKey = String(observation.roomId);
-        const currentByRoom = localRoomRules.value;
-        const existingRules = currentByRoom[roomKey] ?? [];
-        if (existingRules.some((r2) => r2.from === trimmedText)) return false;
-        const merged = [...existingRules, { from: trimmedText, to: trimmedTo }];
-        localRoomRules.value = { ...currentByRoom, [roomKey]: merged };
-        removeShadowBanObservation(observation.text, observation.roomId);
-        void syncGuardRoomShadowRule({
-          roomId: observation.roomId,
-          from: trimmedText,
-          to: trimmedTo,
-          sourceText: trimmedText
-        });
-        return true;
-      }
-      const KOU_SEPARATOR = "口";
-      const FULLWIDTH_SPACE = "　";
-      function joinWith(text, separator) {
-        const graphemes = getGraphemes(text);
-        return graphemes.join(separator);
-      }
-      function generateHeuristicCandidates(text) {
-        const trimmed = text.trim();
-        if (!trimmed) return [];
-        const candidates = [
-          { strategy: "invisible", label: "隐形字符", text: processText(trimmed) },
-          { strategy: "kou", label: "口分隔", text: joinWith(trimmed, KOU_SEPARATOR) },
-          { strategy: "space", label: "全角空格", text: joinWith(trimmed, FULLWIDTH_SPACE) }
-        ];
-        const seen2 = new Set([trimmed]);
-        return candidates.filter((c2) => {
-          if (c2.text === trimmed) return false;
-          if (seen2.has(c2.text)) return false;
-          seen2.add(c2.text);
-          return true;
-        });
-      }
-      function formatCandidatesForLog(candidates) {
-        if (candidates.length === 0) return null;
-        const lines = candidates.map((c2) => `   • ${c2.label}: ${c2.text}`);
-        return ["🛠 改写候选（不自动发送，可复制粘贴）：", ...lines].join("\n");
-      }
-      const SEND_ECHO_TIMEOUT_MS = 4e3;
-      const RECENT_DOM_DANMAKU_HISTORY_MS = 15e3;
-      const RECENT_DOM_DANMAKU_HISTORY_MAX = 240;
-      const recentDomDanmaku = [];
-      function pruneRecentDomDanmaku(now = Date.now()) {
-        while (recentDomDanmaku.length > 0 && now - recentDomDanmaku[0].observedAt > RECENT_DOM_DANMAKU_HISTORY_MS) {
-          recentDomDanmaku.shift();
-        }
-        while (recentDomDanmaku.length > RECENT_DOM_DANMAKU_HISTORY_MAX) {
-          recentDomDanmaku.shift();
-        }
-      }
-      function rememberRecentDomDanmaku(text, uid, observedAt) {
-        if (!text) return;
-        pruneRecentDomDanmaku(observedAt);
-        recentDomDanmaku.push({ text, uid, observedAt });
-      }
-      function findRecentDomDanmakuSource(text, uid, sinceTs, selfUid) {
-        const target = text.trim();
-        if (!target) return null;
-        pruneRecentDomDanmaku();
-        for (let i2 = recentDomDanmaku.length - 1; i2 >= 0; i2--) {
-          const event = recentDomDanmaku[i2];
-          if (event.observedAt < sinceTs) break;
-          if (event.text !== target) continue;
-          if (uid && event.uid && event.uid !== uid) continue;
-          if (selfUid && event.uid === selfUid) continue;
-          return "dom";
-        }
-        return null;
-      }
-      function matchesCustomChatEchoEvent(event, target, uid) {
-        return event.kind === "danmaku" && event.text.trim() === target && (!uid || !event.uid || event.uid === uid);
-      }
-      function matchesDomEchoEvent(event, target, uid, selfUid) {
-        if (event.text.trim() !== target) return false;
-        if (uid && event.uid && event.uid !== uid) return false;
-        if (selfUid && event.uid === selfUid) return false;
-        return true;
-      }
-      let domSubscribed = false;
-      function ensureDomTracking() {
-        if (domSubscribed) return;
-        domSubscribed = true;
-        subscribeDanmaku({
-          onMessage: (ev) => rememberRecentDomDanmaku(ev.text, ev.uid, Date.now())
-        });
-      }
-      function waitForSentEcho(text, uid, sinceTs, timeoutMs = SEND_ECHO_TIMEOUT_MS) {
-        ensureDomTracking();
-        const target = text.trim();
-        if (!target) return Promise.resolve(null);
-        const selfUid = uid;
-        const recentCustomSource = findRecentCustomChatDanmakuSource(target, uid, sinceTs);
-        if (recentCustomSource && recentCustomSource !== "local") return Promise.resolve(recentCustomSource);
-        const recentDomSource = findRecentDomDanmakuSource(target, uid, sinceTs, selfUid);
-        if (recentDomSource) return Promise.resolve(recentDomSource);
-        return new Promise((resolve) => {
-          let done = false;
-          let unsubscribeEvents2 = () => {
-          };
-          let unsubscribeDom2 = () => {
-          };
-          const finish = (source) => {
-            if (done) return;
-            done = true;
-            clearTimeout(timer2);
-            unsubscribeEvents2();
-            unsubscribeDom2();
-            resolve(source);
-          };
-          const timer2 = setTimeout(() => {
-            const localFallback = findRecentCustomChatDanmakuSource(target, uid, sinceTs);
-            finish(localFallback === "local" ? "local" : null);
-          }, timeoutMs);
-          unsubscribeEvents2 = subscribeCustomChatEvents((event) => {
-            if (!matchesCustomChatEchoEvent(event, target, uid)) return;
-            if (event.source !== "local") finish(event.source);
-          });
-          unsubscribeDom2 = subscribeDanmaku({
-            onMessage: (event) => {
-              if (!matchesDomEchoEvent(event, target, uid, selfUid)) return;
-              finish("dom");
-            }
-          });
-          const lateCustomSource = findRecentCustomChatDanmakuSource(target, uid, sinceTs);
-          const lateDomSource = findRecentDomDanmakuSource(target, uid, sinceTs, selfUid);
-          const lateSource = (lateCustomSource !== "local" ? lateCustomSource : null) ?? lateDomSource;
-          if (lateSource) finish(lateSource);
-        });
-      }
-      const TOAST_COOLDOWN_MS = 3e4;
-      const lastToastAt = new Map();
-      async function verifyBroadcast(input) {
-        const isEmoticon = input.isEmoticon ?? isEmoticonUnique(input.text);
-        if (isEmoticon) return;
-        const uid = getDedeUid() ?? null;
-        const source = await waitForSentEcho(input.text, uid, input.sinceTs, input.timeoutMs);
-        if (source === "ws" || source === "dom") return;
-        const message = `⚠️ ${input.label}: ${input.display}（接口成功但未检测到广播，可能被屏蔽）`;
-        let surfaceToast = input.surfaceToast !== false;
-        if (surfaceToast && input.toastDedupeKey) {
-          const now = Date.now();
-          const prev = lastToastAt.get(input.toastDedupeKey) ?? 0;
-          if (now - prev < TOAST_COOLDOWN_MS) {
-            surfaceToast = false;
-          } else {
-            lastToastAt.set(input.toastDedupeKey, now);
-          }
-        }
-        if (surfaceToast) {
-          appendLog(message);
-        } else {
-          appendLogQuiet(message);
-        }
-        if (input.isPostEvasion) {
-          recordShadowBanObservation({ text: input.text, roomId: input.roomId, evadedAlready: true });
-          return;
-        }
-        const heuristic = generateHeuristicCandidates(input.text);
-        const candidates = [...heuristic];
-        let aiSuggestion = null;
-        if (input.enableAiEvasion && aiEvasion.value) {
-          try {
-            aiSuggestion = await requestAiSuggestion(input.text);
-          } catch {
-            aiSuggestion = null;
-          }
-          if (aiSuggestion) {
-            candidates.push({
-              strategy: "ai",
-              label: "AI改写",
-              text: aiSuggestion.evadedMessage
-            });
-          }
-        }
-        const formatted = formatCandidatesForLog(candidates);
-        if (formatted) appendLogQuiet(formatted);
-        recordShadowBanObservation({
-          text: input.text,
-          roomId: input.roomId,
-          evadedAlready: false,
-          candidates
-        });
-        const canAutoResend = shadowBanMode.value === "auto-resend" && aiSuggestion !== null && input.roomId !== void 0 && typeof input.csrfToken === "string" && input.csrfToken.length > 0;
-        if (!canAutoResend) return;
-        const roomId = input.roomId;
-        const csrfToken = input.csrfToken;
-        const result = await tryAiEvasion(input.text, roomId, csrfToken, `${input.label}·影子屏蔽-`);
-        if (result.success && result.evadedMessage) {
-          if (result.sensitiveWords && result.sensitiveWords.length > 0) {
-            learnShadowRules({
-              roomId,
-              sensitiveWords: result.sensitiveWords,
-              evadedMessage: result.evadedMessage,
-              originalMessage: input.text
-            });
-          }
-          void verifyBroadcast({
-            text: result.evadedMessage,
-            label: `${input.label}·AI`,
-            display: result.evadedMessage,
-            sinceTs: Date.now(),
-            isPostEvasion: true,
-            surfaceToast: false
-          });
-        }
-      }
-      const GET_INFO_BY_USER_PATTERN = "/xlive/web-room/v1/index/getInfoByUser";
-      function shouldHijackUrl(url) {
-        return unlockForbidLive.value && url.includes(GET_INFO_BY_USER_PATTERN);
-      }
-      function applyTransforms(url, data) {
-        if (!shouldHijackUrl(url)) return;
-        const forbid = data?.data?.forbid_live;
-        if (!forbid) return;
-        forbid.is_forbid = false;
-        forbid.forbid_text = "";
-      }
-      (() => {
-        try {
-          const ResponseProto = _unsafeWindow.Response.prototype;
-          if (ResponseProto.__chatterboxFetchHijackInstalled) return;
-          ResponseProto.__chatterboxFetchHijackInstalled = true;
-          const origJson = ResponseProto.json;
-          ResponseProto.json = async function() {
-            const data = await origJson.call(this);
-            const url = this.url;
-            if (!url || !shouldHijackUrl(url) || !data || typeof data !== "object") return data;
-            try {
-              applyTransforms(url, data);
-            } catch (err) {
-              console.error("[Chatterbox] fetch-hijack json transform failed:", err);
-            }
-            return data;
-          };
-          const origText = ResponseProto.text;
-          ResponseProto.text = async function() {
-            const text = await origText.call(this);
-            const url = this.url;
-            if (!url || !shouldHijackUrl(url)) return text;
-            try {
-              const data = JSON.parse(text);
-              applyTransforms(url, data);
-              return JSON.stringify(data);
-            } catch {
-              return text;
-            }
-          };
-        } catch (err) {
-          console.error("[Chatterbox] failed to install fetch-hijack:", err);
-        }
-      })();
-      function isOurOwnSend(url) {
-        return url.includes(CHATTERBOX_SEND_MARKER);
-      }
-      function urlOf(input) {
-        if (typeof input === "string") return input;
-        if (input instanceof URL) return input.toString();
-        return input.url;
-      }
-      function extractMsgFromBody(body) {
-        if (!body) return null;
-        if (body instanceof FormData) {
-          const v2 = body.get("msg");
-          return typeof v2 === "string" ? v2 : null;
-        }
-        if (body instanceof URLSearchParams) return body.get("msg");
-        if (typeof body === "string") {
-          try {
-            return new URLSearchParams(body).get("msg");
-          } catch {
-            return null;
-          }
-        }
-        return null;
-      }
-      (() => {
-        try {
-          const win = _unsafeWindow;
-          if (win.__chatterboxMsgSendHijackInstalled) return;
-          win.__chatterboxMsgSendHijackInstalled = true;
-          const origFetch = win.fetch.bind(win);
-          win.fetch = (async (input, init) => {
-            try {
-              const url = urlOf(input);
-              const isMsgSend = url.includes(BASE_URL.BILIBILI_MSG_SEND);
-              if (!isMsgSend) return origFetch(input, init);
-              if (isOurOwnSend(url)) return origFetch(input, init);
-              const startedAt = Date.now();
-              const msg = extractMsgFromBody(init?.body);
-              const resp = await origFetch(input, init);
-              resp.clone().json().then((json) => {
-                if (!msg) return;
-                const code = json?.code;
-                if (code !== 0) return;
-                appendLog(`✅ B站原生: ${msg}`);
-                void verifyBroadcast({
-                  text: msg,
-                  label: "B站原生",
-                  display: msg,
-                  sinceTs: startedAt
-                });
-              }).catch(() => {
-              });
-              return resp;
-            } catch (err) {
-              console.error("[Chatterbox] msg-send hijack error:", err);
-              return origFetch(input, init);
-            }
-          });
-        } catch (err) {
-          console.error("[Chatterbox] failed to install msg-send hijack:", err);
-        }
-      })();
-      const CUSTOM_CHAT_REARM_OFF_DELAY_MS = 80;
-      const CUSTOM_CHAT_REARM_ON_DELAY_MS = 160;
-      const PANEL_STYLE = `
-      #laplace-chatterbox-toggle,
-      #laplace-chatterbox-dialog,
-      #laplace-chatterbox-dialog * {
-        box-sizing: border-box;
-        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
-        font-size: 12px;
-        letter-spacing: 0;
-      }
-
-      #laplace-chatterbox-toggle {
-        appearance: none !important;
-        border: 1px solid rgba(255, 255, 255, .42) !important;
-        border-radius: 999px !important;
-        min-height: 30px !important;
-        padding: 0 12px !important;
-        background: rgba(30, 30, 30, .78) !important;
-        color: #fff !important;
-        box-shadow: 0 10px 28px rgba(0, 0, 0, .22), inset 0 1px rgba(255, 255, 255, .22) !important;
-        backdrop-filter: blur(18px) saturate(1.4);
-        -webkit-backdrop-filter: blur(18px) saturate(1.4);
-        transition: transform .2s ease, background .2s ease;
-      }
-
-      #laplace-chatterbox-toggle[data-sending="true"] {
-        background: rgba(0, 186, 143, .88) !important;
-      }
-
-      #laplace-chatterbox-toggle[data-open="true"] {
-        transform: scale(1.06);
-      }
-
-      #laplace-chatterbox-toggle:active {
-        transform: scale(0.96);
-      }
-
-      #laplace-chatterbox-dialog {
-        color: #1d1d1f !important;
-        background: rgba(248, 248, 250, .86) !important;
-        border: 1px solid rgba(0, 0, 0, .08) !important;
-        border-radius: 8px !important;
-        box-shadow: 0 22px 60px rgba(0, 0, 0, .24), 0 1px 0 rgba(255,255,255,.72) inset !important;
-        backdrop-filter: blur(26px) saturate(1.5);
-        -webkit-backdrop-filter: blur(26px) saturate(1.5);
-        scrollbar-width: thin;
-      }
-
-      #laplace-chatterbox-dialog .cb-scroll {
-        padding: 8px !important;
-      }
-
-      #laplace-chatterbox-dialog details {
-        margin: 0 0 5px !important;
-        padding: 0 !important;
-        border: 1px solid rgba(0, 0, 0, .08) !important;
-        border-radius: 8px !important;
-        background: rgba(252, 252, 253, .78) !important;
-        box-shadow: 0 1px 0 rgba(255, 255, 255, .7) inset !important;
-        overflow: hidden;
-      }
-
-      #laplace-chatterbox-dialog details[open] {
-        background: rgba(255, 255, 255, .9) !important;
-      }
-
-      #laplace-chatterbox-dialog .cb-settings-accordion > .cb-section {
-        margin: 0 !important;
-        padding: 0 7px 7px !important;
-        border: 0 !important;
-        border-radius: 0 !important;
-        background: transparent !important;
-        box-shadow: none !important;
-      }
-
-      #laplace-chatterbox-dialog .cb-settings-accordion[open] > .cb-section > .cb-heading,
-      #laplace-chatterbox-dialog .cb-settings-accordion[open] > .cb-section > .cb-row:first-child > .cb-heading {
-        display: none;
-      }
-
-      #laplace-chatterbox-dialog details > :not(summary):not(.cb-body) {
-        margin-left: 10px;
-        margin-right: 10px;
-      }
-
-      #laplace-chatterbox-dialog details > :last-child:not(summary) {
-        margin-bottom: 10px;
-      }
-
-      #laplace-chatterbox-dialog summary {
-        min-height: 30px;
-        display: flex !important;
-        align-items: center;
-        gap: 6px;
-        padding: 0 8px !important;
-        color: #1d1d1f !important;
-        list-style: none;
-        font-weight: 650 !important;
-        cursor: pointer;
-        user-select: none;
-      }
-
-      #laplace-chatterbox-dialog summary::-webkit-details-marker {
-        display: none;
-      }
-
-      #laplace-chatterbox-dialog summary::after {
-        content: "";
-        margin-left: auto;
-        width: 10px;
-        height: 10px;
-        border-right: 2.5px solid #8e8e93;
-        border-bottom: 2.5px solid #8e8e93;
-        transform: rotate(-45deg);
-        transition: transform .18s ease;
-        flex-shrink: 0;
-      }
-
-      #laplace-chatterbox-dialog details[open] > summary::after {
-        transform: rotate(135deg);
-      }
-
-      #laplace-chatterbox-dialog button,
-      #laplace-chatterbox-dialog select,
-      #laplace-chatterbox-dialog input,
-      #laplace-chatterbox-dialog textarea {
-        outline: none !important;
-        font: inherit;
-      }
-
-      #laplace-chatterbox-dialog button {
-        appearance: none !important;
-        min-height: 26px !important;
-        border: 1px solid rgba(0, 0, 0, .08) !important;
-        border-radius: 8px !important;
-        background: rgba(255, 255, 255, .9) !important;
-        color: #1d1d1f !important;
-        padding: 3px 9px !important;
-        cursor: pointer !important;
-        font-weight: 560 !important;
-        line-height: 1.3 !important;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, .05) !important;
-      }
-
-      #laplace-chatterbox-dialog button:hover {
-        background: #fff !important;
-        border-color: rgba(0, 0, 0, .14) !important;
-      }
-
-      #laplace-chatterbox-dialog button:active {
-        transform: translateY(1px);
-      }
-
-      #laplace-chatterbox-dialog button:disabled,
-      #laplace-chatterbox-dialog input:disabled,
-      #laplace-chatterbox-dialog select:disabled {
-        opacity: .46;
-        cursor: not-allowed !important;
-      }
-
-      #laplace-chatterbox-dialog input[type="text"],
-      #laplace-chatterbox-dialog input[type="password"],
-      #laplace-chatterbox-dialog input[type="number"],
-      #laplace-chatterbox-dialog select,
-      #laplace-chatterbox-dialog textarea {
-        border: 1px solid rgba(0, 0, 0, .08) !important;
-        border-radius: 8px !important;
-        background: rgba(255, 255, 255, .86) !important;
-        color: #1d1d1f !important;
-        padding: 5px 8px !important;
-        box-shadow: inset 0 1px 2px rgba(0, 0, 0, .035) !important;
-      }
-
-      #laplace-chatterbox-dialog input[type="number"] {
-        text-align: center;
-        width: 64px !important;
-        min-width: 64px !important;
-      }
-
-      #laplace-chatterbox-dialog textarea {
-        line-height: 1.45 !important;
-      }
-
-      #laplace-chatterbox-dialog input:focus,
-      #laplace-chatterbox-dialog select:focus,
-      #laplace-chatterbox-dialog textarea:focus {
-        border-color: #007aff !important;
-        box-shadow: 0 0 0 3px rgba(0, 122, 255, .16), inset 0 1px 2px rgba(0, 0, 0, .03) !important;
-      }
-
-      #laplace-chatterbox-dialog input[type="checkbox"] {
-        appearance: none !important;
-        width: 30px !important;
-        height: 18px !important;
-        flex: 0 0 30px;
-        border: none !important;
-        border-radius: 999px !important;
-        background: #d1d1d6 !important;
-        padding: 0 !important;
-        position: relative;
-        cursor: pointer;
-        box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .04) !important;
-        transition: background .18s ease;
-      }
-
-      #laplace-chatterbox-dialog input[type="checkbox"]::after {
-        content: "";
-        position: absolute;
-        top: 2px;
-        left: 2px;
-        width: 14px;
-        height: 14px;
-        border-radius: 50%;
-        background: #fff;
-        box-shadow: 0 1px 2px rgba(0,0,0,.24);
-        transition: transform .18s ease;
-      }
-
-      #laplace-chatterbox-dialog input[type="checkbox"]:checked {
-        background: #34c759 !important;
-      }
-
-      #laplace-chatterbox-dialog input[type="checkbox"]:checked::after {
-        transform: translateX(12px);
-      }
-
-      #laplace-chatterbox-dialog a {
-        color: #007aff !important;
-        text-decoration: none !important;
-      }
-
-      #laplace-chatterbox-dialog .cb-tabs {
-        position: sticky;
-        top: 0;
-        z-index: 2;
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 4px;
-        padding: 7px;
-        background: rgba(248, 248, 250, .9);
-        backdrop-filter: blur(18px) saturate(1.4);
-        -webkit-backdrop-filter: blur(18px) saturate(1.4);
-        border-bottom: 1px solid rgba(0, 0, 0, .06);
-      }
-
-      #laplace-chatterbox-dialog .cb-tab {
-        min-height: 28px !important;
-        padding: 4px 0 !important;
-        border: none !important;
-        box-shadow: none !important;
-        background: transparent !important;
-        color: #6e6e73 !important;
-      }
-
-      #laplace-chatterbox-dialog .cb-tab[data-active="true"] {
-        background: #fff !important;
-        color: #1d1d1f !important;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .08) !important;
-      }
-
-      #laplace-chatterbox-dialog .cb-primary {
-        background: #007aff !important;
-        color: #fff !important;
-        border-color: #007aff !important;
-      }
-
-      #laplace-chatterbox-dialog .cb-danger {
-        background: #ff3b30 !important;
-        color: #fff !important;
-        border-color: #ff3b30 !important;
-      }
-
-      #laplace-chatterbox-dialog .cb-soft {
-        color: #6e6e73 !important;
-      }
-
-      #laplace-chatterbox-dialog .cb-row {
-        display: flex;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 6px;
-      }
-
-      #laplace-chatterbox-dialog .cb-stack {
-        display: grid;
-        gap: 6px;
-      }
-
-      #laplace-chatterbox-dialog .cb-body {
-        padding: 0 9px 8px;
-      }
-
-      #laplace-chatterbox-dialog .cb-note {
-        color: #6e6e73;
-        font-size: 11px !important;
-        line-height: 1.45;
-      }
-
-      #laplace-chatterbox-dialog .cb-label {
-        color: #6e6e73;
-        font-size: 11px !important;
-        font-weight: 560;
-      }
-
-      #laplace-chatterbox-dialog .cb-panel {
-        border: 1px solid rgba(0,0,0,.06);
-        border-radius: 8px;
-        background: rgba(248, 248, 250, .8);
-        padding: 7px;
-      }
-
-      #laplace-chatterbox-dialog .cb-section {
-        margin: 0 0 6px !important;
-        padding: 7px !important;
-        border: 1px solid rgba(0, 0, 0, .06) !important;
-        border-radius: 8px !important;
-        background: rgba(255, 255, 255, .72) !important;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, .04) !important;
-      }
-
-      #laplace-chatterbox-dialog .cb-heading {
-        margin: 0 0 6px !important;
-        color: #1d1d1f !important;
-        font-weight: 650 !important;
-      }
-
-      #laplace-chatterbox-dialog .cb-empty {
-        color: #8e8e93 !important;
-        background: rgba(118, 118, 128, .08);
-        border-radius: 8px;
-        padding: 7px;
-      }
-
-      #laplace-chatterbox-dialog .cb-result {
-        border: 1px solid rgba(0, 0, 0, .06) !important;
-        border-radius: 8px !important;
-        background: rgba(255, 255, 255, .82) !important;
-        padding: 7px !important;
-      }
-
-      #laplace-chatterbox-dialog .cb-switch-row {
-        display: flex !important;
-        align-items: center !important;
-        gap: 6px !important;
-        min-height: 22px;
-        line-height: 1.32;
-      }
-
-      #laplace-chatterbox-dialog .cb-setting-block {
-        display: grid;
-        gap: 5px;
-        padding: 6px 0;
-      }
-
-      #laplace-chatterbox-dialog .cb-setting-block + .cb-setting-block {
-        border-top: 1px solid rgba(0, 0, 0, .06);
-      }
-
-      #laplace-chatterbox-dialog .cb-setting-primary {
-        padding: 6px 7px;
-        border: 1px solid rgba(0, 0, 0, .055);
-        border-left: 3px solid #007aff;
-        border-radius: 8px;
-        background: rgba(255, 255, 255, .68);
-      }
-
-      #laplace-chatterbox-dialog .cb-setting-row {
-        justify-content: space-between;
-        gap: 8px;
-        min-height: 26px;
-      }
-
-      #laplace-chatterbox-dialog .cb-setting-row select {
-        max-width: 178px;
-        margin-left: auto;
-      }
-
-      #laplace-chatterbox-dialog .cb-setting-child[data-enabled="false"] {
-        color: #8e8e93;
-      }
-
-      #laplace-chatterbox-dialog .cb-dependent-group {
-        position: relative;
-        margin-top: 1px;
-        padding: 7px;
-        border: 1px solid rgba(0, 0, 0, .055);
-        border-left: 3px solid #34c759;
-        border-radius: 8px;
-        background: rgba(248, 248, 250, .7);
-        transition: background .18s ease, border-color .18s ease, opacity .18s ease;
-      }
-
-      #laplace-chatterbox-dialog .cb-dependent-group[data-enabled="false"] {
-        border-left-color: #c7c7cc;
-        background: repeating-linear-gradient(
-          -45deg,
-          rgba(118, 118, 128, .06),
-          rgba(118, 118, 128, .06) 6px,
-          rgba(255, 255, 255, .52) 6px,
-          rgba(255, 255, 255, .52) 12px
-        );
-      }
-
-      #laplace-chatterbox-dialog .cb-dependent-group[data-enabled="false"]::before {
-        content: attr(data-reason);
-        justify-self: start;
-        width: max-content;
-        max-width: 100%;
-        padding: 2px 6px;
-        border-radius: 999px;
-        background: rgba(118, 118, 128, .13);
-        color: #6e6e73;
-        font-size: 11px;
-        font-weight: 620;
-        line-height: 1.35;
-      }
-
-      #laplace-chatterbox-dialog .cb-accordion-title {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        margin-right: auto;
-      }
-
-      #laplace-chatterbox-dialog .cb-module-summary::after {
-        margin-left: 2px;
-      }
-
-      #laplace-chatterbox-dialog .cb-module-state {
-        flex: 0 0 auto;
-        min-width: 32px;
-        padding: 1px 6px;
-        border-radius: 999px;
-        border: 1px solid rgba(0, 0, 0, .06);
-        background: rgba(118, 118, 128, .1);
-        color: #6e6e73;
-        font-size: 10px !important;
-        font-weight: 720;
-        line-height: 1.45;
-        text-align: center;
-      }
-
-      #laplace-chatterbox-dialog .cb-module-state[data-active="true"] {
-        border-color: rgba(52, 199, 89, .28);
-        background: rgba(52, 199, 89, .14);
-        color: #0a7f55;
-      }
-
-      #laplace-chatterbox-dialog .cb-subdetails {
-        margin: 0 !important;
-        border-color: rgba(0, 0, 0, .05) !important;
-        background: rgba(248, 248, 250, .56) !important;
-        box-shadow: none !important;
-      }
-
-      #laplace-chatterbox-dialog .cb-segment {
-        display: grid;
-        grid-auto-flow: column;
-        grid-auto-columns: 1fr;
-        gap: 4px;
-        padding: 3px;
-        border-radius: 8px;
-        background: rgba(118, 118, 128, .12);
-      }
-
-      #laplace-chatterbox-dialog .cb-segment button {
-        box-shadow: none !important;
-        border-color: transparent !important;
-        background: transparent !important;
-        min-width: 0;
-      }
-
-      #laplace-chatterbox-dialog .cb-segment button[aria-pressed="true"] {
-        background: #fff !important;
-        color: #1d1d1f !important;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, .12) !important;
-      }
-
-      #laplace-chatterbox-dialog .cb-status-dot {
-        width: 7px;
-        height: 7px;
-        border-radius: 50%;
-        display: inline-block;
-        background: currentColor;
-      }
-
-      #laplace-chatterbox-dialog .cb-list {
-        display: grid;
-        gap: 6px;
-      }
-
-      #laplace-chatterbox-dialog .cb-list-item {
-        border-radius: 8px;
-        background: rgba(255,255,255,.74);
-        border: 1px solid rgba(0,0,0,.06);
-        padding: 8px;
-      }
-
-      #laplace-chatterbox-dialog .cb-rule-list {
-        display: grid;
-        gap: 6px;
-        max-height: 190px;
-        overflow-y: auto;
-      }
-
-      #laplace-chatterbox-dialog .cb-rule-item {
-        display: grid;
-        grid-template-columns: 1fr auto;
-        gap: 7px;
-        align-items: center;
-        border: 1px solid rgba(0,0,0,.06);
-        border-radius: 8px;
-        background: rgba(255,255,255,.7);
-        padding: 7px;
-      }
-
-      #laplace-chatterbox-dialog .cb-rule-pair {
-        min-width: 0;
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 7px;
-      }
-
-      #laplace-chatterbox-dialog .cb-rule-pair code {
-        display: block;
-        min-height: 24px;
-        padding: 4px 6px;
-        border-radius: 6px;
-        background: rgba(118, 118, 128, .08);
-        color: #1d1d1f;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-        white-space: normal;
-        word-break: break-all;
-      }
-
-      #laplace-chatterbox-dialog .cb-rule-form,
-      #laplace-chatterbox-dialog .cb-rule-room-form {
-        display: grid;
-        grid-template-columns: 1fr 1fr auto;
-        gap: 7px;
-        align-items: end;
-      }
-
-      #laplace-chatterbox-dialog .cb-rule-form label,
-      #laplace-chatterbox-dialog .cb-rule-room-form label {
-        min-width: 0;
-        display: grid;
-        gap: 3px;
-      }
-
-      #laplace-chatterbox-dialog .cb-rule-form input,
-      #laplace-chatterbox-dialog .cb-rule-room-form input,
-      #laplace-chatterbox-dialog .cb-rule-room-form select {
-        width: 100%;
-        min-width: 0;
-      }
-
-      #laplace-chatterbox-dialog .cb-rule-room-actions {
-        display: flex;
-        gap: 6px;
-        flex-wrap: wrap;
-      }
-
-      #laplace-chatterbox-dialog .cb-rule-remove {
-        color: #ff3b30 !important;
-      }
-
-      #laplace-chatterbox-dialog .cb-icon-button {
-        width: 28px !important;
-        min-width: 28px !important;
-        padding: 0 !important;
-      }
-
-      #laplace-chatterbox-dialog .cb-tag {
-        background: var(--cb-tag-bg, #8e8e93) !important;
-        color: #fff !important;
-        border: none !important;
-        box-shadow: none !important;
-        min-height: 20px !important;
-        border-radius: 5px !important;
-        padding: 0 6px !important;
-      }
-
-      #laplace-chatterbox-dialog .cb-emote[data-copied="true"] {
-        background: #34c759 !important;
-        color: #fff !important;
-      }
-
-      @media (max-width: 420px) {
-        #laplace-chatterbox-dialog .cb-rule-item,
-        #laplace-chatterbox-dialog .cb-rule-form,
-        #laplace-chatterbox-dialog .cb-rule-room-form {
-          grid-template-columns: 1fr;
-        }
-      }
-    `;
-      function currentLiveRoomSlug() {
-        try {
-          return extractRoomNumber(window.location.href) ?? null;
-        } catch {
-          return null;
-        }
-      }
-      function installPanelStyles() {
-        if (typeof _GM_addStyle === "function") {
-          _GM_addStyle(PANEL_STYLE);
-          return () => {
-          };
-        }
-        const style = document.createElement("style");
-        style.textContent = PANEL_STYLE;
-        (document.head || document.documentElement).appendChild(style);
-        return () => style.remove();
-      }
-      function startCustomChatRoomRearm() {
-        let disposed = false;
-        let offTimer = null;
-        let onTimer = null;
-        let serial = 0;
-        let lastRoomSlug = null;
-        const clearTimers = () => {
-          if (offTimer) {
-            clearTimeout(offTimer);
-            offTimer = null;
-          }
-          if (onTimer) {
-            clearTimeout(onTimer);
-            onTimer = null;
-          }
-        };
-        const applyDesiredCustomChatDefaults = () => {
-          customChatHideNative.value = false;
-          customChatUseWs.value = true;
-        };
-        let rearming = false;
-        const rearmCustomChat = () => {
-          serial += 1;
-          const runId = serial;
-          clearTimers();
-          rearming = true;
-          applyDesiredCustomChatDefaults();
-          customChatEnabled.value = true;
-          offTimer = setTimeout(() => {
-            if (disposed || runId !== serial) return;
-            customChatEnabled.value = false;
-          }, CUSTOM_CHAT_REARM_OFF_DELAY_MS);
-          onTimer = setTimeout(() => {
-            if (disposed || runId !== serial) return;
-            applyDesiredCustomChatDefaults();
-            customChatEnabled.value = true;
-            rearming = false;
-          }, CUSTOM_CHAT_REARM_ON_DELAY_MS);
-        };
-        const handleLocationMaybeChanged = (force = false) => {
-          const roomSlug = currentLiveRoomSlug();
-          if (!roomSlug) {
-            lastRoomSlug = null;
-            return;
-          }
-          if (!force && roomSlug === lastRoomSlug) return;
-          lastRoomSlug = roomSlug;
-          if (!customChatEnabled.value) return;
-          rearmCustomChat();
-        };
-        let prevEnabled = customChatEnabled.peek();
-        const stopEnabledWatcher = j$1(() => {
-          const next = customChatEnabled.value;
-          const wasEnabled = prevEnabled;
-          prevEnabled = next;
-          if (!wasEnabled && next && !rearming) {
-            rearmCustomChat();
-          }
-        });
-        const scheduleLocationCheck = () => {
-          window.setTimeout(handleLocationMaybeChanged, 0);
-        };
-        const originalPushState = window.history.pushState.bind(window.history);
-        const originalReplaceState = window.history.replaceState.bind(window.history);
-        window.history.pushState = ((...args) => {
-          originalPushState(...args);
-          scheduleLocationCheck();
-        });
-        window.history.replaceState = ((...args) => {
-          originalReplaceState(...args);
-          scheduleLocationCheck();
-        });
-        window.addEventListener("popstate", handleLocationMaybeChanged);
-        window.addEventListener("hashchange", handleLocationMaybeChanged);
-        const roomWatcher = window.setInterval(handleLocationMaybeChanged, 1e3);
-        handleLocationMaybeChanged(true);
-        return () => {
-          disposed = true;
-          clearTimers();
-          stopEnabledWatcher();
-          window.history.pushState = originalPushState;
-          window.history.replaceState = originalReplaceState;
-          window.removeEventListener("popstate", handleLocationMaybeChanged);
-          window.removeEventListener("hashchange", handleLocationMaybeChanged);
-          clearInterval(roomWatcher);
-        };
-      }
-      function installOptimizedLayoutStyle() {
-        const stale = document.querySelector(".app-body");
-        if (stale?.style.marginLeft === "1rem") stale.style.marginLeft = "";
-        if (!optimizeLayout.value) return () => {
-        };
-        const style = document.createElement("style");
-        style.textContent = ".app-body { margin-left: 1rem !important; }";
-        document.head.appendChild(style);
-        return () => style.remove();
-      }
-      function isAutoBlendBlacklistedUid(uid) {
-        return !!uid && uid in autoBlendUserBlacklist.value;
-      }
-      const subscribers = new Set();
-      function emitAutoBlendEvent(event) {
-        for (const subscriber of subscribers) {
-          subscriber(event);
-        }
-      }
-      function subscribeAutoBlendEvents(subscriber) {
-        subscribers.add(subscriber);
-        return () => subscribers.delete(subscriber);
-      }
-      function logAutoBlend(message, level, detail) {
-        emitAutoBlendEvent({ kind: "log", level, message, detail });
-      }
-      function logAutoBlendSendResult(result, label, display) {
-        emitAutoBlendEvent({ kind: "send-result", result, label, display });
-      }
-      subscribeAutoBlendEvents((event) => {
-        if (event.kind === "send-result") {
-          appendLog(event.result, event.label, event.display);
-          return;
-        }
-        if (event.level) {
-          notifyUser(event.level, event.message, event.detail);
-          return;
-        }
-        appendLog(event.detail ? `${event.message}：${event.detail}` : event.message);
-      });
-      function formatAutoBlendSenderInfo(uniqueUsers, totalCount) {
-        return uniqueUsers > 0 ? `${uniqueUsers} 人 / ${totalCount} 条` : `${totalCount} 条`;
-      }
-      function shortAutoBlendText(text) {
-        return trimText(text, 18)[0] ?? text;
-      }
-      function formatAutoBlendStatus({
-        enabled,
-        dryRun,
-        isSending: isSending2,
-        cooldownUntil: cooldownUntil2,
-        now
-      }) {
-        if (!enabled) return "已关闭";
-        if (dryRun) return "试运行（不发送）";
-        if (isSending2) return "正在跟车";
-        const left = Math.max(0, Math.ceil((cooldownUntil2 - now) / 1e3));
-        return left > 0 ? `冷却中 ${left}s` : "观察中";
-      }
-      function formatAutoBlendCandidate(candidates) {
-        let best = null;
-        for (const candidate of candidates) {
-          if (candidate.totalCount < 2) continue;
-          if (!best || candidate.totalCount > best.totalCount) best = candidate;
-        }
-        if (!best) return "暂无";
-        return `${shortAutoBlendText(best.text)}（${formatAutoBlendSenderInfo(best.uniqueUsers, best.totalCount)}）`;
-      }
-      function detectTrend(events, windowMs, threshold) {
-        const now = events.reduce((latest, event) => Math.max(latest, event.ts), 0);
-        const windowStart = now - Math.max(0, windowMs);
-        const entries = new Map();
-        for (const event of events) {
-          const text = event.text.trim();
-          if (!text || event.ts < windowStart) continue;
-          let entry = entries.get(text);
-          if (!entry) {
-            entry = { totalCount: 0, uids: new Set() };
-            entries.set(text, entry);
-          }
-          entry.totalCount += 1;
-          if (event.uid) entry.uids.add(event.uid);
-        }
-        const candidates = Array.from(entries, ([text, entry]) => ({
-          text,
-          totalCount: entry.totalCount,
-          uniqueUsers: entry.uids.size
-        })).sort((a2, b2) => b2.totalCount - a2.totalCount);
-        const winner = candidates.find((candidate) => candidate.totalCount >= threshold) ?? null;
-        return {
-          shouldSend: winner !== null,
-          text: winner?.text ?? null,
-          candidates
         };
       }
       var LaplaceRawEvent = class extends Event {
@@ -6704,6 +5405,1361 @@ ws;
         liveConnection?.close();
         liveConnection = null;
       }
+      const guardRoomLiveDeskSessionId = gmSignal("guardRoomLiveDeskSessionId", "");
+      const guardRoomLiveDeskHeartbeatSec = gmSignal("guardRoomLiveDeskHeartbeatSec", 30);
+      const guardRoomCurrentRiskLevel = y$1("pass");
+      const guardRoomAgentConnected = y$1(false);
+      const guardRoomAgentStatusText = y$1("未连接");
+      const guardRoomAgentLastSyncAt = y$1(null);
+      const guardRoomAgentWatchlistCount = y$1(0);
+      const guardRoomAgentLiveCount = y$1(0);
+      const guardRoomWatchlistRooms = y$1([]);
+      const guardRoomAppliedProfile = y$1(null);
+      function normalizeGuardRoomEndpoint$1(endpoint) {
+        const trimmed = endpoint.trim().replace(/\/+$/, "");
+        if (!trimmed) return "";
+        let parsed;
+        try {
+          parsed = new URL(trimmed);
+        } catch {
+          return "";
+        }
+        if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return "";
+        if (parsed.protocol === "http:") {
+          const host = parsed.hostname;
+          const bare = host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+          const isLoopback = bare === "localhost" || bare === "127.0.0.1" || bare === "::1";
+          if (!isLoopback) return "";
+        }
+        return trimmed;
+      }
+      function classifyRiskEvent(error, errorData) {
+        if (isMutedError(error)) {
+          return {
+            kind: "muted",
+            level: "stop",
+            advice: `检测到房间禁言，先停车。禁言时长：${describeRestrictionDuration(error, errorData)}。`
+          };
+        }
+        if (isAccountRestrictedError(error)) {
+          return {
+            kind: "account_restricted",
+            level: "stop",
+            advice: `检测到账号级风控，先停发。限制时长：${describeRestrictionDuration(error, errorData)}。`
+          };
+        }
+        if (isRateLimitError(error)) {
+          return { kind: "rate_limited", level: "observe", advice: "发送频率过快，先降频或暂停自动跟车。" };
+        }
+        return { kind: "send_failed", level: "observe", advice: "发送失败，建议看一眼房间状态和替换词。" };
+      }
+      async function syncGuardRoomRiskEvent(input) {
+        const endpoint = normalizeGuardRoomEndpoint$1(guardRoomEndpoint.value);
+        const syncKey = guardRoomSyncKey.value.trim();
+        if (!endpoint || !syncKey) return;
+        guardRoomCurrentRiskLevel.value = input.level;
+        const payload = {
+          eventId: `risk-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          scriptVersion: VERSION,
+          occurredAt: ( new Date()).toISOString(),
+          ...input,
+          reason: input.reason?.slice(0, 500),
+          advice: input.advice?.slice(0, 500)
+        };
+        await fetch(`${endpoint}/api/risk-events`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-sync-key": syncKey
+          },
+          body: JSON.stringify(payload)
+        }).catch(() => void 0);
+      }
+      async function syncGuardRoomLiveDeskHeartbeat(input) {
+        const endpoint = normalizeGuardRoomEndpoint$1(guardRoomEndpoint.value);
+        const syncKey = guardRoomSyncKey.value.trim();
+        if (!endpoint || !syncKey) return;
+        await fetch(`${endpoint}/api/live-desk/heartbeats`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-sync-key": syncKey
+          },
+          body: JSON.stringify({
+            ...input,
+            scriptVersion: VERSION,
+            candidateText: input.candidateText?.slice(0, 120)
+          })
+        }).catch(() => void 0);
+      }
+      async function syncGuardRoomShadowRule(input) {
+        const endpoint = normalizeGuardRoomEndpoint$1(guardRoomEndpoint.value);
+        const syncKey = guardRoomSyncKey.value.trim();
+        if (!endpoint || !syncKey) return;
+        await fetch(`${endpoint}/api/shadow-rules`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-sync-key": syncKey
+          },
+          body: JSON.stringify({
+            kind: "shadow_rule_learned",
+            roomId: input.roomId,
+            from: input.from,
+            to: input.to,
+            sourceText: input.sourceText.slice(0, 200),
+            occurredAt: ( new Date()).toISOString(),
+            scriptVersion: VERSION
+          })
+        }).catch(() => void 0);
+      }
+      async function syncGuardRoomWatchlist(rooms) {
+        const endpoint = normalizeGuardRoomEndpoint$1(guardRoomEndpoint.value);
+        const syncKey = guardRoomSyncKey.value.trim();
+        if (!endpoint || !syncKey) return;
+        await fetch(`${endpoint}/api/watchlists/sync`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-sync-key": syncKey
+          },
+          body: JSON.stringify({ rooms })
+        }).then((response) => {
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        });
+      }
+      async function fetchGuardRoomControlProfile() {
+        const endpoint = normalizeGuardRoomEndpoint$1(guardRoomEndpoint.value);
+        const syncKey = guardRoomSyncKey.value.trim();
+        if (!endpoint || !syncKey) return null;
+        const response = await fetch(`${endpoint}/api/control-profile/current`, {
+          method: "GET",
+          headers: {
+            "x-sync-key": syncKey
+          }
+        }).catch(() => null);
+        if (!response?.ok) return null;
+        return await response.json();
+      }
+      const SHADOW_RULE_PER_ROOM_CAP = 50;
+      const SHADOW_RULE_MIN_LEN = 1;
+      const SHADOW_RULE_MAX_LEN = 60;
+      const OBSERVATION_CAP = 200;
+      function isValidSensitiveWord(word) {
+        const trimmed = word.trim();
+        return trimmed.length >= SHADOW_RULE_MIN_LEN && trimmed.length <= SHADOW_RULE_MAX_LEN && !trimmed.includes("\n");
+      }
+      function learnShadowRules(input) {
+        if (!autoLearnShadowRules.value) return;
+        const roomKey = String(input.roomId);
+        const currentByRoom = localRoomRules.value;
+        const existingRules = currentByRoom[roomKey] ?? [];
+        const existingFroms = new Set(existingRules.map((r2) => r2.from).filter((s2) => !!s2));
+        const newRules = [];
+        const learnedFroms = [];
+        for (const raw of input.sensitiveWords) {
+          if (!isValidSensitiveWord(raw)) continue;
+          const from = raw.trim();
+          if (existingFroms.has(from)) continue;
+          const to = processText(from);
+          if (to === from) continue;
+          newRules.push({ from, to });
+          existingFroms.add(from);
+          learnedFroms.push(from);
+        }
+        if (newRules.length === 0) return;
+        let merged = [...existingRules, ...newRules];
+        if (merged.length > SHADOW_RULE_PER_ROOM_CAP) {
+          merged = merged.slice(merged.length - SHADOW_RULE_PER_ROOM_CAP);
+        }
+        localRoomRules.value = { ...currentByRoom, [roomKey]: merged };
+        appendLog(`📚 已学到屏蔽词规则（房间 ${input.roomId}）：${learnedFroms.join("、")}`);
+        for (const rule of newRules) {
+          void syncGuardRoomShadowRule({
+            roomId: input.roomId,
+            from: rule.from,
+            to: rule.to,
+            sourceText: input.originalMessage
+          });
+        }
+      }
+      function recordShadowBanObservation(input) {
+        const text = input.text.trim();
+        if (!text) return;
+        const list = shadowBanObservations.value;
+        const idx = list.findIndex((o2) => o2.text === text && o2.roomId === input.roomId);
+        const now = Date.now();
+        if (idx >= 0) {
+          const updated = [...list];
+          const prev = updated[idx];
+          updated[idx] = {
+            ...prev,
+            ts: now,
+            count: prev.count + 1,
+            evadedAlready: prev.evadedAlready || input.evadedAlready,
+
+candidates: input.candidates ?? prev.candidates
+          };
+          shadowBanObservations.value = updated;
+          return;
+        }
+        const entry = {
+          text,
+          roomId: input.roomId,
+          ts: now,
+          count: 1,
+          evadedAlready: input.evadedAlready,
+          candidates: input.candidates
+        };
+        let next = [...list, entry];
+        if (next.length > OBSERVATION_CAP) {
+          next = next.slice(next.length - OBSERVATION_CAP);
+        }
+        shadowBanObservations.value = next;
+      }
+      function clearShadowBanObservations() {
+        shadowBanObservations.value = [];
+      }
+      function removeShadowBanObservation(text, roomId) {
+        shadowBanObservations.value = shadowBanObservations.value.filter((o2) => !(o2.text === text && o2.roomId === roomId));
+      }
+      function promoteObservationToRule(observation, to) {
+        const trimmedText = observation.text.trim();
+        const trimmedTo = to.trim();
+        if (!trimmedText || trimmedText === trimmedTo) return false;
+        if (observation.roomId === void 0) return false;
+        const roomKey = String(observation.roomId);
+        const currentByRoom = localRoomRules.value;
+        const existingRules = currentByRoom[roomKey] ?? [];
+        if (existingRules.some((r2) => r2.from === trimmedText)) return false;
+        const merged = [...existingRules, { from: trimmedText, to: trimmedTo }];
+        localRoomRules.value = { ...currentByRoom, [roomKey]: merged };
+        removeShadowBanObservation(observation.text, observation.roomId);
+        void syncGuardRoomShadowRule({
+          roomId: observation.roomId,
+          from: trimmedText,
+          to: trimmedTo,
+          sourceText: trimmedText
+        });
+        return true;
+      }
+      const KOU_SEPARATOR = "口";
+      const FULLWIDTH_SPACE = "　";
+      function joinWith(text, separator) {
+        const graphemes = getGraphemes(text);
+        return graphemes.join(separator);
+      }
+      function generateHeuristicCandidates(text) {
+        const trimmed = text.trim();
+        if (!trimmed) return [];
+        const candidates = [
+          { strategy: "invisible", label: "隐形字符", text: processText(trimmed) },
+          { strategy: "kou", label: "口分隔", text: joinWith(trimmed, KOU_SEPARATOR) },
+          { strategy: "space", label: "全角空格", text: joinWith(trimmed, FULLWIDTH_SPACE) }
+        ];
+        const seen2 = new Set([trimmed]);
+        return candidates.filter((c2) => {
+          if (c2.text === trimmed) return false;
+          if (seen2.has(c2.text)) return false;
+          seen2.add(c2.text);
+          return true;
+        });
+      }
+      function formatCandidatesForLog(candidates) {
+        if (candidates.length === 0) return null;
+        const lines = candidates.map((c2) => `   • ${c2.label}: ${c2.text}`);
+        return ["🛠 改写候选（不自动发送，可复制粘贴）：", ...lines].join("\n");
+      }
+      const SEND_ECHO_TIMEOUT_MS = 4e3;
+      const RECENT_DOM_DANMAKU_HISTORY_MS = 15e3;
+      const RECENT_DOM_DANMAKU_HISTORY_MAX = 240;
+      const recentDomDanmaku = [];
+      function pruneRecentDomDanmaku(now = Date.now()) {
+        while (recentDomDanmaku.length > 0 && now - recentDomDanmaku[0].observedAt > RECENT_DOM_DANMAKU_HISTORY_MS) {
+          recentDomDanmaku.shift();
+        }
+        while (recentDomDanmaku.length > RECENT_DOM_DANMAKU_HISTORY_MAX) {
+          recentDomDanmaku.shift();
+        }
+      }
+      function rememberRecentDomDanmaku(text, uid, observedAt) {
+        if (!text) return;
+        pruneRecentDomDanmaku(observedAt);
+        recentDomDanmaku.push({ text, uid, observedAt });
+      }
+      function findRecentDomDanmakuSource(text, uid, sinceTs, selfUid) {
+        const target = text.trim();
+        if (!target) return null;
+        pruneRecentDomDanmaku();
+        for (let i2 = recentDomDanmaku.length - 1; i2 >= 0; i2--) {
+          const event = recentDomDanmaku[i2];
+          if (event.observedAt < sinceTs) break;
+          if (event.text !== target) continue;
+          if (uid && event.uid && event.uid !== uid) continue;
+          if (selfUid && event.uid === selfUid) continue;
+          return "dom";
+        }
+        return null;
+      }
+      function matchesCustomChatEchoEvent(event, target, uid) {
+        return event.kind === "danmaku" && event.text.trim() === target && (!uid || !event.uid || event.uid === uid);
+      }
+      function matchesDomEchoEvent(event, target, uid, selfUid) {
+        if (event.text.trim() !== target) return false;
+        if (uid && event.uid && event.uid !== uid) return false;
+        if (selfUid && event.uid === selfUid) return false;
+        return true;
+      }
+      let domSubscribed = false;
+      function ensureDomTracking() {
+        if (domSubscribed) return;
+        domSubscribed = true;
+        subscribeDanmaku({
+          onMessage: (ev) => rememberRecentDomDanmaku(ev.text, ev.uid, Date.now())
+        });
+      }
+      let wsTrackingStarted = false;
+      let currentWsStatus$1 = "off";
+      function ensureWsTracking() {
+        if (wsTrackingStarted) return;
+        wsTrackingStarted = true;
+        subscribeCustomChatWsStatus((status) => {
+          currentWsStatus$1 = status;
+        });
+        startLiveWsSource();
+      }
+      function waitForSentEcho(text, uid, sinceTs, timeoutMs = SEND_ECHO_TIMEOUT_MS) {
+        ensureDomTracking();
+        ensureWsTracking();
+        const target = text.trim();
+        if (!target) return Promise.resolve(null);
+        const selfUid = uid;
+        const recentCustomSource = findRecentCustomChatDanmakuSource(target, uid, sinceTs);
+        if (recentCustomSource && recentCustomSource !== "local") return Promise.resolve(recentCustomSource);
+        const recentDomSource = findRecentDomDanmakuSource(target, uid, sinceTs, selfUid);
+        if (recentDomSource) return Promise.resolve(recentDomSource);
+        return new Promise((resolve) => {
+          let done = false;
+          let unsubscribeEvents2 = () => {
+          };
+          let unsubscribeDom2 = () => {
+          };
+          const finish = (source) => {
+            if (done) return;
+            done = true;
+            clearTimeout(timer2);
+            unsubscribeEvents2();
+            unsubscribeDom2();
+            resolve(source);
+          };
+          const timer2 = setTimeout(() => {
+            const localFallback = findRecentCustomChatDanmakuSource(target, uid, sinceTs);
+            finish(localFallback === "local" ? "local" : null);
+          }, timeoutMs);
+          unsubscribeEvents2 = subscribeCustomChatEvents((event) => {
+            if (!matchesCustomChatEchoEvent(event, target, uid)) return;
+            if (event.source !== "local") finish(event.source);
+          });
+          unsubscribeDom2 = subscribeDanmaku({
+            onMessage: (event) => {
+              if (!matchesDomEchoEvent(event, target, uid, selfUid)) return;
+              finish("dom");
+            }
+          });
+          const lateCustomSource = findRecentCustomChatDanmakuSource(target, uid, sinceTs);
+          const lateDomSource = findRecentDomDanmakuSource(target, uid, sinceTs, selfUid);
+          const lateSource = (lateCustomSource !== "local" ? lateCustomSource : null) ?? lateDomSource;
+          if (lateSource) finish(lateSource);
+        });
+      }
+      const TOAST_COOLDOWN_MS = 3e4;
+      const lastToastAt = new Map();
+      async function verifyBroadcast(input) {
+        const isEmoticon = input.isEmoticon ?? isEmoticonUnique(input.text);
+        if (isEmoticon) return;
+        const uid = getDedeUid() ?? null;
+        const source = await waitForSentEcho(input.text, uid, input.sinceTs, input.timeoutMs);
+        if (source === "ws" || source === "dom") return;
+        if (currentWsStatus$1 !== "live") {
+          appendLogQuiet(`⚪ ${input.label}: ${input.display}（广播校验跳过：WS 未就绪 ${currentWsStatus$1}）`);
+          return;
+        }
+        const message = `⚠️ ${input.label}: ${input.display}（接口成功但未检测到广播，可能被屏蔽）`;
+        let surfaceToast = input.surfaceToast !== false;
+        if (surfaceToast && input.toastDedupeKey) {
+          const now = Date.now();
+          const prev = lastToastAt.get(input.toastDedupeKey) ?? 0;
+          if (now - prev < TOAST_COOLDOWN_MS) {
+            surfaceToast = false;
+          } else {
+            lastToastAt.set(input.toastDedupeKey, now);
+          }
+        }
+        if (surfaceToast) {
+          appendLog(message);
+        } else {
+          appendLogQuiet(message);
+        }
+        if (input.isPostEvasion) {
+          recordShadowBanObservation({ text: input.text, roomId: input.roomId, evadedAlready: true });
+          return;
+        }
+        const heuristic = generateHeuristicCandidates(input.text);
+        const candidates = [...heuristic];
+        let aiSuggestion = null;
+        if (input.enableAiEvasion && aiEvasion.value) {
+          try {
+            aiSuggestion = await requestAiSuggestion(input.text);
+          } catch {
+            aiSuggestion = null;
+          }
+          if (aiSuggestion) {
+            candidates.push({
+              strategy: "ai",
+              label: "AI改写",
+              text: aiSuggestion.evadedMessage
+            });
+          }
+        }
+        const formatted = formatCandidatesForLog(candidates);
+        if (formatted) appendLogQuiet(formatted);
+        recordShadowBanObservation({
+          text: input.text,
+          roomId: input.roomId,
+          evadedAlready: false,
+          candidates
+        });
+        const canAutoResend = shadowBanMode.value === "auto-resend" && aiSuggestion !== null && input.roomId !== void 0 && typeof input.csrfToken === "string" && input.csrfToken.length > 0;
+        if (!canAutoResend) return;
+        const roomId = input.roomId;
+        const csrfToken = input.csrfToken;
+        const result = await tryAiEvasion(input.text, roomId, csrfToken, `${input.label}·影子屏蔽-`);
+        if (result.success && result.evadedMessage) {
+          if (result.sensitiveWords && result.sensitiveWords.length > 0) {
+            learnShadowRules({
+              roomId,
+              sensitiveWords: result.sensitiveWords,
+              evadedMessage: result.evadedMessage,
+              originalMessage: input.text
+            });
+          }
+          void verifyBroadcast({
+            text: result.evadedMessage,
+            label: `${input.label}·AI`,
+            display: result.evadedMessage,
+            sinceTs: Date.now(),
+            isPostEvasion: true,
+            surfaceToast: false
+          });
+        }
+      }
+      const GET_INFO_BY_USER_PATTERN = "/xlive/web-room/v1/index/getInfoByUser";
+      function shouldHijackUrl(url) {
+        return unlockForbidLive.value && url.includes(GET_INFO_BY_USER_PATTERN);
+      }
+      function applyTransforms(url, data) {
+        if (!shouldHijackUrl(url)) return;
+        const forbid = data?.data?.forbid_live;
+        if (!forbid) return;
+        forbid.is_forbid = false;
+        forbid.forbid_text = "";
+      }
+      (() => {
+        try {
+          const ResponseProto = _unsafeWindow.Response.prototype;
+          if (ResponseProto.__chatterboxFetchHijackInstalled) return;
+          ResponseProto.__chatterboxFetchHijackInstalled = true;
+          const origJson = ResponseProto.json;
+          ResponseProto.json = async function() {
+            const data = await origJson.call(this);
+            const url = this.url;
+            if (!url || !shouldHijackUrl(url) || !data || typeof data !== "object") return data;
+            try {
+              applyTransforms(url, data);
+            } catch (err) {
+              console.error("[Chatterbox] fetch-hijack json transform failed:", err);
+            }
+            return data;
+          };
+          const origText = ResponseProto.text;
+          ResponseProto.text = async function() {
+            const text = await origText.call(this);
+            const url = this.url;
+            if (!url || !shouldHijackUrl(url)) return text;
+            try {
+              const data = JSON.parse(text);
+              applyTransforms(url, data);
+              return JSON.stringify(data);
+            } catch {
+              return text;
+            }
+          };
+        } catch (err) {
+          console.error("[Chatterbox] failed to install fetch-hijack:", err);
+        }
+      })();
+      function isOurOwnSend(url) {
+        return url.includes(CHATTERBOX_SEND_MARKER);
+      }
+      function urlOf(input) {
+        if (typeof input === "string") return input;
+        if (input instanceof URL) return input.toString();
+        return input.url;
+      }
+      function extractMsgFromBody(body) {
+        if (!body) return null;
+        if (body instanceof FormData) {
+          const v2 = body.get("msg");
+          return typeof v2 === "string" ? v2 : null;
+        }
+        if (body instanceof URLSearchParams) return body.get("msg");
+        if (typeof body === "string") {
+          try {
+            return new URLSearchParams(body).get("msg");
+          } catch {
+            return null;
+          }
+        }
+        return null;
+      }
+      (() => {
+        try {
+          const win = _unsafeWindow;
+          if (win.__chatterboxMsgSendHijackInstalled) return;
+          win.__chatterboxMsgSendHijackInstalled = true;
+          const origFetch = win.fetch.bind(win);
+          win.fetch = (async (input, init) => {
+            try {
+              const url = urlOf(input);
+              const isMsgSend = url.includes(BASE_URL.BILIBILI_MSG_SEND);
+              if (!isMsgSend) return origFetch(input, init);
+              if (isOurOwnSend(url)) return origFetch(input, init);
+              const startedAt = Date.now();
+              const msg = extractMsgFromBody(init?.body);
+              const resp = await origFetch(input, init);
+              resp.clone().json().then((json) => {
+                if (!msg) return;
+                const code = json?.code;
+                if (code !== 0) return;
+                appendLog(`✅ B站原生: ${msg}`);
+                void verifyBroadcast({
+                  text: msg,
+                  label: "B站原生",
+                  display: msg,
+                  sinceTs: startedAt
+                });
+              }).catch(() => {
+              });
+              return resp;
+            } catch (err) {
+              console.error("[Chatterbox] msg-send hijack error:", err);
+              return origFetch(input, init);
+            }
+          });
+        } catch (err) {
+          console.error("[Chatterbox] failed to install msg-send hijack:", err);
+        }
+      })();
+      const CUSTOM_CHAT_REARM_OFF_DELAY_MS = 80;
+      const CUSTOM_CHAT_REARM_ON_DELAY_MS = 160;
+      const PANEL_STYLE = `
+      #laplace-chatterbox-toggle,
+      #laplace-chatterbox-dialog,
+      #laplace-chatterbox-dialog * {
+        box-sizing: border-box;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+        font-size: 12px;
+        letter-spacing: 0;
+      }
+
+      #laplace-chatterbox-toggle {
+        appearance: none !important;
+        border: 1px solid rgba(255, 255, 255, .42) !important;
+        border-radius: 999px !important;
+        min-height: 30px !important;
+        padding: 0 12px !important;
+        background: rgba(30, 30, 30, .78) !important;
+        color: #fff !important;
+        box-shadow: 0 10px 28px rgba(0, 0, 0, .22), inset 0 1px rgba(255, 255, 255, .22) !important;
+        backdrop-filter: blur(18px) saturate(1.4);
+        -webkit-backdrop-filter: blur(18px) saturate(1.4);
+        transition: transform .2s ease, background .2s ease;
+      }
+
+      #laplace-chatterbox-toggle[data-sending="true"] {
+        background: rgba(0, 186, 143, .88) !important;
+      }
+
+      #laplace-chatterbox-toggle[data-open="true"] {
+        transform: scale(1.06);
+      }
+
+      #laplace-chatterbox-toggle:active {
+        transform: scale(0.96);
+      }
+
+      #laplace-chatterbox-dialog {
+        color: #1d1d1f !important;
+        background: rgba(248, 248, 250, .86) !important;
+        border: 1px solid rgba(0, 0, 0, .08) !important;
+        border-radius: 8px !important;
+        box-shadow: 0 22px 60px rgba(0, 0, 0, .24), 0 1px 0 rgba(255,255,255,.72) inset !important;
+        backdrop-filter: blur(26px) saturate(1.5);
+        -webkit-backdrop-filter: blur(26px) saturate(1.5);
+        scrollbar-width: thin;
+      }
+
+      #laplace-chatterbox-dialog .cb-scroll {
+        padding: 8px !important;
+      }
+
+      #laplace-chatterbox-dialog details {
+        margin: 0 0 5px !important;
+        padding: 0 !important;
+        border: 1px solid rgba(0, 0, 0, .08) !important;
+        border-radius: 8px !important;
+        background: rgba(252, 252, 253, .78) !important;
+        box-shadow: 0 1px 0 rgba(255, 255, 255, .7) inset !important;
+        overflow: hidden;
+      }
+
+      #laplace-chatterbox-dialog details[open] {
+        background: rgba(255, 255, 255, .9) !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-settings-accordion > .cb-section {
+        margin: 0 !important;
+        padding: 0 7px 7px !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-settings-accordion[open] > .cb-section > .cb-heading,
+      #laplace-chatterbox-dialog .cb-settings-accordion[open] > .cb-section > .cb-row:first-child > .cb-heading {
+        display: none;
+      }
+
+      #laplace-chatterbox-dialog details > :not(summary):not(.cb-body) {
+        margin-left: 10px;
+        margin-right: 10px;
+      }
+
+      #laplace-chatterbox-dialog details > :last-child:not(summary) {
+        margin-bottom: 10px;
+      }
+
+      #laplace-chatterbox-dialog summary {
+        min-height: 30px;
+        display: flex !important;
+        align-items: center;
+        gap: 6px;
+        padding: 0 8px !important;
+        color: #1d1d1f !important;
+        list-style: none;
+        font-weight: 650 !important;
+        cursor: pointer;
+        user-select: none;
+      }
+
+      #laplace-chatterbox-dialog summary::-webkit-details-marker {
+        display: none;
+      }
+
+      #laplace-chatterbox-dialog summary::after {
+        content: "";
+        margin-left: auto;
+        width: 10px;
+        height: 10px;
+        border-right: 2.5px solid #8e8e93;
+        border-bottom: 2.5px solid #8e8e93;
+        transform: rotate(-45deg);
+        transition: transform .18s ease;
+        flex-shrink: 0;
+      }
+
+      #laplace-chatterbox-dialog details[open] > summary::after {
+        transform: rotate(135deg);
+      }
+
+      #laplace-chatterbox-dialog button,
+      #laplace-chatterbox-dialog select,
+      #laplace-chatterbox-dialog input,
+      #laplace-chatterbox-dialog textarea {
+        outline: none !important;
+        font: inherit;
+      }
+
+      #laplace-chatterbox-dialog button {
+        appearance: none !important;
+        min-height: 26px !important;
+        border: 1px solid rgba(0, 0, 0, .08) !important;
+        border-radius: 8px !important;
+        background: rgba(255, 255, 255, .9) !important;
+        color: #1d1d1f !important;
+        padding: 3px 9px !important;
+        cursor: pointer !important;
+        font-weight: 560 !important;
+        line-height: 1.3 !important;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, .05) !important;
+      }
+
+      #laplace-chatterbox-dialog button:hover {
+        background: #fff !important;
+        border-color: rgba(0, 0, 0, .14) !important;
+      }
+
+      #laplace-chatterbox-dialog button:active {
+        transform: translateY(1px);
+      }
+
+      #laplace-chatterbox-dialog button:disabled,
+      #laplace-chatterbox-dialog input:disabled,
+      #laplace-chatterbox-dialog select:disabled {
+        opacity: .46;
+        cursor: not-allowed !important;
+      }
+
+      #laplace-chatterbox-dialog input[type="text"],
+      #laplace-chatterbox-dialog input[type="password"],
+      #laplace-chatterbox-dialog input[type="number"],
+      #laplace-chatterbox-dialog select,
+      #laplace-chatterbox-dialog textarea {
+        border: 1px solid rgba(0, 0, 0, .08) !important;
+        border-radius: 8px !important;
+        background: rgba(255, 255, 255, .86) !important;
+        color: #1d1d1f !important;
+        padding: 5px 8px !important;
+        box-shadow: inset 0 1px 2px rgba(0, 0, 0, .035) !important;
+      }
+
+      #laplace-chatterbox-dialog input[type="number"] {
+        text-align: center;
+        width: 64px !important;
+        min-width: 64px !important;
+      }
+
+      #laplace-chatterbox-dialog textarea {
+        line-height: 1.45 !important;
+      }
+
+      #laplace-chatterbox-dialog input:focus,
+      #laplace-chatterbox-dialog select:focus,
+      #laplace-chatterbox-dialog textarea:focus {
+        border-color: #007aff !important;
+        box-shadow: 0 0 0 3px rgba(0, 122, 255, .16), inset 0 1px 2px rgba(0, 0, 0, .03) !important;
+      }
+
+      #laplace-chatterbox-dialog input[type="checkbox"] {
+        appearance: none !important;
+        width: 30px !important;
+        height: 18px !important;
+        flex: 0 0 30px;
+        border: none !important;
+        border-radius: 999px !important;
+        background: #d1d1d6 !important;
+        padding: 0 !important;
+        position: relative;
+        cursor: pointer;
+        box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .04) !important;
+        transition: background .18s ease;
+      }
+
+      #laplace-chatterbox-dialog input[type="checkbox"]::after {
+        content: "";
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 1px 2px rgba(0,0,0,.24);
+        transition: transform .18s ease;
+      }
+
+      #laplace-chatterbox-dialog input[type="checkbox"]:checked {
+        background: #34c759 !important;
+      }
+
+      #laplace-chatterbox-dialog input[type="checkbox"]:checked::after {
+        transform: translateX(12px);
+      }
+
+      #laplace-chatterbox-dialog a {
+        color: #007aff !important;
+        text-decoration: none !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-tabs {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 4px;
+        padding: 7px;
+        background: rgba(248, 248, 250, .9);
+        backdrop-filter: blur(18px) saturate(1.4);
+        -webkit-backdrop-filter: blur(18px) saturate(1.4);
+        border-bottom: 1px solid rgba(0, 0, 0, .06);
+      }
+
+      #laplace-chatterbox-dialog .cb-tab {
+        min-height: 28px !important;
+        padding: 4px 0 !important;
+        border: none !important;
+        box-shadow: none !important;
+        background: transparent !important;
+        color: #6e6e73 !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-tab[data-active="true"] {
+        background: #fff !important;
+        color: #1d1d1f !important;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .08) !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-primary {
+        background: #007aff !important;
+        color: #fff !important;
+        border-color: #007aff !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-danger {
+        background: #ff3b30 !important;
+        color: #fff !important;
+        border-color: #ff3b30 !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-soft {
+        color: #6e6e73 !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-row {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      #laplace-chatterbox-dialog .cb-stack {
+        display: grid;
+        gap: 6px;
+      }
+
+      #laplace-chatterbox-dialog .cb-body {
+        padding: 0 9px 8px;
+      }
+
+      #laplace-chatterbox-dialog .cb-note {
+        color: #6e6e73;
+        font-size: 11px !important;
+        line-height: 1.45;
+      }
+
+      #laplace-chatterbox-dialog .cb-label {
+        color: #6e6e73;
+        font-size: 11px !important;
+        font-weight: 560;
+      }
+
+      #laplace-chatterbox-dialog .cb-panel {
+        border: 1px solid rgba(0,0,0,.06);
+        border-radius: 8px;
+        background: rgba(248, 248, 250, .8);
+        padding: 7px;
+      }
+
+      #laplace-chatterbox-dialog .cb-section {
+        margin: 0 0 6px !important;
+        padding: 7px !important;
+        border: 1px solid rgba(0, 0, 0, .06) !important;
+        border-radius: 8px !important;
+        background: rgba(255, 255, 255, .72) !important;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, .04) !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-heading {
+        margin: 0 0 6px !important;
+        color: #1d1d1f !important;
+        font-weight: 650 !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-empty {
+        color: #8e8e93 !important;
+        background: rgba(118, 118, 128, .08);
+        border-radius: 8px;
+        padding: 7px;
+      }
+
+      #laplace-chatterbox-dialog .cb-result {
+        border: 1px solid rgba(0, 0, 0, .06) !important;
+        border-radius: 8px !important;
+        background: rgba(255, 255, 255, .82) !important;
+        padding: 7px !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-switch-row {
+        display: flex !important;
+        align-items: center !important;
+        gap: 6px !important;
+        min-height: 22px;
+        line-height: 1.32;
+      }
+
+      #laplace-chatterbox-dialog .cb-setting-block {
+        display: grid;
+        gap: 5px;
+        padding: 6px 0;
+      }
+
+      #laplace-chatterbox-dialog .cb-setting-block + .cb-setting-block {
+        border-top: 1px solid rgba(0, 0, 0, .06);
+      }
+
+      #laplace-chatterbox-dialog .cb-setting-primary {
+        padding: 6px 7px;
+        border: 1px solid rgba(0, 0, 0, .055);
+        border-left: 3px solid #007aff;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, .68);
+      }
+
+      #laplace-chatterbox-dialog .cb-setting-row {
+        justify-content: space-between;
+        gap: 8px;
+        min-height: 26px;
+      }
+
+      #laplace-chatterbox-dialog .cb-setting-row select {
+        max-width: 178px;
+        margin-left: auto;
+      }
+
+      #laplace-chatterbox-dialog .cb-setting-child[data-enabled="false"] {
+        color: #8e8e93;
+      }
+
+      #laplace-chatterbox-dialog .cb-dependent-group {
+        position: relative;
+        margin-top: 1px;
+        padding: 7px;
+        border: 1px solid rgba(0, 0, 0, .055);
+        border-left: 3px solid #34c759;
+        border-radius: 8px;
+        background: rgba(248, 248, 250, .7);
+        transition: background .18s ease, border-color .18s ease, opacity .18s ease;
+      }
+
+      #laplace-chatterbox-dialog .cb-dependent-group[data-enabled="false"] {
+        border-left-color: #c7c7cc;
+        background: repeating-linear-gradient(
+          -45deg,
+          rgba(118, 118, 128, .06),
+          rgba(118, 118, 128, .06) 6px,
+          rgba(255, 255, 255, .52) 6px,
+          rgba(255, 255, 255, .52) 12px
+        );
+      }
+
+      #laplace-chatterbox-dialog .cb-dependent-group[data-enabled="false"]::before {
+        content: attr(data-reason);
+        justify-self: start;
+        width: max-content;
+        max-width: 100%;
+        padding: 2px 6px;
+        border-radius: 999px;
+        background: rgba(118, 118, 128, .13);
+        color: #6e6e73;
+        font-size: 11px;
+        font-weight: 620;
+        line-height: 1.35;
+      }
+
+      #laplace-chatterbox-dialog .cb-accordion-title {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        margin-right: auto;
+      }
+
+      #laplace-chatterbox-dialog .cb-module-summary::after {
+        margin-left: 2px;
+      }
+
+      #laplace-chatterbox-dialog .cb-module-state {
+        flex: 0 0 auto;
+        min-width: 32px;
+        padding: 1px 6px;
+        border-radius: 999px;
+        border: 1px solid rgba(0, 0, 0, .06);
+        background: rgba(118, 118, 128, .1);
+        color: #6e6e73;
+        font-size: 10px !important;
+        font-weight: 720;
+        line-height: 1.45;
+        text-align: center;
+      }
+
+      #laplace-chatterbox-dialog .cb-module-state[data-active="true"] {
+        border-color: rgba(52, 199, 89, .28);
+        background: rgba(52, 199, 89, .14);
+        color: #0a7f55;
+      }
+
+      #laplace-chatterbox-dialog .cb-subdetails {
+        margin: 0 !important;
+        border-color: rgba(0, 0, 0, .05) !important;
+        background: rgba(248, 248, 250, .56) !important;
+        box-shadow: none !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-segment {
+        display: grid;
+        grid-auto-flow: column;
+        grid-auto-columns: 1fr;
+        gap: 4px;
+        padding: 3px;
+        border-radius: 8px;
+        background: rgba(118, 118, 128, .12);
+      }
+
+      #laplace-chatterbox-dialog .cb-segment button {
+        box-shadow: none !important;
+        border-color: transparent !important;
+        background: transparent !important;
+        min-width: 0;
+      }
+
+      #laplace-chatterbox-dialog .cb-segment button[aria-pressed="true"] {
+        background: #fff !important;
+        color: #1d1d1f !important;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, .12) !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-status-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        display: inline-block;
+        background: currentColor;
+      }
+
+      #laplace-chatterbox-dialog .cb-list {
+        display: grid;
+        gap: 6px;
+      }
+
+      #laplace-chatterbox-dialog .cb-list-item {
+        border-radius: 8px;
+        background: rgba(255,255,255,.74);
+        border: 1px solid rgba(0,0,0,.06);
+        padding: 8px;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-list {
+        display: grid;
+        gap: 6px;
+        max-height: 190px;
+        overflow-y: auto;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-item {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 7px;
+        align-items: center;
+        border: 1px solid rgba(0,0,0,.06);
+        border-radius: 8px;
+        background: rgba(255,255,255,.7);
+        padding: 7px;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-pair {
+        min-width: 0;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 7px;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-pair code {
+        display: block;
+        min-height: 24px;
+        padding: 4px 6px;
+        border-radius: 6px;
+        background: rgba(118, 118, 128, .08);
+        color: #1d1d1f;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        white-space: normal;
+        word-break: break-all;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-form,
+      #laplace-chatterbox-dialog .cb-rule-room-form {
+        display: grid;
+        grid-template-columns: 1fr 1fr auto;
+        gap: 7px;
+        align-items: end;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-form label,
+      #laplace-chatterbox-dialog .cb-rule-room-form label {
+        min-width: 0;
+        display: grid;
+        gap: 3px;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-form input,
+      #laplace-chatterbox-dialog .cb-rule-room-form input,
+      #laplace-chatterbox-dialog .cb-rule-room-form select {
+        width: 100%;
+        min-width: 0;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-room-actions {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+
+      #laplace-chatterbox-dialog .cb-rule-remove {
+        color: #ff3b30 !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-icon-button {
+        width: 28px !important;
+        min-width: 28px !important;
+        padding: 0 !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-tag {
+        background: var(--cb-tag-bg, #8e8e93) !important;
+        color: #fff !important;
+        border: none !important;
+        box-shadow: none !important;
+        min-height: 20px !important;
+        border-radius: 5px !important;
+        padding: 0 6px !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-emote[data-copied="true"] {
+        background: #34c759 !important;
+        color: #fff !important;
+      }
+
+      @media (max-width: 420px) {
+        #laplace-chatterbox-dialog .cb-rule-item,
+        #laplace-chatterbox-dialog .cb-rule-form,
+        #laplace-chatterbox-dialog .cb-rule-room-form {
+          grid-template-columns: 1fr;
+        }
+      }
+    `;
+      function currentLiveRoomSlug() {
+        try {
+          return extractRoomNumber(window.location.href) ?? null;
+        } catch {
+          return null;
+        }
+      }
+      function installPanelStyles() {
+        if (typeof _GM_addStyle === "function") {
+          _GM_addStyle(PANEL_STYLE);
+          return () => {
+          };
+        }
+        const style = document.createElement("style");
+        style.textContent = PANEL_STYLE;
+        (document.head || document.documentElement).appendChild(style);
+        return () => style.remove();
+      }
+      function startCustomChatRoomRearm() {
+        let disposed = false;
+        let offTimer = null;
+        let onTimer = null;
+        let serial = 0;
+        let lastRoomSlug = null;
+        const clearTimers = () => {
+          if (offTimer) {
+            clearTimeout(offTimer);
+            offTimer = null;
+          }
+          if (onTimer) {
+            clearTimeout(onTimer);
+            onTimer = null;
+          }
+        };
+        const applyDesiredCustomChatDefaults = () => {
+          customChatHideNative.value = false;
+          customChatUseWs.value = true;
+        };
+        let rearming = false;
+        const rearmCustomChat = () => {
+          serial += 1;
+          const runId = serial;
+          clearTimers();
+          rearming = true;
+          applyDesiredCustomChatDefaults();
+          customChatEnabled.value = true;
+          offTimer = setTimeout(() => {
+            if (disposed || runId !== serial) return;
+            customChatEnabled.value = false;
+          }, CUSTOM_CHAT_REARM_OFF_DELAY_MS);
+          onTimer = setTimeout(() => {
+            if (disposed || runId !== serial) return;
+            applyDesiredCustomChatDefaults();
+            customChatEnabled.value = true;
+            rearming = false;
+          }, CUSTOM_CHAT_REARM_ON_DELAY_MS);
+        };
+        const handleLocationMaybeChanged = (force = false) => {
+          const roomSlug = currentLiveRoomSlug();
+          if (!roomSlug) {
+            lastRoomSlug = null;
+            return;
+          }
+          if (!force && roomSlug === lastRoomSlug) return;
+          lastRoomSlug = roomSlug;
+          if (!customChatEnabled.value) return;
+          rearmCustomChat();
+        };
+        let prevEnabled = customChatEnabled.peek();
+        const stopEnabledWatcher = j$1(() => {
+          const next = customChatEnabled.value;
+          const wasEnabled = prevEnabled;
+          prevEnabled = next;
+          if (!wasEnabled && next && !rearming) {
+            rearmCustomChat();
+          }
+        });
+        const scheduleLocationCheck = () => {
+          window.setTimeout(handleLocationMaybeChanged, 0);
+        };
+        const originalPushState = window.history.pushState.bind(window.history);
+        const originalReplaceState = window.history.replaceState.bind(window.history);
+        window.history.pushState = ((...args) => {
+          originalPushState(...args);
+          scheduleLocationCheck();
+        });
+        window.history.replaceState = ((...args) => {
+          originalReplaceState(...args);
+          scheduleLocationCheck();
+        });
+        window.addEventListener("popstate", handleLocationMaybeChanged);
+        window.addEventListener("hashchange", handleLocationMaybeChanged);
+        const roomWatcher = window.setInterval(handleLocationMaybeChanged, 1e3);
+        handleLocationMaybeChanged(true);
+        return () => {
+          disposed = true;
+          clearTimers();
+          stopEnabledWatcher();
+          window.history.pushState = originalPushState;
+          window.history.replaceState = originalReplaceState;
+          window.removeEventListener("popstate", handleLocationMaybeChanged);
+          window.removeEventListener("hashchange", handleLocationMaybeChanged);
+          clearInterval(roomWatcher);
+        };
+      }
+      function installOptimizedLayoutStyle() {
+        const stale = document.querySelector(".app-body");
+        if (stale?.style.marginLeft === "1rem") stale.style.marginLeft = "";
+        if (!optimizeLayout.value) return () => {
+        };
+        const style = document.createElement("style");
+        style.textContent = ".app-body { margin-left: 1rem !important; }";
+        document.head.appendChild(style);
+        return () => style.remove();
+      }
+      function isAutoBlendBlacklistedUid(uid) {
+        return !!uid && uid in autoBlendUserBlacklist.value;
+      }
+      const subscribers = new Set();
+      function emitAutoBlendEvent(event) {
+        for (const subscriber of subscribers) {
+          subscriber(event);
+        }
+      }
+      function subscribeAutoBlendEvents(subscriber) {
+        subscribers.add(subscriber);
+        return () => subscribers.delete(subscriber);
+      }
+      function logAutoBlend(message, level, detail) {
+        emitAutoBlendEvent({ kind: "log", level, message, detail });
+      }
+      function logAutoBlendSendResult(result, label, display) {
+        emitAutoBlendEvent({ kind: "send-result", result, label, display });
+      }
+      subscribeAutoBlendEvents((event) => {
+        if (event.kind === "send-result") {
+          appendLog(event.result, event.label, event.display);
+          return;
+        }
+        if (event.level) {
+          notifyUser(event.level, event.message, event.detail);
+          return;
+        }
+        appendLog(event.detail ? `${event.message}：${event.detail}` : event.message);
+      });
+      function formatAutoBlendSenderInfo(uniqueUsers, totalCount) {
+        return uniqueUsers > 0 ? `${uniqueUsers} 人 / ${totalCount} 条` : `${totalCount} 条`;
+      }
+      function shortAutoBlendText(text) {
+        return trimText(text, 18)[0] ?? text;
+      }
+      function formatAutoBlendStatus({
+        enabled,
+        dryRun,
+        isSending: isSending2,
+        cooldownUntil: cooldownUntil2,
+        now
+      }) {
+        if (!enabled) return "已关闭";
+        if (dryRun) return "试运行（不发送）";
+        if (isSending2) return "正在跟车";
+        const left = Math.max(0, Math.ceil((cooldownUntil2 - now) / 1e3));
+        return left > 0 ? `冷却中 ${left}s` : "观察中";
+      }
+      function formatAutoBlendCandidate(candidates) {
+        let best = null;
+        for (const candidate of candidates) {
+          if (candidate.totalCount < 2) continue;
+          if (!best || candidate.totalCount > best.totalCount) best = candidate;
+        }
+        if (!best) return "暂无";
+        return `${shortAutoBlendText(best.text)}（${formatAutoBlendSenderInfo(best.uniqueUsers, best.totalCount)}）`;
+      }
+      function detectTrend(events, windowMs, threshold) {
+        const now = events.reduce((latest, event) => Math.max(latest, event.ts), 0);
+        const windowStart = now - Math.max(0, windowMs);
+        const entries = new Map();
+        for (const event of events) {
+          const text = event.text.trim();
+          if (!text || event.ts < windowStart) continue;
+          let entry = entries.get(text);
+          if (!entry) {
+            entry = { totalCount: 0, uids: new Set() };
+            entries.set(text, entry);
+          }
+          entry.totalCount += 1;
+          if (event.uid) entry.uids.add(event.uid);
+        }
+        const candidates = Array.from(entries, ([text, entry]) => ({
+          text,
+          totalCount: entry.totalCount,
+          uniqueUsers: entry.uids.size
+        })).sort((a2, b2) => b2.totalCount - a2.totalCount);
+        const winner = candidates.find((candidate) => candidate.totalCount >= threshold) ?? null;
+        return {
+          shouldSend: winner !== null,
+          text: winner?.text ?? null,
+          candidates
+        };
+      }
+      function memeContentKey(s2) {
+        return s2.replace(/[​-‍﻿]/g, "").replace(/\s+/gu, " ").trim().toLowerCase();
+      }
       const MAX_PER_HOUR = 5;
       const MAX_CANDIDATES = 15;
       const MAX_SEEN = 200;
@@ -6770,6 +6826,18 @@ ws;
         const candForRoom = memeContributorCandidatesByRoom.value[roomKey] ?? [];
         if (seenForRoom.includes(text)) return;
         if (candForRoom.includes(text)) return;
+        const candidateKey = memeContentKey(text);
+        if (candidateKey) {
+          const libraryKeys = new Set(currentMemesList.value.map((m2) => memeContentKey(m2.content)));
+          if (libraryKeys.has(candidateKey)) {
+            const nextSeen2 = [...seenForRoom, text];
+            memeContributorSeenTextsByRoom.value = {
+              ...memeContributorSeenTextsByRoom.value,
+              [roomKey]: nextSeen2.length > MAX_SEEN ? nextSeen2.slice(-MAX_SEEN) : nextSeen2
+            };
+            return;
+          }
+        }
         const stamps = nominationTimestampsByRoom.get(roomKey) ?? [];
         const oneHourAgo = now - 36e5;
         const recentCount = stamps.filter((t2) => t2 >= oneHourAgo).length;
@@ -12207,7 +12275,7 @@ u$2("div", { style: { fontSize: ".9em", color: "#555" }, children: service.descr
       function markCustom() {
         autoBlendPreset.value = "custom";
       }
-      function modeButtonStyle(active) {
+      function modeButtonStyle$1(active) {
         return {
           fontWeight: active ? "bold" : void 0
         };
@@ -12398,7 +12466,7 @@ u$2("div", { className: "cb-segment", children: [
                         type: "button",
                         "aria-pressed": currentPreset === preset,
                         onClick: () => applyAutoBlendPreset(preset),
-                        style: modeButtonStyle(currentPreset === preset),
+                        style: modeButtonStyle$1(currentPreset === preset),
                         children: AUTO_BLEND_PRESETS[preset].label
                       },
                       preset
@@ -12412,7 +12480,7 @@ u$2(
                           autoBlendPreset.value = "custom";
                           autoBlendAdvancedOpen.value = true;
                         },
-                        style: modeButtonStyle(currentPreset === "custom"),
+                        style: modeButtonStyle$1(currentPreset === "custom"),
                         title: "保留当前数值并切到自定义；点击后会展开高级设置以便调参。",
                         children: "自定义"
                       }
@@ -12889,91 +12957,6 @@ u$2("label", { for: "persistSendState", children: "保持当前直播间独轮�
           }
         );
       }
-      function LogPanel() {
-        const detailsRef = A(null);
-        const ref = A(null);
-        const scrollToBottom2 = () => {
-          if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
-        };
-        y$2(() => {
-          scrollToBottom2();
-        }, [logLines.value]);
-        y$2(() => {
-          if (logPanelFocusRequest.value <= 0) return;
-          detailsRef.current?.scrollIntoView({ block: "nearest" });
-          scrollToBottom2();
-          ref.current?.focus();
-        }, [logPanelFocusRequest.value]);
-        return u$2(
-          "details",
-          {
-            ref: detailsRef,
-            open: logPanelOpen.value,
-            onToggle: (e2) => {
-              logPanelOpen.value = e2.currentTarget.open;
-            },
-            style: { marginTop: ".25em" },
-            children: [
-u$2("summary", { style: { cursor: "pointer", userSelect: "none", fontWeight: "bold" }, children: "日志" }),
-u$2("div", { className: "cb-body", children: u$2(
-                "textarea",
-                {
-                  ref,
-                  readOnly: true,
-                  value: logLines.value.join("\n"),
-                  placeholder: `此处将输出日志（最多保留 ${maxLogLines.value} 条）`,
-                  style: {
-                    boxSizing: "border-box",
-                    height: "60px",
-                    width: "100%",
-                    resize: "vertical",
-                    marginTop: ".5em"
-                  }
-                }
-              ) })
-            ]
-          }
-        );
-      }
-      const DEFAULT_MEME_SOURCES = {
-
-
-
-
-
-
-"1713546334": {
-          roomId: 1713546334,
-          name: "灰泽满烂梗库",
-          listEndpoint: "https://sbhzm.cn/api/public/memes",
-          randomEndpoint: "https://sbhzm.cn/api/public/memes/random",
-          defaultTags: ["满弟", "喷绿冻", "老弥"],
-          keywordToTag: {
-            "冲耳朵|耳朵痛|实习医生|医生|住院|医院": "满弟",
-            "绿冻|绿茬|喷.*绿|路人.*骂": "喷绿冻",
-            "困|睡|累|休息|床|被子|起床": "老弥",
-            "可爱|心动|心疼|爱.*(?:灰|满)|宝贝|乖": "爱灰泽满",
-            "傻逼|讨厌|喷.*(?:灰|满)|骂.*(?:灰|满)|烦死|滚": "喷灰泽满",
-            "茶|奶茶|龙井|绿茶": "茶",
-            "富|有钱|sc|大哥|舰长|豪|订阅": "富",
-            "原话|刚.*说|刚才.*说|你.*说.*过": "原话",
-            "黄桃|罐头": "黄桃",
-            "丈育|文盲|不识字": "丈育",
-            "hololive|holo|宝钟|姫|崎波": "hololive",
-            "nijisanji|彩虹社|niji|社团": "nijisanji",
-            "东野圭吾|侦探|推理|嫌疑人": "东野圭吾",
-            "同事|公司|周报|加班|上班": "同事",
-            "满爸|爸爸|父亲": "满爸",
-            "群魔乱舞|聚众|互喷|对骂": "群魔乱舞"
-          },
-          pauseKeywords: ["歇歇", "够了", "别刷了", "刷够了", "烦", "不要刷", "停一下"],
-          submitPage: "https://sbhzm.cn/submit"
-        }
-      };
-      function getMemeSourceForRoom(roomId) {
-        if (roomId == null) return null;
-        return DEFAULT_MEME_SOURCES[String(roomId)] ?? null;
-      }
       const scriptRel = (function detectScriptRel() {
         const relList = typeof document !== "undefined" && document.createElement("link").relList;
         return relList && relList.supports && relList.supports("modulepreload") ? "modulepreload" : "preload";
@@ -13031,6 +13014,867 @@ u$2("div", { className: "cb-body", children: u$2(
           return baseModule().catch(handlePreloadError);
         });
       };
+      const RECENT_ACTION_WINDOW_MS = 5e3;
+      const MODE_LABEL$1 = {
+        heuristic: "启发式",
+        llm: "LLM"
+      };
+      function formatHzmDriveStatus({ enabled, mode, dryRun, lastActionAt: lastActionAt2, now }) {
+        if (!enabled) return "已关闭";
+        if (dryRun) return "试运行（不发送）";
+        if (lastActionAt2 !== null && now - lastActionAt2 <= RECENT_ACTION_WINDOW_MS) {
+          return `运行中 · ${MODE_LABEL$1[mode]}`;
+        }
+        return "观察中";
+      }
+      const RECENT_DANMU_TTL_MS = 3e4;
+      const RECENT_DANMU_MAX = 200;
+      const PAUSE_HOLD_MS = 6e4;
+      const MIN_TICK_DELAY_MS = 2e3;
+      let recentDanmu = [];
+      let unsubscribe = null;
+      let tickTimer = null;
+      let pausedUntil = 0;
+      const sentTimestamps = [];
+      let heuristicTickCount = 0;
+      let activeRoomId = null;
+      let activeSource = null;
+      let memesProvider = null;
+      let lastActionAt = null;
+      function resetRuntime() {
+        recentDanmu = [];
+        pausedUntil = 0;
+        sentTimestamps.length = 0;
+        heuristicTickCount = 0;
+        activeRoomId = null;
+        activeSource = null;
+        memesProvider = null;
+        lastActionAt = null;
+      }
+      function updateHzmStatusText() {
+        hzmDriveStatusText.value = formatHzmDriveStatus({
+          enabled: hzmDriveEnabled.value,
+          mode: hzmDriveMode.value,
+          dryRun: hzmDryRun.value,
+          lastActionAt,
+          now: Date.now()
+        });
+      }
+      j$1(() => {
+        void hzmDriveEnabled.value;
+        void hzmDriveMode.value;
+        void hzmDryRun.value;
+        updateHzmStatusText();
+      });
+      function getRecentDanmuTexts() {
+        const cutoff = Date.now() - RECENT_DANMU_TTL_MS;
+        recentDanmu = recentDanmu.filter((d2) => d2.ts >= cutoff);
+        return recentDanmu.map((d2) => d2.text);
+      }
+      function getEffectivePauseKeywords(source) {
+        const override = hzmPauseKeywordsOverride.value.trim();
+        const lines = override ? override.split("\n").map((s2) => s2.trim()).filter(Boolean) : source.pauseKeywords ?? [];
+        const patterns = [];
+        for (const p2 of lines) {
+          try {
+            patterns.push(new RegExp(p2));
+          } catch {
+          }
+        }
+        return patterns;
+      }
+      function shouldPauseFromKeywords(source) {
+        const recent = getRecentDanmuTexts().join(" ");
+        for (const re of getEffectivePauseKeywords(source)) {
+          if (re.test(recent)) {
+            pausedUntil = Date.now() + PAUSE_HOLD_MS;
+            appendLog(`⏸ 智驾：检测到暂停关键词，60s 内不发`);
+            return true;
+          }
+        }
+        return Date.now() < pausedUntil;
+      }
+      function withinRateLimit() {
+        const cutoff = Date.now() - 6e4;
+        while (sentTimestamps.length > 0 && sentTimestamps[0] < cutoff) {
+          sentTimestamps.shift();
+        }
+        return sentTimestamps.length < hzmRateLimitPerMin.value;
+      }
+      function buildCandidatePool(opts) {
+        const recent = new Set(opts.recentSent ?? getRecentSent(opts.roomId));
+        const blacklist = new Set(opts.blacklistTags ?? getBlacklistTags(opts.roomId));
+        return opts.memes.filter((m2) => {
+          if (!m2.content) return false;
+          if (recent.has(m2.content)) return false;
+          if (m2.tags.some((t2) => blacklist.has(t2.name))) return false;
+          return true;
+        });
+      }
+      function pickByHeuristic(opts) {
+        const pool = buildCandidatePool({
+          roomId: opts.roomId,
+          memes: opts.memes,
+          recentSent: opts.recentSent,
+          blacklistTags: opts.blacklistTags
+        });
+        if (pool.length === 0) return null;
+        let matchedTag = null;
+        for (const [pattern, tag] of Object.entries(opts.source.keywordToTag ?? {})) {
+          try {
+            if (new RegExp(pattern).test(opts.recentDanmuText)) {
+              matchedTag = tag;
+              break;
+            }
+          } catch {
+          }
+        }
+        let filtered = pool;
+        if (matchedTag) {
+          const byTag = pool.filter((m2) => m2.tags.some((t2) => t2.name === matchedTag));
+          if (byTag.length > 0) filtered = byTag;
+        } else {
+          const selected = opts.selectedTags ?? getSelectedTags(opts.roomId);
+          if (selected.length > 0) {
+            const sel = new Set(selected);
+            const bySelected = pool.filter((m2) => m2.tags.some((t2) => sel.has(t2.name)));
+            if (bySelected.length > 0) filtered = bySelected;
+          }
+        }
+        const rand = opts.randomFn ?? Math.random;
+        return filtered[Math.floor(rand() * filtered.length)] ?? null;
+      }
+      async function pickByLLM(roomId, source) {
+        const apiKey = hzmLlmApiKey.value.trim();
+        if (!apiKey) return null;
+        const all = memesProvider?.() ?? [];
+        const pool = buildCandidatePool({ roomId, memes: all }).slice(0, 30);
+        if (pool.length === 0) return null;
+        bumpDailyLlmCalls(roomId);
+        try {
+          const { chooseMemeWithLLM } = await __vitePreload(async () => {
+            const { chooseMemeWithLLM: chooseMemeWithLLM2 } = await module.import('./llm-driver-Bd484M2o-ACz5XDj-.js');
+            return { chooseMemeWithLLM: chooseMemeWithLLM2 };
+          }, true ? void 0 : void 0);
+          const chosenContent = await chooseMemeWithLLM({
+            provider: hzmLlmProvider.value,
+            apiKey,
+            model: hzmLlmModel.value,
+            baseURL: hzmLlmBaseURL.value.trim() || void 0,
+            roomName: source.name,
+            recentChat: getRecentDanmuTexts().slice(-30),
+            candidates: pool.map((m2) => ({ id: String(m2.id), content: m2.content, tags: m2.tags.map((t2) => t2.name) }))
+          });
+          if (!chosenContent) return null;
+          return pool.find((m2) => m2.content === chosenContent) ?? null;
+        } catch (err) {
+          appendLog(`⚠️ 智驾 LLM 调用失败，回退启发式：${err instanceof Error ? err.message : String(err)}`);
+          return null;
+        }
+      }
+      async function sendOne(roomId, meme) {
+        if (hzmDryRun.value) {
+          appendLog(`🚗[试运行] 智驾候选：${meme.content}`);
+          pushRecentSent(roomId, meme.content);
+          lastActionAt = Date.now();
+          updateHzmStatusText();
+          return;
+        }
+        const csrfToken = getCsrfToken();
+        if (!csrfToken) {
+          appendLog("❌ 智驾：未找到登录信息，已暂停发送");
+          pausedUntil = Date.now() + PAUSE_HOLD_MS;
+          return;
+        }
+        try {
+          const result = await enqueueDanmaku(meme.content, roomId, csrfToken, SendPriority.AUTO);
+          if (result.success && !result.cancelled) {
+            sentTimestamps.push(Date.now());
+            pushRecentSent(roomId, meme.content);
+            bumpDailySent(roomId);
+            lastActionAt = Date.now();
+            updateHzmStatusText();
+            appendLog(`🚗 智驾：${meme.content}`);
+          } else if (result.cancelled) {
+            appendLog(`⏭ 智驾被打断：${meme.content}`);
+          } else {
+            appendLog(`❌ 智驾发送失败：${meme.content}，原因：${result.error ?? "未知"}`);
+          }
+        } catch (err) {
+          appendLog(`❌ 智驾发送异常：${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      async function tick() {
+        if (!hzmDriveEnabled.value || activeRoomId === null || activeSource === null) {
+          tickTimer = null;
+          return;
+        }
+        try {
+          const now = Date.now();
+          if (shouldPauseFromKeywords(activeSource)) {
+            scheduleNext(hzmDriveIntervalSec.value * 2);
+            return;
+          }
+          if (now < pausedUntil) {
+            scheduleNext(hzmDriveIntervalSec.value);
+            return;
+          }
+          if (!withinRateLimit()) {
+            scheduleNext(hzmDriveIntervalSec.value);
+            return;
+          }
+          heuristicTickCount++;
+          let meme = null;
+          const llmRatio = Math.max(1, hzmLlmRatio.value);
+          const useLLM = hzmDriveMode.value === "llm" && hzmLlmApiKey.value.trim() !== "" && heuristicTickCount % llmRatio === 0;
+          if (useLLM) {
+            meme = await pickByLLM(activeRoomId, activeSource);
+          }
+          if (!meme) {
+            meme = pickByHeuristic({
+              roomId: activeRoomId,
+              source: activeSource,
+              memes: memesProvider?.() ?? [],
+              recentDanmuText: getRecentDanmuTexts().join(" ")
+            });
+          }
+          if (meme) {
+            await sendOne(activeRoomId, meme);
+          }
+        } catch (err) {
+          appendLog(`⚠️ 智驾 tick 异常：${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+          scheduleNext(hzmDriveIntervalSec.value);
+        }
+      }
+      function scheduleNext(baseSec) {
+        if (!hzmDriveEnabled.value) {
+          tickTimer = null;
+          return;
+        }
+        const jitter = baseSec * (0.7 + Math.random() * 0.8);
+        const delay = Math.max(MIN_TICK_DELAY_MS, Math.round(jitter * 1e3));
+        tickTimer = setTimeout(() => {
+          void tick();
+        }, delay);
+      }
+      async function startHzmAutoDrive(opts) {
+        stopHzmAutoDrive();
+        let roomId;
+        try {
+          roomId = await ensureRoomId();
+        } catch (err) {
+          notifyUser("error", "智驾启动失败：无法获取房间号", err instanceof Error ? err.message : String(err));
+          return;
+        }
+        if (roomId !== opts.source.roomId) {
+          notifyUser("warning", `当前房间 (${roomId}) 与梗源配置 (${opts.source.roomId}) 不匹配，智驾未启动`);
+          return;
+        }
+        activeRoomId = roomId;
+        activeSource = opts.source;
+        memesProvider = opts.getMemes;
+        unsubscribe = subscribeDanmaku({
+          onMessage: (ev) => {
+            if (!ev.text) return;
+            recentDanmu.push({ ts: Date.now(), text: ev.text });
+            if (recentDanmu.length > RECENT_DANMU_MAX) {
+              recentDanmu.splice(0, recentDanmu.length - RECENT_DANMU_MAX);
+            }
+          }
+        });
+        appendLog(
+          `🤖 智能辅助驾驶已启动（mode=${hzmDriveMode.value}，试运行=${hzmDryRun.value ? "开" : "关"}）— 独轮车工具无罪，请合理使用`
+        );
+        updateHzmStatusText();
+        void tick();
+      }
+      function stopHzmAutoDrive() {
+        if (tickTimer) {
+          clearTimeout(tickTimer);
+          tickTimer = null;
+        }
+        if (unsubscribe) {
+          unsubscribe();
+          unsubscribe = null;
+        }
+        resetRuntime();
+        updateHzmStatusText();
+      }
+      const DEFAULT_MEME_SOURCES = {
+
+
+
+
+
+
+"1713546334": {
+          roomId: 1713546334,
+          name: "灰泽满烂梗库",
+          listEndpoint: "https://sbhzm.cn/api/public/memes",
+          randomEndpoint: "https://sbhzm.cn/api/public/memes/random",
+          defaultTags: ["满弟", "喷绿冻", "老弥"],
+          keywordToTag: {
+            "冲耳朵|耳朵痛|实习医生|医生|住院|医院": "满弟",
+            "绿冻|绿茬|喷.*绿|路人.*骂": "喷绿冻",
+            "困|睡|累|休息|床|被子|起床": "老弥",
+            "可爱|心动|心疼|爱.*(?:灰|满)|宝贝|乖": "爱灰泽满",
+            "傻逼|讨厌|喷.*(?:灰|满)|骂.*(?:灰|满)|烦死|滚": "喷灰泽满",
+            "茶|奶茶|龙井|绿茶": "茶",
+            "富|有钱|sc|大哥|舰长|豪|订阅": "富",
+            "原话|刚.*说|刚才.*说|你.*说.*过": "原话",
+            "黄桃|罐头": "黄桃",
+            "丈育|文盲|不识字": "丈育",
+            "hololive|holo|宝钟|姫|崎波": "hololive",
+            "nijisanji|彩虹社|niji|社团": "nijisanji",
+            "东野圭吾|侦探|推理|嫌疑人": "东野圭吾",
+            "同事|公司|周报|加班|上班": "同事",
+            "满爸|爸爸|父亲": "满爸",
+            "群魔乱舞|聚众|互喷|对骂": "群魔乱舞"
+          },
+          pauseKeywords: ["歇歇", "够了", "别刷了", "刷够了", "烦", "不要刷", "停一下"],
+          submitPage: "https://sbhzm.cn/submit"
+        }
+      };
+      function getMemeSourceForRoom(roomId) {
+        if (roomId == null) return null;
+        return DEFAULT_MEME_SOURCES[String(roomId)] ?? null;
+      }
+      const PROVIDER_LABEL = {
+        anthropic: "Anthropic",
+        openai: "OpenAI",
+        "openai-compat": "OpenAI 兼容"
+      };
+      const MODE_LABEL = {
+        heuristic: "启发式",
+        llm: "LLM 智驾"
+      };
+      const MODE_HINT = {
+        heuristic: "关键词触发，按 tag 命中本地梗库",
+        llm: "由 LLM 阅读弹幕选梗，需要 API key"
+      };
+      function maskKey(k2) {
+        const trimmed = k2.trim();
+        if (trimmed.length <= 8) return trimmed ? `${trimmed[0]}***${trimmed.at(-1)}` : "";
+        return `${trimmed.slice(0, 4)}…${trimmed.slice(-4)}`;
+      }
+      function modeButtonStyle(active) {
+        return {
+          fontWeight: active ? "bold" : void 0
+        };
+      }
+      function resolveCurrentRoomIdSync() {
+        const fromCache = cachedRoomId.value;
+        if (fromCache !== null) return fromCache;
+        try {
+          const slug = extractRoomNumber(window.location.href);
+          if (!slug) return null;
+          const n2 = Number(slug);
+          return Number.isFinite(n2) && n2 > 0 ? n2 : null;
+        } catch {
+          return null;
+        }
+      }
+      function HzmDrivePanelMount() {
+        const source = getMemeSourceForRoom(resolveCurrentRoomIdSync());
+        if (!source) return null;
+        return u$2(HzmDrivePanel, { source });
+      }
+      function HzmDrivePanel({ source }) {
+        const roomId = cachedRoomId.value;
+        const stats = getDailyStats(roomId);
+        const selected = getSelectedTags(roomId);
+        const blacklist = getBlacklistTags(roomId);
+        const isOn = hzmDriveEnabled.value;
+        const mode = hzmDriveMode.value;
+        const memes = currentMemesList.value;
+        const tagOptions = (() => {
+          const set = new Set();
+          for (const m2 of memes) {
+            for (const t2 of m2.tags) {
+              if (t2.name) set.add(t2.name);
+            }
+          }
+          return [...set].sort();
+        })();
+        const testStatus = useSignal("idle");
+        const testError = useSignal("");
+        const advancedOpen = useSignal(false);
+        const llmConfigOpen = useSignal(false);
+        const statusText = hzmDriveStatusText.value;
+        const statusColor = !isOn ? "#777" : statusText.includes("试运行") ? "#a15c00" : statusText.includes("运行中") ? "#1677ff" : "#0a7f55";
+        const toggleEnabled = () => {
+          if (isOn) {
+            hzmDriveEnabled.value = false;
+            stopHzmAutoDrive();
+            return;
+          }
+          if (!hzmDryRun.value && !hasConfirmedHzmRealFire.value) {
+            const ok = confirm(
+              "智能辅助驾驶将会以你的账号真实发送弹幕（试运行已关闭）。\n\n建议先打开「试运行」观察一段时间。是否继续直接开车？"
+            );
+            if (!ok) return;
+            hasConfirmedHzmRealFire.value = true;
+          }
+          hzmDriveEnabled.value = true;
+          void startHzmAutoDrive({ source, getMemes: () => currentMemesList.value });
+        };
+        const handleTestLLM = async () => {
+          if (testStatus.value === "testing") return;
+          testStatus.value = "testing";
+          testError.value = "";
+          try {
+            const { testLLMConnection } = await __vitePreload(async () => {
+              const { testLLMConnection: testLLMConnection2 } = await module.import('./llm-driver-Bd484M2o-ACz5XDj-.js');
+              return { testLLMConnection: testLLMConnection2 };
+            }, true ? void 0 : void 0);
+            const r2 = await testLLMConnection({
+              provider: hzmLlmProvider.value,
+              apiKey: hzmLlmApiKey.value,
+              model: hzmLlmModel.value,
+              baseURL: hzmLlmBaseURL.value.trim() || void 0
+            });
+            if (r2.ok) {
+              testStatus.value = "ok";
+            } else {
+              testStatus.value = "fail";
+              testError.value = r2.error ?? "未知错误";
+            }
+          } catch (err) {
+            testStatus.value = "fail";
+            testError.value = err instanceof Error ? err.message : String(err);
+          }
+        };
+        const toggleSelectedTag = (tag) => {
+          if (roomId === null) return;
+          setSelectedTags(roomId, selected.includes(tag) ? selected.filter((t2) => t2 !== tag) : [...selected, tag]);
+        };
+        const toggleBlacklistTag = (tag) => {
+          if (roomId === null) return;
+          setBlacklistTags(roomId, blacklist.includes(tag) ? blacklist.filter((t2) => t2 !== tag) : [...blacklist, tag]);
+        };
+        const apiKeyConfigured = hzmLlmApiKey.value.trim().length > 0;
+        const pauseDefault = (source.pauseKeywords ?? []).join(" / ");
+        return u$2(
+          "details",
+          {
+            open: hzmPanelOpen.value,
+            onToggle: (e2) => {
+              hzmPanelOpen.value = e2.currentTarget.open;
+            },
+            children: [
+u$2("summary", { style: { cursor: "pointer", userSelect: "none", fontWeight: "bold" }, children: [
+u$2("span", { children: [
+                  "智能辅助驾驶（",
+                  source.name,
+                  "）"
+                ] }),
+                isOn && u$2("span", { className: "cb-soft", children: "已开" })
+              ] }),
+u$2("div", { className: "cb-body cb-stack", children: [
+u$2("div", { className: "cb-note", style: { marginBottom: ".25em" }, children: "条件满足时，会以你的账号自动从烂梗库挑选并发送弹幕。第一次开启建议先打开下方的「试运行」观察效果。" }),
+u$2("div", { style: { display: "grid", gridTemplateColumns: "1fr auto", gap: ".5em", alignItems: "center" }, children: [
+u$2("button", { type: "button", className: isOn ? "cb-danger" : "cb-primary", onClick: toggleEnabled, children: isOn ? "停车" : "开车" }),
+u$2(
+                    "span",
+                    {
+                      style: {
+                        color: statusColor,
+                        fontWeight: "bold",
+                        whiteSpace: "nowrap"
+                      },
+                      children: [
+u$2("span", { className: "cb-status-dot" }),
+                        " ",
+                        statusText
+                      ]
+                    }
+                  )
+                ] }),
+u$2("div", { children: [
+u$2("div", { className: "cb-segment", children: ["heuristic", "llm"].map((m2) => u$2(
+                    "button",
+                    {
+                      type: "button",
+                      "aria-pressed": mode === m2,
+                      onClick: () => {
+                        hzmDriveMode.value = m2;
+                        testStatus.value = "idle";
+                      },
+                      style: modeButtonStyle(mode === m2),
+                      title: MODE_HINT[m2],
+                      children: MODE_LABEL[m2]
+                    },
+                    m2
+                  )) }),
+u$2("div", { className: "cb-note", style: { marginTop: ".25em" }, children: [
+                    "当前：",
+                    MODE_HINT[mode]
+                  ] })
+                ] }),
+u$2("span", { style: { display: "inline-flex", alignItems: "center", gap: ".25em" }, children: [
+u$2(
+                    "input",
+                    {
+                      id: "hzmDryRun",
+                      type: "checkbox",
+                      checked: hzmDryRun.value,
+                      onInput: (e2) => {
+                        hzmDryRun.value = e2.currentTarget.checked;
+                      }
+                    }
+                  ),
+u$2("label", { for: "hzmDryRun", title: "开启后只在日志显示候选，不真发到弹幕——新手强烈建议先开", children: "试运行（只观察，不发送）" }),
+                  !hzmDryRun.value && u$2("span", { style: { color: "#a15c00", fontSize: "0.85em" }, title: "当前关闭试运行，会真实发送弹幕。", children: "关闭后会真实发送" })
+                ] }),
+u$2(
+                  "div",
+                  {
+                    className: "cb-panel",
+                    style: {
+                      color: isOn ? void 0 : "#999",
+                      lineHeight: 1.6
+                    },
+                    children: u$2("div", { style: { display: "grid", gridTemplateColumns: "4.5em 1fr", gap: ".25em" }, children: [
+u$2("strong", { children: "今日" }),
+u$2("span", { children: [
+                        "已发 ",
+u$2("b", { children: stats.sent }),
+                        " 条 · LLM 调用 ",
+u$2("b", { children: stats.llmCalls }),
+                        " 次"
+                      ] })
+                    ] })
+                  }
+                ),
+                sendMsg.value && u$2("div", { style: { color: "#a15c00", fontSize: "12px", lineHeight: 1.5 }, children: "文字独轮车正在运行，与智驾叠加可能超出每分钟限速，建议先停一个。" })
+              ] }),
+u$2(
+                "details",
+                {
+                  open: advancedOpen.value,
+                  onToggle: (e2) => {
+                    advancedOpen.value = e2.currentTarget.open;
+                  },
+                  style: { marginTop: ".5em" },
+                  children: [
+u$2("summary", { style: { cursor: "pointer", userSelect: "none" }, children: "高级设置" }),
+u$2(
+                      "div",
+                      {
+                        style: {
+                          margin: ".5em 0",
+                          display: "grid",
+                          gap: ".5em",
+                          color: isOn ? void 0 : "#999"
+                        },
+                        children: [
+u$2("div", { style: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: ".25em" }, children: [
+u$2("span", { children: "发送间隔" }),
+u$2(
+                              "input",
+                              {
+                                type: "number",
+                                min: "3",
+                                max: "120",
+                                style: { width: "40px" },
+                                value: hzmDriveIntervalSec.value,
+                                onInput: (e2) => {
+                                  const v2 = parseInt(e2.currentTarget.value, 10);
+                                  if (Number.isFinite(v2) && v2 > 0) hzmDriveIntervalSec.value = v2;
+                                },
+                                title: "基础间隔（秒），实际会再加 0.7~1.5× 的随机抖动。建议 5–15。"
+                              }
+                            ),
+u$2("span", { children: "秒，每分钟最多" }),
+u$2(
+                              "input",
+                              {
+                                type: "number",
+                                min: "1",
+                                max: "20",
+                                style: { width: "40px" },
+                                value: hzmRateLimitPerMin.value,
+                                onInput: (e2) => {
+                                  const v2 = parseInt(e2.currentTarget.value, 10);
+                                  if (Number.isFinite(v2) && v2 > 0) hzmRateLimitPerMin.value = v2;
+                                },
+                                title: "硬限速。同时开文字独轮车会叠加发送量，建议保持 ≤6 单独使用。"
+                              }
+                            ),
+u$2("span", { children: "条" }),
+                            mode === "llm" && u$2(S$1, { children: [
+u$2("span", { style: { marginLeft: ".5em" }, children: "，LLM 每" }),
+u$2(
+                                "input",
+                                {
+                                  type: "number",
+                                  min: "1",
+                                  max: "10",
+                                  style: { width: "36px" },
+                                  value: hzmLlmRatio.value,
+                                  onInput: (e2) => {
+                                    const v2 = parseInt(e2.currentTarget.value, 10);
+                                    if (Number.isFinite(v2) && v2 >= 1) hzmLlmRatio.value = v2;
+                                  },
+                                  title: "1=每次都用 LLM；3=每 3 次用 1 次（其它走启发式，省 API 费）"
+                                }
+                              ),
+u$2("span", { children: "次" })
+                            ] })
+                          ] }),
+                          tagOptions.length > 0 ? u$2(S$1, { children: [
+u$2("div", { className: "cb-row", children: [
+u$2("span", { style: { fontWeight: "bold", minWidth: "4em" }, title: "只从勾选 tag 的梗里选；空 = 全部", children: "偏好 tag" }),
+                              tagOptions.map((t2) => u$2(
+                                "button",
+                                {
+                                  type: "button",
+                                  className: "cb-tag",
+                                  onClick: () => toggleSelectedTag(t2),
+                                  title: selected.includes(t2) ? "已加入偏好，点击取消" : "点击加入偏好",
+                                  style: { "--cb-tag-bg": selected.includes(t2) ? "#34c759" : void 0 },
+                                  children: t2
+                                },
+                                t2
+                              ))
+                            ] }),
+u$2("div", { className: "cb-row", children: [
+u$2("span", { style: { fontWeight: "bold", minWidth: "4em" }, title: "命中即跳过的 tag", children: "黑名单" }),
+                              tagOptions.map((t2) => u$2(
+                                "button",
+                                {
+                                  type: "button",
+                                  className: "cb-tag",
+                                  onClick: () => toggleBlacklistTag(t2),
+                                  title: blacklist.includes(t2) ? "已拉黑，点击取消" : "点击拉黑这个 tag",
+                                  style: { "--cb-tag-bg": blacklist.includes(t2) ? "#ff3b30" : void 0 },
+                                  children: t2
+                                },
+                                t2
+                              ))
+                            ] })
+                          ] }) : u$2("div", { className: "cb-empty", children: "梗库还没加载到 tag。等列表载入后再来选偏好与黑名单。" }),
+u$2("div", { className: "cb-row", children: [
+u$2("span", { style: { fontWeight: "bold", minWidth: "4em" }, children: "暂停词" }),
+u$2("span", { style: { fontSize: "10px", color: "#888" }, children: [
+                              "每行一条正则；命中后 60s 不发。空 = 用默认（",
+                              pauseDefault || "无",
+                              "）"
+                            ] })
+                          ] }),
+u$2(
+                            "textarea",
+                            {
+                              rows: 2,
+                              value: hzmPauseKeywordsOverride.value,
+                              onInput: (e2) => {
+                                hzmPauseKeywordsOverride.value = e2.currentTarget.value;
+                              },
+                              style: { boxSizing: "border-box", width: "100%", fontSize: "11px", resize: "vertical" },
+                              placeholder: (source.pauseKeywords ?? []).join("\n")
+                            }
+                          )
+                        ]
+                      }
+                    )
+                  ]
+                }
+              ),
+              mode === "llm" && u$2(
+                "details",
+                {
+                  open: llmConfigOpen.value,
+                  onToggle: (e2) => {
+                    llmConfigOpen.value = e2.currentTarget.open;
+                  },
+                  style: { marginTop: ".5em" },
+                  children: [
+u$2("summary", { style: { cursor: "pointer", userSelect: "none" }, children: [
+                      "LLM 配置",
+u$2("span", { className: "cb-soft", style: { marginLeft: ".4em" }, children: apiKeyConfigured ? "已配置" : "未配置" })
+                    ] }),
+u$2("div", { className: "cb-stack", style: { margin: ".5em 0" }, children: [
+u$2("div", { className: "cb-row", children: [
+u$2("span", { style: { minWidth: "4em" }, children: "Provider" }),
+u$2("div", { className: "cb-segment", style: { flex: 1, minWidth: 0 }, children: ["anthropic", "openai", "openai-compat"].map((p2) => u$2(
+                          "button",
+                          {
+                            type: "button",
+                            "aria-pressed": hzmLlmProvider.value === p2,
+                            style: modeButtonStyle(hzmLlmProvider.value === p2),
+                            onClick: () => {
+                              hzmLlmProvider.value = p2;
+                              testStatus.value = "idle";
+                            },
+                            children: PROVIDER_LABEL[p2]
+                          },
+                          p2
+                        )) })
+                      ] }),
+u$2("div", { className: "cb-row", children: [
+u$2("span", { style: { minWidth: "4em" }, children: "API Key" }),
+u$2(
+                          "input",
+                          {
+                            type: "password",
+                            value: hzmLlmApiKey.value,
+                            onInput: (e2) => {
+                              hzmLlmApiKey.value = e2.currentTarget.value;
+                              testStatus.value = "idle";
+                            },
+                            placeholder: "sk-... 或 anthropic key",
+                            style: { flex: 1, minWidth: 0, boxSizing: "border-box" }
+                          }
+                        ),
+u$2("span", { className: "cb-soft", style: { whiteSpace: "nowrap" }, children: apiKeyConfigured ? maskKey(hzmLlmApiKey.value) : "未配置" }),
+u$2(
+                          "button",
+                          {
+                            type: "button",
+                            disabled: !apiKeyConfigured,
+                            onClick: () => {
+                              clearHzmLlmApiKey();
+                              testStatus.value = "idle";
+                            },
+                            title: "把 key 从内存和 GM 存储里都抹掉",
+                            children: "清除"
+                          }
+                        )
+                      ] }),
+u$2("div", { className: "cb-row", children: [
+u$2("span", { style: { minWidth: "4em" } }),
+u$2("span", { style: { display: "inline-flex", alignItems: "center", gap: ".25em", flex: 1 }, children: [
+u$2(
+                            "input",
+                            {
+                              id: "hzmLlmApiKeyPersist",
+                              type: "checkbox",
+                              checked: hzmLlmApiKeyPersist.value,
+                              onInput: (e2) => {
+                                hzmLlmApiKeyPersist.value = e2.currentTarget.checked;
+                              }
+                            }
+                          ),
+u$2(
+                            "label",
+                            {
+                              for: "hzmLlmApiKeyPersist",
+                              title: "不勾：key 仅留在内存，刷新页面就清空，GM 存储里的旧值也立即抹掉",
+                              children: "保存到 GM 存储（关闭后仅本次会话有效）"
+                            }
+                          )
+                        ] })
+                      ] }),
+u$2("div", { className: "cb-row", children: [
+u$2("span", { style: { minWidth: "4em" }, children: "模型" }),
+u$2(
+                          "input",
+                          {
+                            type: "text",
+                            value: hzmLlmModel.value,
+                            onInput: (e2) => {
+                              hzmLlmModel.value = e2.currentTarget.value;
+                              testStatus.value = "idle";
+                            },
+                            placeholder: "例：claude-haiku-4-5-20251001",
+                            title: "Anthropic 推荐 claude-haiku-4-5-20251001；OpenAI 推荐 gpt-4o-mini；DeepSeek 用 deepseek-chat",
+                            style: { flex: 1, minWidth: 0, boxSizing: "border-box" }
+                          }
+                        )
+                      ] }),
+                      hzmLlmProvider.value === "openai-compat" && u$2("div", { className: "cb-row", children: [
+u$2("span", { style: { minWidth: "4em" }, children: "Base URL" }),
+u$2(
+                          "input",
+                          {
+                            type: "text",
+                            value: hzmLlmBaseURL.value,
+                            onInput: (e2) => {
+                              hzmLlmBaseURL.value = e2.currentTarget.value;
+                              testStatus.value = "idle";
+                            },
+                            placeholder: "https://api.deepseek.com（带不带 /v1 都行，自动补全到 /v1/chat/completions）",
+                            title: "DeepSeek=https://api.deepseek.com / Moonshot=https://api.moonshot.cn / OpenRouter=https://openrouter.ai/api / 小米 mimo=https://token-plan-sgp.xiaomimimo.com/v1",
+                            style: { flex: 1, minWidth: 0, boxSizing: "border-box" }
+                          }
+                        )
+                      ] }),
+u$2("div", { className: "cb-row", children: [
+u$2(
+                          "button",
+                          {
+                            type: "button",
+                            disabled: !apiKeyConfigured || testStatus.value === "testing",
+                            onClick: () => void handleTestLLM(),
+                            title: "发一个最小请求验证 key/路由能跑通；不消耗你的实际智驾配额",
+                            children: testStatus.value === "testing" ? "测试中…" : "测试连接"
+                          }
+                        ),
+                        testStatus.value === "ok" && u$2("span", { className: "cb-soft", style: { color: "#0a7f55" }, children: "连接成功" }),
+                        testStatus.value === "fail" && u$2("span", { style: { color: "#c00", fontSize: "11px", wordBreak: "break-all" }, children: [
+                          "连接失败：",
+                          testError.value
+                        ] })
+                      ] }),
+u$2("div", { className: "cb-note", style: { color: "#a15c00" }, children: [
+                        hzmLlmApiKeyPersist.value ? "Key 明文保存在浏览器 GM 存储；共用电脑或备份导出会暴露。担心可关掉「保存到 GM 存储」改为仅本会话。" : "Key 仅留在内存，刷新页面后清空。",
+                        "openai-compat 自定义域首次调用时 Tampermonkey 会弹权限确认，需手动允许。"
+                      ] })
+                    ] })
+                  ]
+                }
+              )
+            ]
+          }
+        );
+      }
+      function LogPanel() {
+        const detailsRef = A(null);
+        const ref = A(null);
+        const scrollToBottom2 = () => {
+          if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
+        };
+        y$2(() => {
+          scrollToBottom2();
+        }, [logLines.value]);
+        y$2(() => {
+          if (logPanelFocusRequest.value <= 0) return;
+          detailsRef.current?.scrollIntoView({ block: "nearest" });
+          scrollToBottom2();
+          ref.current?.focus();
+        }, [logPanelFocusRequest.value]);
+        return u$2(
+          "details",
+          {
+            ref: detailsRef,
+            open: logPanelOpen.value,
+            onToggle: (e2) => {
+              logPanelOpen.value = e2.currentTarget.open;
+            },
+            style: { marginTop: ".25em" },
+            children: [
+u$2("summary", { style: { cursor: "pointer", userSelect: "none", fontWeight: "bold" }, children: "日志" }),
+u$2("div", { className: "cb-body", children: u$2(
+                "textarea",
+                {
+                  ref,
+                  readOnly: true,
+                  value: logLines.value.join("\n"),
+                  placeholder: `此处将输出日志（最多保留 ${maxLogLines.value} 条）`,
+                  style: {
+                    boxSizing: "border-box",
+                    height: "60px",
+                    width: "100%",
+                    resize: "vertical",
+                    marginTop: ".5em"
+                  }
+                }
+              ) })
+            ]
+          }
+        );
+      }
       async function resolveGmXhr() {
         const m2 = await __vitePreload(() => Promise.resolve().then(() => client), void 0 );
         return typeof m2.GM_xmlhttpRequest === "function" ? m2.GM_xmlhttpRequest : null;
@@ -13084,6 +13928,194 @@ u$2("div", { className: "cb-body", children: u$2(
             }
           });
         });
+      }
+      function getCbBackendBaseUrl() {
+        const override = cbBackendUrlOverride.value.trim();
+        const url = override || BASE_URL.CB_BACKEND;
+        return url.replace(/\/+$/, "");
+      }
+      async function fetchCbMergedMemes(opts = {}) {
+        const empty = {
+          items: [],
+          sources: { laplace: false, sbhzm: false, cb: false },
+          fatal: true
+        };
+        const base = getCbBackendBaseUrl();
+        if (!base) return empty;
+        const params = new URLSearchParams();
+        if (opts.roomId != null) params.set("roomId", String(opts.roomId));
+        if (opts.sortBy) params.set("sortBy", opts.sortBy);
+        if (opts.perPage) params.set("perPage", String(opts.perPage));
+        if (opts.source) params.set("source", opts.source);
+        const qs = params.toString();
+        let resp;
+        try {
+          resp = await gmFetch(`${base}/memes${qs ? `?${qs}` : ""}`, {
+            method: "GET",
+            headers: { Accept: "application/json" },
+            timeoutMs: 1e4
+          });
+        } catch (err) {
+          appendLog(`⚠️ chatterbox-cloud 网络错误:${err instanceof Error ? err.message : String(err)}`);
+          return empty;
+        }
+        if (!resp.ok) {
+          appendLog(`⚠️ chatterbox-cloud HTTP ${resp.status}`);
+          return empty;
+        }
+        let body;
+        try {
+          body = resp.json();
+        } catch (err) {
+          appendLog(`⚠️ chatterbox-cloud JSON 解析失败:${err instanceof Error ? err.message : String(err)}`);
+          return empty;
+        }
+        if (!Array.isArray(body.items)) return empty;
+        const items = body.items.filter((m2) => !!m2 && typeof m2.content === "string" && m2.content.trim().length > 0).map((m2) => {
+          const tag = m2._source === "laplace" || m2._source === "sbhzm" || m2._source === "cb" ? m2._source : "cb";
+          return { ...m2, _source: tag };
+        });
+        return {
+          items,
+          sources: {
+            laplace: !!body.sources?.laplace,
+            sbhzm: !!body.sources?.sbhzm,
+            cb: !!body.sources?.cb
+          },
+          fatal: false
+        };
+      }
+      async function submitCbMeme(content, opts = {}) {
+        const trimmed = content.trim();
+        if (!trimmed) throw new Error("提交内容为空");
+        const base = getCbBackendBaseUrl();
+        if (!base) throw new Error("chatterbox-cloud 后端 URL 未配置");
+        const body = { content: trimmed };
+        if (opts.tagNames?.length) body.tagNames = opts.tagNames;
+        if (typeof opts.roomId === "number") body.roomId = opts.roomId;
+        if (typeof opts.uid === "number") body.uid = opts.uid;
+        if (opts.username) body.username = opts.username;
+        const resp = await gmFetch(`${base}/memes`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify(body),
+          timeoutMs: 15e3
+        });
+        if (!resp.ok) {
+          throw new Error(`HTTP ${resp.status}: ${resp.text().slice(0, 200)}`);
+        }
+        const json = resp.json();
+        const id = typeof json.id === "number" ? json.id : Number(json.id);
+        if (!Number.isFinite(id) || id <= 0) throw new Error("提交成功但响应里没有 id");
+        const status = typeof json.status === "string" && ["pending", "approved", "rejected"].includes(json.status) ? json.status : "pending";
+        return { id, status, dedup: !!json.dedup };
+      }
+      const SESSION_PUSHED_HASHES = new Set();
+      const MIRROR_BATCH_SIZE = 200;
+      async function mirrorToCbBackend(items, source) {
+        if (!cbBackendEnabled.value) return;
+        const base = getCbBackendBaseUrl();
+        if (!base) return;
+        const fresh = [];
+        for (const m2 of items) {
+          if (!m2?.content) continue;
+          const key = memeContentKey(m2.content);
+          if (!key || SESSION_PUSHED_HASHES.has(key)) continue;
+          fresh.push(m2);
+          SESSION_PUSHED_HASHES.add(key);
+        }
+        if (fresh.length === 0) return;
+        const payload = fresh.map(({ _source, ...rest }) => rest);
+        try {
+          for (let i2 = 0; i2 < payload.length; i2 += MIRROR_BATCH_SIZE) {
+            const batch = payload.slice(i2, i2 + MIRROR_BATCH_SIZE);
+            const resp = await gmFetch(`${base}/memes/bulk-mirror`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Accept: "application/json" },
+              body: JSON.stringify({ source, items: batch }),
+              timeoutMs: 15e3
+            });
+            if (resp.status === 429) {
+              appendLog("⚠️ chatterbox-cloud mirror 被限流,本会话稍后再推");
+              break;
+            }
+          }
+        } catch {
+        }
+      }
+      async function reportCbMemeCopy(memeId) {
+        const base = getCbBackendBaseUrl();
+        if (!base || memeId <= 0) return null;
+        try {
+          const resp = await gmFetch(`${base}/memes/${memeId}/copy`, {
+            method: "POST",
+            headers: { Accept: "application/json" },
+            timeoutMs: 5e3
+          });
+          if (!resp.ok) return null;
+          const json = resp.json();
+          return typeof json.copyCount === "number" ? json.copyCount : null;
+        } catch {
+          return null;
+        }
+      }
+      const TAGS_CACHE_TTL_MS$1 = 60 * 60 * 1e3;
+      let tagsCache$1 = null;
+      async function fetchCbTags() {
+        if (tagsCache$1 && Date.now() - tagsCache$1.ts < TAGS_CACHE_TTL_MS$1) return tagsCache$1.data;
+        const base = getCbBackendBaseUrl();
+        if (!base) throw new Error("chatterbox-cloud 后端 URL 未配置");
+        const resp = await gmFetch(`${base}/tags`, {
+          method: "GET",
+          headers: { Accept: "application/json" },
+          timeoutMs: 1e4
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const json = resp.json();
+        const tags = Array.isArray(json.items) ? json.items.filter((t2) => typeof t2?.name === "string" && t2.name.length > 0) : [];
+        tagsCache$1 = { ts: Date.now(), data: tags };
+        return tags;
+      }
+      async function suggestCbTagNames(content, source) {
+        const matched = new Set();
+        if (source?.keywordToTag) {
+          for (const [pattern, tagName] of Object.entries(source.keywordToTag)) {
+            try {
+              if (new RegExp(pattern).test(content)) matched.add(tagName);
+            } catch {
+            }
+          }
+        }
+        let tags;
+        try {
+          tags = await fetchCbTags();
+        } catch {
+          return [];
+        }
+        const allByName = new Map(tags.map((t2) => [t2.name, t2]));
+        const fromKeywords = [...matched].filter((name) => allByName.has(name));
+        if (fromKeywords.length > 0) return fromKeywords;
+        const fromSubstring = [];
+        for (const t2 of tags) {
+          if (fromSubstring.length >= 3) break;
+          if (t2.name.length >= 2 && content.includes(t2.name)) fromSubstring.push(t2.name);
+        }
+        return fromSubstring;
+      }
+      async function checkCbBackendHealth() {
+        const base = getCbBackendBaseUrl();
+        if (!base) return null;
+        try {
+          const resp = await gmFetch(`${base}/health`, {
+            method: "GET",
+            headers: { Accept: "application/json" },
+            timeoutMs: 5e3
+          });
+          if (!resp.ok) return null;
+          return resp.json();
+        } catch {
+          return null;
+        }
       }
       const TAG_COLOR_NAMES = ["red", "yellow", "fuchsia", "emerald", "blue", "orange", "purple", "pink", "cyan", "green"];
       function hashTagColor(name) {
@@ -13294,670 +14326,165 @@ u$2("div", { className: "cb-body", children: u$2(
         const echo = typeof json.content === "string" ? json.content : trimmed;
         return { id, content: echo };
       }
-      const RECENT_DANMU_TTL_MS = 3e4;
-      const RECENT_DANMU_MAX = 200;
-      const PAUSE_HOLD_MS = 6e4;
-      const MIN_TICK_DELAY_MS = 2e3;
-      let recentDanmu = [];
-      let unsubscribe = null;
-      let tickTimer = null;
-      let pausedUntil = 0;
-      const sentTimestamps = [];
-      let heuristicTickCount = 0;
-      let activeRoomId = null;
-      let activeSource = null;
-      let memesProvider = null;
-      function resetRuntime() {
-        recentDanmu = [];
-        pausedUntil = 0;
-        sentTimestamps.length = 0;
-        heuristicTickCount = 0;
-        activeRoomId = null;
-        activeSource = null;
-        memesProvider = null;
-      }
-      function getRecentDanmuTexts() {
-        const cutoff = Date.now() - RECENT_DANMU_TTL_MS;
-        recentDanmu = recentDanmu.filter((d2) => d2.ts >= cutoff);
-        return recentDanmu.map((d2) => d2.text);
-      }
-      function getEffectivePauseKeywords(source) {
-        const override = hzmPauseKeywordsOverride.value.trim();
-        const lines = override ? override.split("\n").map((s2) => s2.trim()).filter(Boolean) : source.pauseKeywords ?? [];
-        const patterns = [];
-        for (const p2 of lines) {
-          try {
-            patterns.push(new RegExp(p2));
-          } catch {
-          }
-        }
-        return patterns;
-      }
-      function shouldPauseFromKeywords(source) {
-        const recent = getRecentDanmuTexts().join(" ");
-        for (const re of getEffectivePauseKeywords(source)) {
-          if (re.test(recent)) {
-            pausedUntil = Date.now() + PAUSE_HOLD_MS;
-            appendLog(`⏸ 智驾：检测到暂停关键词，60s 内不发`);
-            return true;
-          }
-        }
-        return Date.now() < pausedUntil;
-      }
-      function withinRateLimit() {
-        const cutoff = Date.now() - 6e4;
-        while (sentTimestamps.length > 0 && sentTimestamps[0] < cutoff) {
-          sentTimestamps.shift();
-        }
-        return sentTimestamps.length < hzmRateLimitPerMin.value;
-      }
-      function buildCandidatePool(opts) {
-        const recent = new Set(opts.recentSent ?? getRecentSent(opts.roomId));
-        const blacklist = new Set(opts.blacklistTags ?? getBlacklistTags(opts.roomId));
-        return opts.memes.filter((m2) => {
-          if (!m2.content) return false;
-          if (recent.has(m2.content)) return false;
-          if (m2.tags.some((t2) => blacklist.has(t2.name))) return false;
-          return true;
-        });
-      }
-      function pickByHeuristic(opts) {
-        const pool = buildCandidatePool({
-          roomId: opts.roomId,
-          memes: opts.memes,
-          recentSent: opts.recentSent,
-          blacklistTags: opts.blacklistTags
-        });
-        if (pool.length === 0) return null;
-        let matchedTag = null;
-        for (const [pattern, tag] of Object.entries(opts.source.keywordToTag ?? {})) {
-          try {
-            if (new RegExp(pattern).test(opts.recentDanmuText)) {
-              matchedTag = tag;
-              break;
-            }
-          } catch {
-          }
-        }
-        let filtered = pool;
-        if (matchedTag) {
-          const byTag = pool.filter((m2) => m2.tags.some((t2) => t2.name === matchedTag));
-          if (byTag.length > 0) filtered = byTag;
-        } else {
-          const selected = opts.selectedTags ?? getSelectedTags(opts.roomId);
-          if (selected.length > 0) {
-            const sel = new Set(selected);
-            const bySelected = pool.filter((m2) => m2.tags.some((t2) => sel.has(t2.name)));
-            if (bySelected.length > 0) filtered = bySelected;
-          }
-        }
-        const rand = opts.randomFn ?? Math.random;
-        return filtered[Math.floor(rand() * filtered.length)] ?? null;
-      }
-      async function pickByLLM(roomId, source) {
-        const apiKey = hzmLlmApiKey.value.trim();
-        if (!apiKey) return null;
-        const all = memesProvider?.() ?? [];
-        const pool = buildCandidatePool({ roomId, memes: all }).slice(0, 30);
-        if (pool.length === 0) return null;
-        bumpDailyLlmCalls(roomId);
-        try {
-          const { chooseMemeWithLLM } = await __vitePreload(async () => {
-            const { chooseMemeWithLLM: chooseMemeWithLLM2 } = await module.import('./llm-driver-Ddax0Vb0-MvhvkKa6.js');
-            return { chooseMemeWithLLM: chooseMemeWithLLM2 };
-          }, true ? void 0 : void 0);
-          const chosenContent = await chooseMemeWithLLM({
-            provider: hzmLlmProvider.value,
-            apiKey,
-            model: hzmLlmModel.value,
-            baseURL: hzmLlmBaseURL.value.trim() || void 0,
-            roomName: source.name,
-            recentChat: getRecentDanmuTexts().slice(-30),
-            candidates: pool.map((m2) => ({ id: String(m2.id), content: m2.content, tags: m2.tags.map((t2) => t2.name) }))
-          });
-          if (!chosenContent) return null;
-          return pool.find((m2) => m2.content === chosenContent) ?? null;
-        } catch (err) {
-          appendLog(`⚠️ 智驾 LLM 调用失败，回退启发式：${err instanceof Error ? err.message : String(err)}`);
-          return null;
-        }
-      }
-      async function sendOne(roomId, meme) {
-        if (hzmDryRun.value) {
-          appendLog(`🚗[dryRun] 智驾候选：${meme.content}`);
-          pushRecentSent(roomId, meme.content);
-          return;
-        }
-        const csrfToken = getCsrfToken();
-        if (!csrfToken) {
-          appendLog("❌ 智驾：未找到登录信息，已暂停发送");
-          pausedUntil = Date.now() + PAUSE_HOLD_MS;
-          return;
-        }
-        try {
-          const result = await enqueueDanmaku(meme.content, roomId, csrfToken, SendPriority.AUTO);
-          if (result.success && !result.cancelled) {
-            sentTimestamps.push(Date.now());
-            pushRecentSent(roomId, meme.content);
-            bumpDailySent(roomId);
-            appendLog(`🚗 智驾：${meme.content}`);
-          } else if (result.cancelled) {
-            appendLog(`⏭ 智驾被打断：${meme.content}`);
-          } else {
-            appendLog(`❌ 智驾发送失败：${meme.content}，原因：${result.error ?? "未知"}`);
-          }
-        } catch (err) {
-          appendLog(`❌ 智驾发送异常：${err instanceof Error ? err.message : String(err)}`);
-        }
-      }
-      async function tick() {
-        if (hzmDriveMode.value === "off" || activeRoomId === null || activeSource === null) {
-          tickTimer = null;
-          return;
-        }
-        try {
-          const now = Date.now();
-          if (shouldPauseFromKeywords(activeSource)) {
-            scheduleNext(hzmDriveIntervalSec.value * 2);
-            return;
-          }
-          if (now < pausedUntil) {
-            scheduleNext(hzmDriveIntervalSec.value);
-            return;
-          }
-          if (!withinRateLimit()) {
-            scheduleNext(hzmDriveIntervalSec.value);
-            return;
-          }
-          heuristicTickCount++;
-          let meme = null;
-          const llmRatio = Math.max(1, hzmLlmRatio.value);
-          const useLLM = hzmDriveMode.value === "llm" && hzmLlmApiKey.value.trim() !== "" && heuristicTickCount % llmRatio === 0;
-          if (useLLM) {
-            meme = await pickByLLM(activeRoomId, activeSource);
-          }
-          if (!meme) {
-            meme = pickByHeuristic({
-              roomId: activeRoomId,
-              source: activeSource,
-              memes: memesProvider?.() ?? [],
-              recentDanmuText: getRecentDanmuTexts().join(" ")
-            });
-          }
-          if (meme) {
-            await sendOne(activeRoomId, meme);
-          }
-        } catch (err) {
-          appendLog(`⚠️ 智驾 tick 异常：${err instanceof Error ? err.message : String(err)}`);
-        } finally {
-          scheduleNext(hzmDriveIntervalSec.value);
-        }
-      }
-      function scheduleNext(baseSec) {
-        if (hzmDriveMode.value === "off") {
-          tickTimer = null;
-          return;
-        }
-        const jitter = baseSec * (0.7 + Math.random() * 0.8);
-        const delay = Math.max(MIN_TICK_DELAY_MS, Math.round(jitter * 1e3));
-        tickTimer = setTimeout(() => {
-          void tick();
-        }, delay);
-      }
-      async function startHzmAutoDrive(opts) {
-        stopHzmAutoDrive();
-        let roomId;
-        try {
-          roomId = await ensureRoomId();
-        } catch (err) {
-          notifyUser("error", "智驾启动失败：无法获取房间号", err instanceof Error ? err.message : String(err));
-          return;
-        }
-        if (roomId !== opts.source.roomId) {
-          notifyUser("warning", `当前房间 (${roomId}) 与梗源配置 (${opts.source.roomId}) 不匹配，智驾未启动`);
-          return;
-        }
-        activeRoomId = roomId;
-        activeSource = opts.source;
-        memesProvider = opts.getMemes;
-        unsubscribe = subscribeDanmaku({
-          onMessage: (ev) => {
-            if (!ev.text) return;
-            recentDanmu.push({ ts: Date.now(), text: ev.text });
-            if (recentDanmu.length > RECENT_DANMU_MAX) {
-              recentDanmu.splice(0, recentDanmu.length - RECENT_DANMU_MAX);
-            }
-          }
-        });
-        appendLog(
-          `🤖 智能辅助驾驶已启动（mode=${hzmDriveMode.value}，dryRun=${hzmDryRun.value ? "开" : "关"}）— 独轮车工具无罪，请合理使用`
-        );
-        void tick();
-      }
-      function stopHzmAutoDrive() {
-        if (tickTimer) {
-          clearTimeout(tickTimer);
-          tickTimer = null;
-        }
-        if (unsubscribe) {
-          unsubscribe();
-          unsubscribe = null;
-        }
-        resetRuntime();
-      }
-      const PROVIDER_LABEL = {
-        anthropic: "Anthropic",
-        openai: "OpenAI",
-        "openai-compat": "OpenAI 兼容"
-      };
-      const MODE_LABEL = {
-        heuristic: "启发式",
-        llm: "LLM 智驾"
-      };
-      function maskKey(k2) {
-        const trimmed = k2.trim();
-        if (trimmed.length <= 8) return trimmed ? `${trimmed[0]}***${trimmed.at(-1)}` : "";
-        return `${trimmed.slice(0, 4)}…${trimmed.slice(-4)}`;
-      }
-      function HzmDrivePanel({ source, memes }) {
-        const roomId = cachedRoomId.value;
-        const stats = getDailyStats(roomId);
-        const selected = getSelectedTags(roomId);
-        const blacklist = getBlacklistTags(roomId);
-        const isRunning = hzmDriveMode.value !== "off";
-        const tagOptions = (() => {
-          const set = new Set();
-          for (const m2 of memes) {
-            for (const t2 of m2.tags) {
-              if (t2.name) set.add(t2.name);
-            }
-          }
-          return [...set].sort();
-        })();
+      function CbSubmitRow({
+        content,
+        source,
+        onDone,
+        onCancel
+      }) {
+        const tags = useSignal(null);
+        const selected = useSignal( new Set());
+        const customInput = useSignal("");
+        const loading = useSignal(true);
+        const submitting = useSignal(false);
+        const error = useSignal(null);
         y$2(() => {
-          if (hzmDriveMode.value === "off") {
-            stopHzmAutoDrive();
-            return;
-          }
-          void startHzmAutoDrive({ source, getMemes: () => memes });
-          return () => stopHzmAutoDrive();
-        }, [hzmDriveMode.value, source.roomId]);
-        const testStatus = useSignal("idle");
-        const testError = useSignal("");
-        const toggleDrive = () => {
-          if (isRunning) {
-            hzmDriveMode.value = "off";
-          } else {
-            hzmDriveMode.value = "heuristic";
-          }
-        };
-        const setMode = (m2) => {
-          hzmDriveMode.value = m2;
-        };
-        const handleTestLLM = async () => {
-          if (testStatus.value === "testing") return;
-          testStatus.value = "testing";
-          testError.value = "";
-          try {
-            const { testLLMConnection } = await __vitePreload(async () => {
-              const { testLLMConnection: testLLMConnection2 } = await module.import('./llm-driver-Ddax0Vb0-MvhvkKa6.js');
-              return { testLLMConnection: testLLMConnection2 };
-            }, true ? void 0 : void 0);
-            const r2 = await testLLMConnection({
-              provider: hzmLlmProvider.value,
-              apiKey: hzmLlmApiKey.value,
-              model: hzmLlmModel.value,
-              baseURL: hzmLlmBaseURL.value.trim() || void 0
-            });
-            if (r2.ok) {
-              testStatus.value = "ok";
-            } else {
-              testStatus.value = "fail";
-              testError.value = r2.error ?? "未知错误";
+          let cancelled = false;
+          void (async () => {
+            try {
+              const [allTags, suggested] = await Promise.all([fetchCbTags(), suggestCbTagNames(content, source)]);
+              if (cancelled) return;
+              tags.value = allTags;
+              selected.value = new Set(suggested);
+              loading.value = false;
+            } catch (err) {
+              if (cancelled) return;
+              loading.value = false;
+              error.value = err instanceof Error ? err.message : String(err);
             }
+          })();
+          return () => {
+            cancelled = true;
+          };
+        }, [content]);
+        const toggleTag = (name) => {
+          const next = new Set(selected.value);
+          if (next.has(name)) next.delete(name);
+          else next.add(name);
+          selected.value = next;
+        };
+        const collectTagNames = () => {
+          const out = new Set(selected.value);
+          for (const piece of customInput.value.split(/[,，\s]+/)) {
+            const t2 = piece.trim();
+            if (t2) out.add(t2);
+          }
+          return [...out];
+        };
+        const handleSubmit = async () => {
+          if (submitting.value) return;
+          submitting.value = true;
+          error.value = null;
+          try {
+            const tagNames = collectTagNames();
+            const result = await submitCbMeme(content, { tagNames });
+            if (result.dedup) {
+              notifyUser("info", `已提交,但库内已有同梗(状态:${result.status})`, content);
+            } else {
+              notifyUser("success", `已贡献 #${result.id},等待审核`, content);
+            }
+            onDone(result.id);
           } catch (err) {
-            testStatus.value = "fail";
-            testError.value = err instanceof Error ? err.message : String(err);
+            const msg = err instanceof Error ? err.message : String(err);
+            error.value = msg;
+            notifyUser("error", `chatterbox-cloud 提交失败`, msg);
+          } finally {
+            submitting.value = false;
           }
         };
-        const toggleSelectedTag = (tag) => {
-          if (roomId === null) return;
-          setSelectedTags(roomId, selected.includes(tag) ? selected.filter((t2) => t2 !== tag) : [...selected, tag]);
-        };
-        const toggleBlacklistTag = (tag) => {
-          if (roomId === null) return;
-          setBlacklistTags(roomId, blacklist.includes(tag) ? blacklist.filter((t2) => t2 !== tag) : [...blacklist, tag]);
-        };
-        const apiKeyConfigured = hzmLlmApiKey.value.trim().length > 0;
-        const pauseDefault = (source.pauseKeywords ?? []).join(" / ");
         return u$2(
-          "details",
+          "div",
           {
             style: {
-              marginTop: ".6em",
-              padding: ".4em .5em",
-              border: "1px solid var(--Ga2, #ccc)",
+              marginTop: ".3em",
+              padding: ".4em",
+              background: "var(--bg2, #f0f7ff)",
+              border: "1px solid #3b82f6",
               borderRadius: "4px",
-              background: "var(--bg2, #fafafa)"
+              fontSize: "11px"
             },
             children: [
-u$2("summary", { style: { cursor: "pointer", userSelect: "none", fontWeight: "bold" }, children: [
-u$2("span", { children: [
-                  "🤖 智能辅助驾驶（",
-                  source.name,
-                  "）"
-                ] }),
-                isRunning && u$2("span", { className: "cb-soft", children: [
-                  "运行中 · ",
-                  MODE_LABEL[hzmDriveMode.value]
-                ] })
+u$2("div", { style: { marginBottom: ".3em", color: "#666" }, children: [
+                "给「",
+u$2("b", { children: content }),
+                "」选标签后提交到 ",
+u$2("b", { children: "chatterbox-cloud" }),
+                "。已根据关键词预选了推荐标签,可任意修改。"
               ] }),
-u$2("div", { className: "cb-body cb-stack", children: [
-u$2(
-                  "div",
+              loading.value ? u$2("div", { style: { color: "#666" }, children: "正在拉取标签字典…" }) : !tags.value || tags.value.length === 0 ? u$2("div", { style: { color: "#666", marginBottom: ".3em" }, children: [
+                "后端字典暂时无 tag",
+                error.value ? `(${error.value})` : "",
+                "。可以无 tag 提交,管理员可后补。"
+              ] }) : u$2("div", { style: { display: "flex", flexWrap: "wrap", gap: ".3em", marginBottom: ".3em" }, children: tags.value.map((t2) => {
+                const isOn = selected.value.has(t2.name);
+                return u$2(
+                  "button",
                   {
-                    className: "cb-panel",
+                    type: "button",
+                    onClick: () => toggleTag(t2.name),
+                    title: t2.count > 0 ? `已有 ${t2.count} 条` : "尚未使用过",
                     style: {
-                      background: "#fff7e6",
-                      borderColor: "#d6b86a",
-                      color: "#a86",
+                      appearance: "none",
+                      cursor: "pointer",
+                      padding: ".1em .4em",
+                      borderRadius: "999px",
+                      border: "1px solid var(--Ga2, #ccc)",
+                      background: isOn ? "#3b82f6" : "transparent",
+                      color: isOn ? "#fff" : "inherit",
                       fontSize: "11px",
-                      lineHeight: 1.5
+                      fontFamily: "inherit"
                     },
                     children: [
-                      "前排提霉：独轮车工具无罪，请合理使用。开启即代表你已同意：本工具不为任何独轮车自动驾驶事故负责。 建议先用",
-                      " ",
-u$2("b", { children: "dryRun" }),
-                      " 试运行 5 分钟看效果。"
+                      t2.emoji ? `${t2.emoji} ` : "",
+                      t2.name
                     ]
+                  },
+                  t2.id
+                );
+              }) }),
+u$2("div", { style: { marginBottom: ".3em" }, children: u$2(
+                "input",
+                {
+                  type: "text",
+                  value: customInput.value,
+                  placeholder: "额外 tag(逗号分隔,可空)",
+                  style: { boxSizing: "border-box", width: "100%", fontSize: "11px", padding: ".2em" },
+                  onInput: (e2) => {
+                    customInput.value = e2.currentTarget.value;
+                  }
+                }
+              ) }),
+              error.value && !loading.value && u$2("div", { style: { color: "#a00", marginBottom: ".3em" }, children: error.value }),
+u$2("div", { style: { display: "flex", gap: ".4em", alignItems: "center" }, children: [
+u$2(
+                  "button",
+                  {
+                    type: "button",
+                    disabled: submitting.value,
+                    onClick: () => void handleSubmit(),
+                    style: {
+                      cursor: submitting.value ? "wait" : "pointer",
+                      padding: ".15em .8em",
+                      background: "#3b82f6",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: "3px",
+                      fontSize: "11px"
+                    },
+                    children: submitting.value ? "提交中…" : `提交(已选 ${selected.value.size} 个标签)`
                   }
                 ),
-u$2("div", { className: "cb-row", children: [
 u$2(
-                    "button",
-                    {
-                      type: "button",
-                      className: isRunning ? "cb-danger" : "cb-primary",
-                      onClick: toggleDrive,
-                      title: isRunning ? "点击停止智驾" : "点击启动智驾（默认启发式模式）",
-                      children: isRunning ? "停车" : "开车"
-                    }
-                  ),
-u$2("span", { children: "模式" }),
-                  ["heuristic", "llm"].map((m2) => u$2(
-                    "button",
-                    {
-                      type: "button",
-                      className: hzmDriveMode.value === m2 ? "cb-primary" : "",
-                      style: {
-                        fontSize: "11px",
-                        padding: ".15em .6em",
-                        opacity: isRunning ? 1 : 0.6
-                      },
-                      onClick: () => setMode(m2),
-                      title: m2 === "heuristic" ? "启发式：用关键词正则 + 偏好 tag 选梗，不调用 LLM。免费、稳定。" : "LLM 智驾：每 N 次 tick 用大模型选梗，其余仍走启发式。需要 API key。",
-                      children: MODE_LABEL[m2]
-                    },
-                    m2
-                  )),
-u$2("span", { className: "cb-row", style: { marginLeft: ".5em" }, children: [
-u$2(
-                      "input",
-                      {
-                        id: "hzmDryRun",
-                        type: "checkbox",
-                        checked: hzmDryRun.value,
-                        onInput: (e2) => {
-                          hzmDryRun.value = e2.currentTarget.checked;
-                        }
-                      }
-                    ),
-u$2("label", { for: "hzmDryRun", title: "只在日志显示候选，不真发到弹幕——新手强烈建议先开", children: "dryRun" })
-                  ] })
-                ] }),
-                isRunning && u$2("div", { className: "cb-panel cb-stack", children: [
-u$2("div", { className: "cb-row", children: [
-u$2("span", { children: "间隔" }),
-u$2(
-                      "input",
-                      {
-                        type: "number",
-                        min: "3",
-                        max: "120",
-                        style: { width: "40px" },
-                        value: hzmDriveIntervalSec.value,
-                        onInput: (e2) => {
-                          const v2 = parseInt(e2.currentTarget.value, 10);
-                          if (Number.isFinite(v2) && v2 > 0) hzmDriveIntervalSec.value = v2;
-                        },
-                        title: "基础 tick 间隔（秒），实际加 0.7-1.5x 的随机抖动。建议 5-15。"
-                      }
-                    ),
-u$2("span", { children: "秒，每分钟最多" }),
-u$2(
-                      "input",
-                      {
-                        type: "number",
-                        min: "1",
-                        max: "20",
-                        style: { width: "40px" },
-                        value: hzmRateLimitPerMin.value,
-                        onInput: (e2) => {
-                          const v2 = parseInt(e2.currentTarget.value, 10);
-                          if (Number.isFinite(v2) && v2 > 0) hzmRateLimitPerMin.value = v2;
-                        },
-                        title: "硬限速。同时开文字独轮车会叠加发送量，建议保持 ≤6 单独使用。"
-                      }
-                    ),
-u$2("span", { children: "条" }),
-                    hzmDriveMode.value === "llm" && u$2(S$1, { children: [
-u$2("span", { style: { marginLeft: ".5em" }, children: "，LLM 每" }),
-u$2(
-                        "input",
-                        {
-                          type: "number",
-                          min: "1",
-                          max: "10",
-                          style: { width: "36px" },
-                          value: hzmLlmRatio.value,
-                          onInput: (e2) => {
-                            const v2 = parseInt(e2.currentTarget.value, 10);
-                            if (Number.isFinite(v2) && v2 >= 1) hzmLlmRatio.value = v2;
-                          },
-                          title: "1=每次都用 LLM；3=每 3 次用 1 次（其它走启发式，省 API 费）"
-                        }
-                      ),
-u$2("span", { children: "次" })
-                    ] })
-                  ] }),
-                  tagOptions.length > 0 && u$2(S$1, { children: [
-u$2("div", { className: "cb-row", style: { flexWrap: "wrap" }, children: [
-u$2("span", { style: { fontWeight: "bold", minWidth: "4em" }, title: "只从勾选 tag 的梗里选；空 = 全部", children: "偏好 tag" }),
-                      tagOptions.map((t2) => u$2(
-                        "button",
-                        {
-                          type: "button",
-                          className: "cb-tag",
-                          onClick: () => toggleSelectedTag(t2),
-                          style: {
-                            padding: ".05em .4em",
-                            background: selected.includes(t2) ? "#10b981" : "#bbb",
-                            border: "none",
-                            borderRadius: "2px",
-                            color: "#fff",
-                            cursor: "pointer",
-                            fontSize: "11px"
-                          },
-                          children: t2
-                        },
-                        t2
-                      ))
-                    ] }),
-u$2("div", { className: "cb-row", style: { flexWrap: "wrap" }, children: [
-u$2("span", { style: { fontWeight: "bold", minWidth: "4em" }, title: "命中即跳过的 tag", children: "黑名单" }),
-                      tagOptions.map((t2) => u$2(
-                        "button",
-                        {
-                          type: "button",
-                          className: "cb-tag",
-                          onClick: () => toggleBlacklistTag(t2),
-                          style: {
-                            padding: ".05em .4em",
-                            background: blacklist.includes(t2) ? "#ef4444" : "#bbb",
-                            border: "none",
-                            borderRadius: "2px",
-                            color: "#fff",
-                            cursor: "pointer",
-                            fontSize: "11px"
-                          },
-                          children: t2
-                        },
-                        t2
-                      ))
-                    ] })
-                  ] }),
-u$2("div", { className: "cb-row", children: [
-u$2("span", { style: { fontWeight: "bold", minWidth: "4em" }, children: "暂停词" }),
-u$2("span", { style: { fontSize: "10px", color: "#888" }, children: [
-                      "每行一条正则；命中后 60s 不发。空 = 用默认（",
-                      pauseDefault || "无",
-                      "）"
-                    ] })
-                  ] }),
-u$2(
-                    "textarea",
-                    {
-                      rows: 2,
-                      value: hzmPauseKeywordsOverride.value,
-                      onInput: (e2) => {
-                        hzmPauseKeywordsOverride.value = e2.currentTarget.value;
-                      },
-                      style: { boxSizing: "border-box", width: "100%", fontSize: "11px", resize: "vertical" },
-                      placeholder: (source.pauseKeywords ?? []).join("\n")
-                    }
-                  ),
-u$2("div", { className: "cb-row", style: { fontSize: "11px", color: "#666" }, children: [
-                    "今日已发：",
-u$2("b", { children: stats.sent }),
-                    " 条 · LLM 调用：",
-u$2("b", { children: stats.llmCalls }),
-                    " 次"
-                  ] }),
-                  sendMsg.value && u$2(
-                    "div",
-                    {
-                      className: "cb-soft",
-                      style: {
-                        padding: ".25em .4em",
-                        background: "#fee",
-                        border: "1px dashed #d33",
-                        borderRadius: "3px",
-                        color: "#a30",
-                        fontSize: "11px"
-                      },
-                      children: "⚠️ 文字独轮车正在运行，与智驾叠加可能超出每分钟限速。建议先停一个。"
-                    }
-                  )
-                ] }),
-                hzmDriveMode.value === "llm" && u$2("div", { className: "cb-panel cb-stack", children: [
-u$2("div", { className: "cb-row", style: { fontWeight: "bold", fontSize: "11px" }, children: "LLM 设置" }),
-u$2("div", { className: "cb-row", children: [
-u$2("span", { children: "Provider" }),
-                    ["anthropic", "openai", "openai-compat"].map((p2) => u$2(
-                      "button",
-                      {
-                        type: "button",
-                        className: hzmLlmProvider.value === p2 ? "cb-primary" : "",
-                        style: { fontSize: "11px", padding: ".15em .5em" },
-                        onClick: () => {
-                          hzmLlmProvider.value = p2;
-                          testStatus.value = "idle";
-                        },
-                        children: PROVIDER_LABEL[p2]
-                      },
-                      p2
-                    ))
-                  ] }),
-u$2("div", { className: "cb-row", children: [
-u$2("span", { style: { minWidth: "4em" }, children: "API Key" }),
-u$2(
-                      "input",
-                      {
-                        type: "password",
-                        value: hzmLlmApiKey.value,
-                        onInput: (e2) => {
-                          hzmLlmApiKey.value = e2.currentTarget.value;
-                          testStatus.value = "idle";
-                        },
-                        placeholder: "sk-... 或 anthropic key",
-                        style: { flex: 1, minWidth: 0, boxSizing: "border-box" }
-                      }
-                    ),
-u$2(
-                      "span",
-                      {
-                        style: {
-                          fontSize: "11px",
-                          color: apiKeyConfigured ? "#0a0" : "#888",
-                          whiteSpace: "nowrap"
-                        },
-                        children: apiKeyConfigured ? `✅ ${maskKey(hzmLlmApiKey.value)}` : "⚪ 未配置"
-                      }
-                    )
-                  ] }),
-u$2("div", { className: "cb-row", children: [
-u$2("span", { style: { minWidth: "4em" }, children: "模型" }),
-u$2(
-                      "input",
-                      {
-                        type: "text",
-                        value: hzmLlmModel.value,
-                        onInput: (e2) => {
-                          hzmLlmModel.value = e2.currentTarget.value;
-                          testStatus.value = "idle";
-                        },
-                        placeholder: "claude-haiku-4-5-20251001 / gpt-4o-mini / deepseek-chat",
-                        title: "Anthropic 推荐 claude-haiku-4-5-20251001；OpenAI 推荐 gpt-4o-mini；DeepSeek 用 deepseek-chat",
-                        style: { flex: 1, minWidth: 0, boxSizing: "border-box" }
-                      }
-                    )
-                  ] }),
-                  hzmLlmProvider.value === "openai-compat" && u$2("div", { className: "cb-row", children: [
-u$2("span", { style: { minWidth: "4em" }, children: "Base URL" }),
-u$2(
-                      "input",
-                      {
-                        type: "text",
-                        value: hzmLlmBaseURL.value,
-                        onInput: (e2) => {
-                          hzmLlmBaseURL.value = e2.currentTarget.value;
-                          testStatus.value = "idle";
-                        },
-                        placeholder: "https://api.deepseek.com（不带尾斜线，自动追加 /v1/chat/completions）",
-                        title: "DeepSeek=https://api.deepseek.com / Moonshot=https://api.moonshot.cn / OpenRouter=https://openrouter.ai/api",
-                        style: { flex: 1, minWidth: 0, boxSizing: "border-box" }
-                      }
-                    )
-                  ] }),
-u$2("div", { className: "cb-row", children: [
-u$2(
-                      "button",
-                      {
-                        type: "button",
-                        disabled: !apiKeyConfigured || testStatus.value === "testing",
-                        onClick: () => void handleTestLLM(),
-                        title: "发一个最小请求验证 key/路由能跑通；不消耗你的实际智驾配额",
-                        children: testStatus.value === "testing" ? "测试中…" : "🧪 测试连接"
-                      }
-                    ),
-                    testStatus.value === "ok" && u$2("span", { style: { color: "#0a0", fontSize: "11px" }, children: "✅ 连接成功" }),
-                    testStatus.value === "fail" && u$2("span", { style: { color: "#c00", fontSize: "11px", wordBreak: "break-all" }, children: [
-                      "❌ ",
-                      testError.value
-                    ] })
-                  ] }),
-u$2("div", { style: { fontSize: "10px", color: "#a86", lineHeight: 1.4 }, children: "⚠️ Key 明文保存在浏览器 GM 存储，泄露风险自担。openai-compat 自定义域首次调用时 Tampermonkey 可能弹权限确认。" })
-                ] })
+                  "button",
+                  {
+                    type: "button",
+                    disabled: submitting.value,
+                    onClick: onCancel,
+                    style: { cursor: "pointer", padding: ".15em .8em", fontSize: "11px" },
+                    children: "取消"
+                  }
+                ),
+u$2("span", { style: { color: "#888", marginLeft: "auto", fontSize: "10px" }, children: "API:POST /memes(等管理员审核)" })
               ] })
             ]
           }
@@ -14226,17 +14753,58 @@ u$2("span", { style: { color: "#888", marginLeft: "auto", fontSize: "10px" }, ch
         return data;
       }
       async function fetchAllMemes(roomId, sortBy, source) {
+        if (cbBackendEnabled.value) {
+          const cb = await fetchCbMergedMemes({ roomId, sortBy, perPage: 500 });
+          if (!cb.fatal) {
+            const fallbacks = [];
+            if (!cb.sources.laplace) {
+              fallbacks.push(
+                fetchLaplaceMemes(roomId, sortBy).then((data) => {
+                  const tagged = data.map((m2) => ({ ...m2, _source: "laplace" }));
+                  void mirrorToCbBackend(tagged, "laplace");
+                  return tagged;
+                }).catch((err) => {
+                  appendLog(`⚠️ LAPLACE 兜底加载失败:${err instanceof Error ? err.message : String(err)}`);
+                  return [];
+                })
+              );
+            }
+            if (source && !cb.sources.sbhzm) {
+              fallbacks.push(
+                fetchSbhzmMemes(source).then((data) => {
+                  void mirrorToCbBackend(data, "sbhzm");
+                  return data;
+                }).catch((err) => {
+                  appendLog(`⚠️ ${source.name} 兜底加载失败:${err instanceof Error ? err.message : String(err)}`);
+                  return [];
+                })
+              );
+            }
+            const fallbackArrs = await Promise.all(fallbacks);
+            const merged2 = [].concat(cb.items, ...fallbackArrs);
+            sortMemes(merged2, sortBy);
+            return merged2;
+          }
+          appendLog("⚠️ chatterbox-cloud 后端不可达,降级到本地直拉 LAPLACE/SBHZM");
+        }
         const tasks = [];
         tasks.push(
-          fetchLaplaceMemes(roomId, sortBy).then((data) => data.map((m2) => ({ ...m2, _source: "laplace" }))).catch((err) => {
-            appendLog(`⚠️ LAPLACE 烂梗加载失败：${err instanceof Error ? err.message : String(err)}`);
+          fetchLaplaceMemes(roomId, sortBy).then((data) => {
+            const tagged = data.map((m2) => ({ ...m2, _source: "laplace" }));
+            void mirrorToCbBackend(tagged, "laplace");
+            return tagged;
+          }).catch((err) => {
+            appendLog(`⚠️ LAPLACE 烂梗加载失败:${err instanceof Error ? err.message : String(err)}`);
             return [];
           })
         );
         if (source) {
           tasks.push(
-            fetchSbhzmMemes(source).catch((err) => {
-              appendLog(`⚠️ ${source.name} 加载失败：${err instanceof Error ? err.message : String(err)}`);
+            fetchSbhzmMemes(source).then((data) => {
+              void mirrorToCbBackend(data, "sbhzm");
+              return data;
+            }).catch((err) => {
+              appendLog(`⚠️ ${source.name} 加载失败:${err instanceof Error ? err.message : String(err)}`);
               return [];
             })
           );
@@ -14258,10 +14826,11 @@ u$2("span", { style: { color: "#888", marginLeft: "auto", fontSize: "10px" }, ch
       }
       function SourceBadge({ source }) {
         if (!source || source === "laplace") return null;
+        const config = source === "sbhzm" ? { letter: "H", bg: "#10b981", title: "来自社区专属梗库（sbhzm.cn）" } : { letter: "C", bg: "#3b82f6", title: "来自 chatterbox-cloud 自建梗库" };
         return u$2(
           "span",
           {
-            title: "来自社区专属梗库（sbhzm.cn）",
+            title: config.title,
             style: {
               display: "inline-block",
               flexShrink: 0,
@@ -14270,12 +14839,12 @@ u$2("span", { style: { color: "#888", marginLeft: "auto", fontSize: "10px" }, ch
               fontSize: "9px",
               lineHeight: 1.6,
               color: "#fff",
-              background: "#10b981",
+              background: config.bg,
               borderRadius: "2px",
               fontWeight: "bold",
               verticalAlign: "middle"
             },
-            children: "H"
+            children: config.letter
           }
         );
       }
@@ -14312,8 +14881,13 @@ u$2("span", { style: { color: "#888", marginLeft: "auto", fontSize: "10px" }, ch
                 await new Promise((r2) => setTimeout(r2, msgSendInterval.value * 1e3));
               }
             }
-            if (meme._source !== "sbhzm" && meme.id > 0) {
-              const newCount = await reportMemeCopy(meme.id);
+            if (meme.id > 0) {
+              let newCount = null;
+              if (meme._source === "cb") {
+                newCount = await reportCbMemeCopy(meme.id);
+              } else if (meme._source === "laplace" || meme._source == null) {
+                newCount = await reportMemeCopy(meme.id);
+              }
               if (newCount !== null) onUpdateCount(meme.id, newCount);
             }
           } catch (err) {
@@ -14332,8 +14906,13 @@ u$2("span", { style: { color: "#888", marginLeft: "auto", fontSize: "10px" }, ch
           setTimeout(() => {
             copyLabel.value = "复制";
           }, 1500);
-          if (meme._source !== "sbhzm" && meme.id > 0) {
-            const newCount = await reportMemeCopy(meme.id);
+          if (meme.id > 0) {
+            let newCount = null;
+            if (meme._source === "cb") {
+              newCount = await reportCbMemeCopy(meme.id);
+            } else if (meme._source === "laplace" || meme._source == null) {
+              newCount = await reportMemeCopy(meme.id);
+            }
             if (newCount !== null) onUpdateCount(meme.id, newCount);
           }
         };
@@ -14490,18 +15069,24 @@ u$2(
             const data = await fetchAllMemes(roomId, sortBy.peek(), liveSource);
             if (data.length === 0) {
               memes.value = [];
+              currentMemesList.value = [];
               status.value = "当前房间暂无烂梗";
               return;
             }
             if (memes.peek().length > 0) capturePositions();
-            if (liveSource) {
-              const lap = data.filter((m2) => m2._source !== "sbhzm").length;
-              const hzm = data.filter((m2) => m2._source === "sbhzm").length;
-              status.value = `L:${lap} + H:${hzm}`;
-            } else {
-              status.value = `${data.length} 条`;
+            const counts = { L: 0, H: 0, C: 0 };
+            for (const m2 of data) {
+              if (m2._source === "sbhzm") counts.H++;
+              else if (m2._source === "cb") counts.C++;
+              else counts.L++;
             }
+            const parts = [];
+            if (counts.L) parts.push(`L:${counts.L}`);
+            if (counts.H) parts.push(`H:${counts.H}`);
+            if (counts.C) parts.push(`C:${counts.C}`);
+            status.value = parts.length > 1 ? parts.join(" + ") : `${data.length} 条`;
             memes.value = data;
+            currentMemesList.value = data;
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             status.value = `加载失败: ${msg}`;
@@ -14546,11 +15131,11 @@ u$2(
           filterText.value = filterText.peek() === tagName ? "" : tagName;
         };
         y$2(() => {
-          if (!memesPanelOpen.value) return;
+          if (!memesPanelOpen.value && !memeSource) return;
           void loadMemes();
           const timer2 = setInterval(() => void loadMemes({ silent: true }), MEME_RELOAD_INTERVAL);
           return () => clearInterval(timer2);
-        }, [sortBy.value, memesPanelOpen.value]);
+        }, [sortBy.value, memesPanelOpen.value, memeSource]);
         return u$2(S$1, { children: [
 u$2(
             "details",
@@ -14638,7 +15223,9 @@ u$2("div", { style: { fontSize: "12px", color: "#666", marginBottom: ".25em" }, 
                 " 条）："
               ] }),
               memeContributorCandidates.value.map((text) => {
-                const isSubmitting = submittingFor.value === text;
+                const expanded = submittingFor.value;
+                const isSbhzmOpen = expanded?.text === text && expanded.target === "sbhzm";
+                const isCbOpen = expanded?.text === text && expanded.target === "cb";
                 return u$2(
                   "div",
                   {
@@ -14679,16 +15266,37 @@ u$2(
                               cursor: "pointer",
                               padding: ".1em .4em",
                               flexShrink: 0,
-                              background: isSubmitting ? "#10b981" : "transparent",
-                              color: isSubmitting ? "#fff" : "inherit",
+                              background: isSbhzmOpen ? "#10b981" : "transparent",
+                              color: isSbhzmOpen ? "#fff" : "inherit",
                               border: "1px solid var(--Ga2, #ccc)",
                               borderRadius: "3px"
                             },
                             title: `选标签后上传到 ${memeSource.name}（API：POST /api/admin/memes）`,
                             onClick: () => {
-                              submittingFor.value = isSubmitting ? null : text;
+                              submittingFor.value = isSbhzmOpen ? null : { text, target: "sbhzm" };
                             },
-                            children: isSubmitting ? "收起" : `↑ 上传到 ${memeSource.name.replace("烂梗库", "")}`
+                            children: isSbhzmOpen ? "收起" : `↑ 上传到 ${memeSource.name.replace("烂梗库", "")}`
+                          }
+                        ),
+                        cbBackendEnabled.value && u$2(
+                          "button",
+                          {
+                            type: "button",
+                            style: {
+                              fontSize: "11px",
+                              cursor: "pointer",
+                              padding: ".1em .4em",
+                              flexShrink: 0,
+                              background: isCbOpen ? "#3b82f6" : "transparent",
+                              color: isCbOpen ? "#fff" : "#3b82f6",
+                              border: "1px solid #3b82f6",
+                              borderRadius: "3px"
+                            },
+                            title: "选标签后提交到 chatterbox-cloud(进 pending 队列等管理员审核)",
+                            onClick: () => {
+                              submittingFor.value = isCbOpen ? null : { text, target: "cb" };
+                            },
+                            children: isCbOpen ? "收起" : "↑ 贡献到 cb"
                           }
                         ),
 u$2(
@@ -14699,14 +15307,29 @@ u$2(
                             onClick: () => {
                               const id = cachedRoomId.peek();
                               if (id !== null) ignoreMemeCandidate(text, id);
-                              if (submittingFor.value === text) submittingFor.value = null;
+                              if (submittingFor.value?.text === text) submittingFor.value = null;
                             },
                             children: "忽略"
                           }
                         )
                       ] }),
-                      isSubmitting && memeSource && u$2(
+                      isSbhzmOpen && memeSource && u$2(
                         SbhzmSubmitRow,
+                        {
+                          content: text,
+                          source: memeSource,
+                          onDone: () => {
+                            const id = cachedRoomId.peek();
+                            if (id !== null) ignoreMemeCandidate(text, id);
+                            submittingFor.value = null;
+                          },
+                          onCancel: () => {
+                            submittingFor.value = null;
+                          }
+                        }
+                      ),
+                      isCbOpen && u$2(
+                        CbSubmitRow,
                         {
                           content: text,
                           source: memeSource,
@@ -14778,8 +15401,7 @@ u$2(
                   return m2.tags.some((t2) => t2.name.toLowerCase().includes(q2));
                 }).map((meme) => u$2(MemeItem, { meme, onUpdateCount: updateCount2, onTagClick: handleTagClick }, meme.id))
               }
-            ),
-            memeSource && u$2(HzmDrivePanel, { source: memeSource, memes: memes.value })
+            )
           ] })
         ] });
       }
@@ -15194,6 +15816,68 @@ u$2("button", { className: "cb-btn", onClick: handleImport, disabled: !importTex
               )
             ] }),
 u$2("p", { style: { color: "#666", fontSize: "0.8em", margin: ".25em 0 0" }, children: "导出包含所有设置、模板、替换规则和跟车配置（不含烂梗缓存）。" })
+          ] })
+        ] });
+      }
+      const SECTION_KEYWORDS$1 = "梗库后端 chatterbox cloud cb 后端 自建 backend localhost";
+      function CbBackendSection({ query = "" }) {
+        const probeMsg = useSignal("");
+        const probing = useSignal(false);
+        const visible = !query || SECTION_KEYWORDS$1.toLowerCase().includes(query);
+        if (!visible) return null;
+        async function handleProbe() {
+          probing.value = true;
+          probeMsg.value = "探测中...";
+          const result = await checkCbBackendHealth();
+          probing.value = false;
+          if (!result) {
+            probeMsg.value = `❌ 不通: ${getCbBackendBaseUrl() || "(未配置)"}`;
+            return;
+          }
+          probeMsg.value = `✅ 通: phase=${result.phase} cb=${result.upstreams.cb}`;
+        }
+        return u$2("details", { className: "cb-settings-accordion", children: [
+u$2("summary", { children: "梗库后端 (chatterbox-cloud)" }),
+u$2("div", { className: "cb-section cb-stack", style: { margin: ".5em 0", paddingBottom: "1em" }, children: [
+u$2("div", { className: "cb-heading", style: { fontWeight: "bold", marginBottom: ".5em" }, children: "梗库后端 (chatterbox-cloud)" }),
+u$2("div", { className: "cb-note", style: { color: "#666", fontSize: "0.85em", marginBottom: ".5em" }, children: "自建第三方烂梗库。开启后,烂梗库列表会额外加载来自 chatterbox-cloud 的内容(带蓝色 C 徽章)。 Phase A 仅有 3 条写死样例,Phase B/C 会接入真实社区贡献和上游聚合。" }),
+u$2("label", { className: "cb-row", style: { display: "flex", gap: ".5em", alignItems: "center" }, children: [
+u$2(
+                "input",
+                {
+                  type: "checkbox",
+                  checked: cbBackendEnabled.value,
+                  onChange: (e2) => {
+                    cbBackendEnabled.value = e2.currentTarget.checked;
+                  }
+                }
+              ),
+u$2("span", { children: "启用 chatterbox-cloud 梗源" })
+            ] }),
+u$2("div", { className: "cb-stack", style: { marginTop: ".5em", gap: ".25em" }, children: [
+u$2("label", { htmlFor: "cbBackendUrlOverride", style: { color: "#666", fontSize: "0.85em" }, children: [
+                "后端 URL(开发用,留空走默认 ",
+                BASE_URL.CB_BACKEND,
+                ")"
+              ] }),
+u$2(
+                "input",
+                {
+                  id: "cbBackendUrlOverride",
+                  type: "url",
+                  placeholder: "http://localhost:8787",
+                  value: cbBackendUrlOverride.value,
+                  style: { width: "100%", fontSize: "12px" },
+                  onInput: (e2) => {
+                    cbBackendUrlOverride.value = e2.currentTarget.value;
+                  }
+                }
+              )
+            ] }),
+u$2("div", { className: "cb-row", style: { display: "flex", gap: ".5em", alignItems: "center", marginTop: ".5em" }, children: [
+u$2("button", { className: "cb-btn", onClick: handleProbe, disabled: probing.value, type: "button", children: probing.value ? "探测中…" : "测试连通性" }),
+              probeMsg.value && u$2("span", { style: { fontSize: "0.85em" }, children: probeMsg.value })
+            ] })
           ] })
         ] });
       }
@@ -17394,6 +18078,7 @@ u$2(LocalRoomReplacementSection, { query }),
 u$2(ShadowObservationSection, { query }),
 u$2(GroupHeading, { query, children: "工具" }),
 u$2(MedalCheckSection, { query }),
+u$2(CbBackendSection, { query }),
 u$2(BackupSection, { query }),
 u$2(GroupHeading, { query, children: "系统" }),
           (!query || "日志设置 日志 行数".toLowerCase().includes(query)) && u$2("details", { className: "cb-settings-accordion", children: [
@@ -17925,6 +18610,7 @@ u$2(Tabs, {}),
 u$2("div", { className: panelClass(tab === "fasong"), children: visited.current.has("fasong") && u$2(S$1, { children: [
 u$2(AutoSendControls, {}),
 u$2("div", { children: u$2(AutoBlendControls, {}) }),
+u$2("div", { children: u$2(HzmDrivePanelMount, {}) }),
 u$2("div", { style: { margin: ".25rem 0" }, children: u$2(MemesList, {}) }),
 u$2(NormalSendTab, {})
               ] }) }),
@@ -18444,7 +19130,7 @@ u$2(AlertDialog, {})
   };
 }));
 
-System.register("./llm-driver-Ddax0Vb0-MvhvkKa6.js", ['./__monkey.entry-7BW_mupv.js', '@soniox/speech-to-text-web'], (function (exports, module) {
+System.register("./llm-driver-Bd484M2o-ACz5XDj-.js", ['./__monkey.entry-ZMW0ferm.js', '@soniox/speech-to-text-web'], (function (exports, module) {
   'use strict';
   var gmFetch, BASE_URL;
   return {
@@ -18455,6 +19141,7 @@ System.register("./llm-driver-Ddax0Vb0-MvhvkKa6.js", ['./__monkey.entry-7BW_mupv
     execute: (function () {
 
       exports({
+        buildOpenAICompatChatURL: buildOpenAICompatChatURL,
         chooseMemeWithLLM: chooseMemeWithLLM,
         testLLMConnection: testLLMConnection
       });
@@ -18468,8 +19155,11 @@ System.register("./llm-driver-Ddax0Vb0-MvhvkKa6.js", ['./__monkey.entry-7BW_mupv
           candidates: opts.candidates
         });
       }
-      function trimBaseURL(base) {
-        return base.replace(/\/+$/, "");
+      function buildOpenAICompatChatURL(base) {
+        const trimmed = base.replace(/\/+$/, "");
+        if (/\/v1\/chat\/completions$/i.test(trimmed)) return trimmed;
+        if (/\/v1$/i.test(trimmed)) return `${trimmed}/chat/completions`;
+        return `${trimmed}/v1/chat/completions`;
       }
       function parseAnthropicResponse(json) {
         if (!json || typeof json !== "object") return null;
@@ -18545,9 +19235,9 @@ System.register("./llm-driver-Ddax0Vb0-MvhvkKa6.js", ['./__monkey.entry-7BW_mupv
           } else if (opts.provider === "openai") {
             parsed = await callOpenAI(probe);
           } else {
-            const base = trimBaseURL(opts.baseURL ?? "");
+            const base = (opts.baseURL ?? "").trim();
             if (!base) return { ok: false, error: "需要填 base URL（例如 https://api.deepseek.com）" };
-            parsed = await callOpenAI(probe, `${base}/v1/chat/completions`);
+            parsed = await callOpenAI(probe, buildOpenAICompatChatURL(base));
           }
           if (parsed === null) return { ok: false, error: "响应里未解析出文本（模型可能返回了空）" };
           return { ok: true };
@@ -18563,9 +19253,9 @@ System.register("./llm-driver-Ddax0Vb0-MvhvkKa6.js", ['./__monkey.entry-7BW_mupv
         } else if (opts.provider === "openai") {
           parsed = await callOpenAI(opts);
         } else {
-          const base = trimBaseURL(opts.baseURL ?? "");
+          const base = (opts.baseURL ?? "").trim();
           if (!base) throw new Error("openai-compat 需要填 base URL（例如 https://api.deepseek.com）");
-          parsed = await callOpenAI(opts, `${base}/v1/chat/completions`);
+          parsed = await callOpenAI(opts, buildOpenAICompatChatURL(base));
         }
         if (!parsed) return null;
         const id = parsed.rawId.trim();

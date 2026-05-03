@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 
-import type { CustomChatEvent } from '../src/lib/custom-chat-events'
+import type { CustomChatEvent, CustomChatWsStatus } from '../src/lib/custom-chat-events'
 import type { DanmakuEvent, DanmakuSubscription } from '../src/lib/danmaku-stream'
 
 mock.module('$', () => ({
@@ -50,6 +50,16 @@ mock.module('../src/lib/emoticon', () => ({
   formatLockedEmoticonReject: () => '',
 }))
 
+// WS status mock — defaults to 'live' so existing tests (which expect the
+// shadow-ban warning to fire on missing echoes) keep passing. New tests flip
+// this via `setMockWsStatus()` to drive the readiness gate.
+let mockWsStatus: CustomChatWsStatus = 'live'
+const wsStatusHandlers = new Set<(status: CustomChatWsStatus) => void>()
+function setMockWsStatus(status: CustomChatWsStatus): void {
+  mockWsStatus = status
+  for (const handler of wsStatusHandlers) handler(status)
+}
+
 mock.module('../src/lib/custom-chat-events', () => ({
   subscribeCustomChatEvents: (handler: (ev: CustomChatEvent) => void) => {
     customChatHandlers.add(handler)
@@ -67,6 +77,19 @@ mock.module('../src/lib/custom-chat-events', () => ({
     }
     return null
   },
+  subscribeCustomChatWsStatus: (handler: (status: CustomChatWsStatus) => void) => {
+    wsStatusHandlers.add(handler)
+    handler(mockWsStatus)
+    return () => wsStatusHandlers.delete(handler)
+  },
+}))
+
+let mockStartLiveWsSourceCalls = 0
+mock.module('../src/lib/live-ws-source', () => ({
+  startLiveWsSource: () => {
+    mockStartLiveWsSourceCalls += 1
+  },
+  stopLiveWsSource: () => {},
 }))
 
 mock.module('../src/lib/danmaku-stream', () => ({
@@ -194,6 +217,9 @@ beforeEach(() => {
   guardRoomSyncKey.value = ''
   clearRecentDomDanmaku()
   clearVerifyBroadcastToastDedupe()
+  // Default to 'live' so existing shadow-ban tests can fire the ⚠️ warning
+  // without each test having to opt in. Gate-specific tests override below.
+  setMockWsStatus('live')
 })
 
 afterEach(() => {
@@ -402,6 +428,103 @@ describe('verifyBroadcast', () => {
     // Toast suppressed → ⚠️ goes to appendLogQuiet, plus 🛠 candidates also via appendLogQuiet.
     expect(appendLogCalls.length).toBe(0)
     expect(appendLogQuietCalls.some(m => /⚠️ 自动: silent/.test(m))).toBe(true)
+  })
+})
+
+describe('verifyBroadcast — WS readiness gate', () => {
+  test('WS not yet live: no ⚠️ warning, no 🛠 candidates, no observation, just a quiet ⚪ note', async () => {
+    setMockWsStatus('connecting')
+    aiEvasion.value = false
+    customChatHistory.push({ text: '某条', uid: '42', source: 'local', observedAt: Date.now() })
+
+    await verifyBroadcast({
+      text: '某条',
+      label: 'B站原生',
+      display: '某条',
+      sinceTs: Date.now() - 10,
+      timeoutMs: 30,
+    })
+
+    expect(appendLogCalls.some(m => /⚠️/.test(m))).toBe(false)
+    expect(appendLogQuietCalls.some(m => /⚠️/.test(m))).toBe(false)
+    expect(appendLogQuietCalls.some(m => /🛠/.test(m))).toBe(false)
+    expect(shadowBanObservations.value).toHaveLength(0)
+    expect(appendLogQuietCalls.some(m => /⚪ B站原生: 某条（广播校验跳过：WS 未就绪 connecting）/.test(m))).toBe(true)
+  })
+
+  test('WS off (default before Custom Chat / auto-blend run): also gated', async () => {
+    setMockWsStatus('off')
+    customChatHistory.push({ text: 'x', uid: '42', source: 'local', observedAt: Date.now() })
+
+    await verifyBroadcast({
+      text: 'x',
+      label: 'B站原生',
+      display: 'x',
+      sinceTs: Date.now() - 10,
+      timeoutMs: 30,
+    })
+
+    expect(appendLogCalls.some(m => /⚠️/.test(m))).toBe(false)
+    expect(appendLogQuietCalls.some(m => /⚪ B站原生: x（广播校验跳过：WS 未就绪 off）/.test(m))).toBe(true)
+  })
+
+  test('WS live + no echo: warning still fires (real shadow-ban path preserved)', async () => {
+    setMockWsStatus('live')
+    customChatHistory.push({ text: 'shadow', uid: '42', source: 'local', observedAt: Date.now() })
+
+    await verifyBroadcast({
+      text: 'shadow',
+      label: 'B站原生',
+      display: 'shadow',
+      sinceTs: Date.now() - 10,
+      timeoutMs: 30,
+    })
+
+    expect(appendLogCalls.some(m => /⚠️ B站原生: shadow.*接口成功但未检测到广播/.test(m))).toBe(true)
+  })
+
+  test('WS confirms broadcast: gate is moot, no warning regardless of status mirror', async () => {
+    setMockWsStatus('live')
+    const promise = verifyBroadcast({
+      text: 'good',
+      label: 'B站原生',
+      display: 'good',
+      sinceTs: Date.now(),
+      timeoutMs: 200,
+    })
+    setTimeout(() => emitWsDanmaku({ text: 'good', uid: '42', source: 'ws' }), 5)
+    await promise
+    expect(appendLogCalls).toEqual([])
+    expect(appendLogQuietCalls).toEqual([])
+  })
+
+  test('startLiveWsSource is invoked at most once across many verifyBroadcast calls', async () => {
+    // Module-level wsTrackingStarted persists across tests; assert that the
+    // first verifyBroadcast in this run started the source, and subsequent
+    // ones don't re-call it. We check ≤1 increment from a known baseline.
+    const before = mockStartLiveWsSourceCalls
+    setMockWsStatus('live')
+    const promise = verifyBroadcast({
+      text: 'idempotent-1',
+      label: '手动',
+      display: 'idempotent-1',
+      sinceTs: Date.now(),
+      timeoutMs: 30,
+    })
+    setTimeout(() => emitWsDanmaku({ text: 'idempotent-1', uid: '42', source: 'ws' }), 5)
+    await promise
+    const after1 = mockStartLiveWsSourceCalls
+    const promise2 = verifyBroadcast({
+      text: 'idempotent-2',
+      label: '手动',
+      display: 'idempotent-2',
+      sinceTs: Date.now(),
+      timeoutMs: 30,
+    })
+    setTimeout(() => emitWsDanmaku({ text: 'idempotent-2', uid: '42', source: 'ws' }), 5)
+    await promise2
+    expect(after1 - before).toBeLessThanOrEqual(1)
+    expect(mockStartLiveWsSourceCalls - after1).toBe(0)
   })
 })
 

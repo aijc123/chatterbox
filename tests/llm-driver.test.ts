@@ -121,6 +121,50 @@ describe('chooseMemeWithLLM — provider routing', () => {
     expect(captured[0].url).toBe('https://x.example.com/v1/chat/completions')
   })
 
+  test('openai-compat: baseURL ending in /v1 does not produce /v1/v1', async () => {
+    // Regression: 小米 mimo 的 base URL 是 https://token-plan-sgp.xiaomimimo.com/v1。
+    // 之前我们盲目追加 /v1/chat/completions → /v1/v1/... → 404 + TM 拒绝。
+    mockResponseFactory = () => ({ choices: [{ message: { content: '1' } }] })
+    await chooseMemeWithLLM({
+      provider: 'openai-compat',
+      apiKey: 'k',
+      model: 'mimo-v2.5-pro',
+      baseURL: 'https://token-plan-sgp.xiaomimimo.com/v1',
+      roomName: 'r',
+      recentChat: [],
+      candidates,
+    })
+    expect(captured[0].url).toBe('https://token-plan-sgp.xiaomimimo.com/v1/chat/completions')
+  })
+
+  test('openai-compat: baseURL already containing /v1/chat/completions is preserved', async () => {
+    mockResponseFactory = () => ({ choices: [{ message: { content: '1' } }] })
+    await chooseMemeWithLLM({
+      provider: 'openai-compat',
+      apiKey: 'k',
+      model: 'm',
+      baseURL: 'https://x.example.com/v1/chat/completions',
+      roomName: 'r',
+      recentChat: [],
+      candidates,
+    })
+    expect(captured[0].url).toBe('https://x.example.com/v1/chat/completions')
+  })
+
+  test('openai-compat: trailing slash after /v1 is normalized', async () => {
+    mockResponseFactory = () => ({ choices: [{ message: { content: '1' } }] })
+    await chooseMemeWithLLM({
+      provider: 'openai-compat',
+      apiKey: 'k',
+      model: 'm',
+      baseURL: 'https://x.example.com/v1/',
+      roomName: 'r',
+      recentChat: [],
+      candidates,
+    })
+    expect(captured[0].url).toBe('https://x.example.com/v1/chat/completions')
+  })
+
   test('openai-compat without baseURL throws', async () => {
     await expect(
       chooseMemeWithLLM({

@@ -1,41 +1,49 @@
 import { useSignal } from '@preact/signals'
-import { useEffect } from 'preact/hooks'
 
 import type { MemeSource } from '../lib/meme-sources'
-import type { LaplaceMemeWithSource } from '../lib/sbhzm-client'
 
 import { startHzmAutoDrive, stopHzmAutoDrive } from '../lib/hzm-auto-drive'
+import { getMemeSourceForRoom } from '../lib/meme-sources'
 import {
   cachedRoomId,
+  clearHzmLlmApiKey,
+  currentMemesList,
   getBlacklistTags,
   getDailyStats,
   getSelectedTags,
   type HzmDriveMode,
   type HzmLlmProvider,
+  hasConfirmedHzmRealFire,
+  hzmDriveEnabled,
   hzmDriveIntervalSec,
   hzmDriveMode,
+  hzmDriveStatusText,
   hzmDryRun,
   hzmLlmApiKey,
+  hzmLlmApiKeyPersist,
   hzmLlmBaseURL,
   hzmLlmModel,
   hzmLlmProvider,
   hzmLlmRatio,
+  hzmPanelOpen,
   hzmPauseKeywordsOverride,
   hzmRateLimitPerMin,
   sendMsg,
   setBlacklistTags,
   setSelectedTags,
 } from '../lib/store'
+import { extractRoomNumber } from '../lib/utils'
 
 /**
- * 智能辅助驾驶面板。
+ * 智能辅助驾驶（灰泽满烂梗库）独立面板。
  *
- * 设计原则：和「独轮车（auto-send-controls.tsx）」视觉/交互保持一致——
- *  - 用 cb-row / cb-stack / cb-body / cb-panel 类
- *  - 主控用大「开车 / 停车」按钮 + 模式按钮组（启发式 / LLM 智驾）
- *  - LLM 区有内联状态指示 + 「测试连接」按钮
- *
- * 默认模式：off。点开车 → heuristic（最安全的进场）。dryRun 默认 true。
+ * 设计：UIUX 镜像 `AutoBlendControls`：
+ *  - 顶部：开车/停车按钮 + 状态指示点
+ *  - 第二行：模式 segment（启发式 / LLM 智驾），仅切换模式偏好，不会启动
+ *  - 试运行 复选框
+ *  - 状态面板：今日已发 / 刚刚动作
+ *  - 高级设置 折叠
+ *  - LLM 配置 折叠（仅 mode=llm 时显示）
  */
 
 const PROVIDER_LABEL: Record<HzmLlmProvider, string> = {
@@ -44,26 +52,67 @@ const PROVIDER_LABEL: Record<HzmLlmProvider, string> = {
   'openai-compat': 'OpenAI 兼容',
 }
 
-const MODE_LABEL: Record<Exclude<HzmDriveMode, 'off'>, string> = {
+const MODE_LABEL: Record<HzmDriveMode, string> = {
   heuristic: '启发式',
   llm: 'LLM 智驾',
 }
 
-/** 把 API key 显示成 `sk-1234...abcd` 这种半遮罩形态，避免完整泄露。 */
+const MODE_HINT: Record<HzmDriveMode, string> = {
+  heuristic: '关键词触发，按 tag 命中本地梗库',
+  llm: '由 LLM 阅读弹幕选梗，需要 API key',
+}
+
+/** 把 API key 显示成 `sk-1234...abcd` 这种半遮罩形态。 */
 function maskKey(k: string): string {
   const trimmed = k.trim()
   if (trimmed.length <= 8) return trimmed ? `${trimmed[0]}***${trimmed.at(-1)}` : ''
   return `${trimmed.slice(0, 4)}…${trimmed.slice(-4)}`
 }
 
-export function HzmDrivePanel({ source, memes }: { source: MemeSource; memes: LaplaceMemeWithSource[] }) {
+function modeButtonStyle(active: boolean) {
+  return {
+    fontWeight: active ? ('bold' as const) : undefined,
+  }
+}
+
+/**
+ * 在配置面板里挂载智驾——仅当当前房间在 meme-sources 注册表里有匹配源时显示。
+ * 目前只有灰泽满（roomId 1713546334）。
+ *
+ * 立即可见性：cachedRoomId 要等 ensureRoomId() 的网络解析（room_init）回来才会
+ * 被填上，开面板时会有一两秒空窗。对现代房间，URL slug 就是真实 room_id，
+ * 所以先用 URL slug 同步查一次注册表——能命中就立即渲染，不必等 API。等
+ * cachedRoomId 实际写入后，下面的 HzmDrivePanel 会自然重渲染拿到正确的统计。
+ */
+function resolveCurrentRoomIdSync(): number | null {
+  const fromCache = cachedRoomId.value
+  if (fromCache !== null) return fromCache
+  try {
+    const slug = extractRoomNumber(window.location.href)
+    if (!slug) return null
+    const n = Number(slug)
+    return Number.isFinite(n) && n > 0 ? n : null
+  } catch {
+    return null
+  }
+}
+
+export function HzmDrivePanelMount() {
+  const source = getMemeSourceForRoom(resolveCurrentRoomIdSync())
+  if (!source) return null
+  return <HzmDrivePanel source={source} />
+}
+
+export function HzmDrivePanel({ source }: { source: MemeSource }) {
   const roomId = cachedRoomId.value
   const stats = getDailyStats(roomId)
   const selected = getSelectedTags(roomId)
   const blacklist = getBlacklistTags(roomId)
-  const isRunning = hzmDriveMode.value !== 'off'
+  const isOn = hzmDriveEnabled.value
+  const mode = hzmDriveMode.value
 
-  // 当前梗列表里出现过的所有 tag（用作偏好/黑名单选项）
+  // 当前梗集里出现过的 tag（偏好 / 黑名单选项源）
+  const memes = currentMemesList.value
   const tagOptions: string[] = (() => {
     const set = new Set<string>()
     for (const m of memes) {
@@ -74,31 +123,37 @@ export function HzmDrivePanel({ source, memes }: { source: MemeSource; memes: La
     return [...set].sort()
   })()
 
-  // 模式变化 → 启停 runtime（off 时停车，否则按当前 mode 启动）
-  useEffect(() => {
-    if (hzmDriveMode.value === 'off') {
-      stopHzmAutoDrive()
-      return
-    }
-    void startHzmAutoDrive({ source, getMemes: () => memes })
-    return () => stopHzmAutoDrive()
-  }, [hzmDriveMode.value, source.roomId])
-
   // 测试连接状态
   const testStatus = useSignal<'idle' | 'testing' | 'ok' | 'fail'>('idle')
   const testError = useSignal<string>('')
+  const advancedOpen = useSignal(false)
+  const llmConfigOpen = useSignal(false)
 
-  const toggleDrive = () => {
-    if (isRunning) {
-      hzmDriveMode.value = 'off'
-    } else {
-      // 默认进场启发式（不需要 key、最稳）
-      hzmDriveMode.value = 'heuristic'
+  const statusText = hzmDriveStatusText.value
+  const statusColor = !isOn
+    ? '#777'
+    : statusText.includes('试运行')
+      ? '#a15c00'
+      : statusText.includes('运行中')
+        ? '#1677ff'
+        : '#0a7f55'
+
+  const toggleEnabled = () => {
+    if (isOn) {
+      hzmDriveEnabled.value = false
+      stopHzmAutoDrive()
+      return
     }
-  }
-
-  const setMode = (m: Exclude<HzmDriveMode, 'off'>) => {
-    hzmDriveMode.value = m
+    // 关 → 开：非试运行且未确认过，先弹一次提示
+    if (!hzmDryRun.value && !hasConfirmedHzmRealFire.value) {
+      const ok = confirm(
+        '智能辅助驾驶将会以你的账号真实发送弹幕（试运行已关闭）。\n\n建议先打开「试运行」观察一段时间。是否继续直接开车？'
+      )
+      if (!ok) return
+      hasConfirmedHzmRealFire.value = true
+    }
+    hzmDriveEnabled.value = true
+    void startHzmAutoDrive({ source, getMemes: () => currentMemesList.value })
   }
 
   const handleTestLLM = async () => {
@@ -140,256 +195,260 @@ export function HzmDrivePanel({ source, memes }: { source: MemeSource; memes: La
 
   return (
     <details
-      style={{
-        marginTop: '.6em',
-        padding: '.4em .5em',
-        border: '1px solid var(--Ga2, #ccc)',
-        borderRadius: '4px',
-        background: 'var(--bg2, #fafafa)',
+      open={hzmPanelOpen.value}
+      onToggle={e => {
+        hzmPanelOpen.value = e.currentTarget.open
       }}
     >
       <summary style={{ cursor: 'pointer', userSelect: 'none', fontWeight: 'bold' }}>
-        <span>🤖 智能辅助驾驶（{source.name}）</span>
-        {isRunning && (
-          <span className='cb-soft'>运行中 · {MODE_LABEL[hzmDriveMode.value as Exclude<HzmDriveMode, 'off'>]}</span>
-        )}
+        <span>智能辅助驾驶（{source.name}）</span>
+        {isOn && <span className='cb-soft'>已开</span>}
       </summary>
 
       <div className='cb-body cb-stack'>
-        {/* 免责 */}
-        <div
-          className='cb-panel'
-          style={{
-            background: '#fff7e6',
-            borderColor: '#d6b86a',
-            color: '#a86',
-            fontSize: '11px',
-            lineHeight: 1.5,
-          }}
-        >
-          前排提霉：独轮车工具无罪，请合理使用。开启即代表你已同意：本工具不为任何独轮车自动驾驶事故负责。 建议先用{' '}
-          <b>dryRun</b> 试运行 5 分钟看效果。
+        <div className='cb-note' style={{ marginBottom: '.25em' }}>
+          条件满足时，会以你的账号自动从烂梗库挑选并发送弹幕。第一次开启建议先打开下方的「试运行」观察效果。
         </div>
 
-        {/* 主控行：开车按钮 + 模式按钮组 + dryRun */}
-        <div className='cb-row'>
-          <button
-            type='button'
-            className={isRunning ? 'cb-danger' : 'cb-primary'}
-            onClick={toggleDrive}
-            title={isRunning ? '点击停止智驾' : '点击启动智驾（默认启发式模式）'}
-          >
-            {isRunning ? '停车' : '开车'}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '.5em', alignItems: 'center' }}>
+          <button type='button' className={isOn ? 'cb-danger' : 'cb-primary'} onClick={toggleEnabled}>
+            {isOn ? '停车' : '开车'}
           </button>
-          <span>模式</span>
-          {(['heuristic', 'llm'] as const).map(m => (
-            <button
-              key={m}
-              type='button'
-              className={hzmDriveMode.value === m ? 'cb-primary' : ''}
-              style={{
-                fontSize: '11px',
-                padding: '.15em .6em',
-                opacity: isRunning ? 1 : 0.6,
-              }}
-              onClick={() => setMode(m)}
-              title={
-                m === 'heuristic'
-                  ? '启发式：用关键词正则 + 偏好 tag 选梗，不调用 LLM。免费、稳定。'
-                  : 'LLM 智驾：每 N 次 tick 用大模型选梗，其余仍走启发式。需要 API key。'
-              }
-            >
-              {MODE_LABEL[m]}
-            </button>
-          ))}
-          <span className='cb-row' style={{ marginLeft: '.5em' }}>
-            <input
-              id='hzmDryRun'
-              type='checkbox'
-              checked={hzmDryRun.value}
-              onInput={e => {
-                hzmDryRun.value = e.currentTarget.checked
-              }}
-            />
-            <label for='hzmDryRun' title='只在日志显示候选，不真发到弹幕——新手强烈建议先开'>
-              dryRun
-            </label>
+          <span
+            style={{
+              color: statusColor,
+              fontWeight: 'bold',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <span className='cb-status-dot' /> {statusText}
           </span>
         </div>
 
-        {/* 节奏面板（仅运行时展开） */}
-        {isRunning && (
-          <div className='cb-panel cb-stack'>
-            <div className='cb-row'>
-              <span>间隔</span>
-              <input
-                type='number'
-                min='3'
-                max='120'
-                style={{ width: '40px' }}
-                value={hzmDriveIntervalSec.value}
-                onInput={e => {
-                  const v = parseInt(e.currentTarget.value, 10)
-                  if (Number.isFinite(v) && v > 0) hzmDriveIntervalSec.value = v
+        <div>
+          <div className='cb-segment'>
+            {(['heuristic', 'llm'] as const).map(m => (
+              <button
+                key={m}
+                type='button'
+                aria-pressed={mode === m}
+                onClick={() => {
+                  hzmDriveMode.value = m
+                  testStatus.value = 'idle'
                 }}
-                title='基础 tick 间隔（秒），实际加 0.7-1.5x 的随机抖动。建议 5-15。'
-              />
-              <span>秒，每分钟最多</span>
-              <input
-                type='number'
-                min='1'
-                max='20'
-                style={{ width: '40px' }}
-                value={hzmRateLimitPerMin.value}
-                onInput={e => {
-                  const v = parseInt(e.currentTarget.value, 10)
-                  if (Number.isFinite(v) && v > 0) hzmRateLimitPerMin.value = v
-                }}
-                title='硬限速。同时开文字独轮车会叠加发送量，建议保持 ≤6 单独使用。'
-              />
-              <span>条</span>
-              {hzmDriveMode.value === 'llm' && (
-                <>
-                  <span style={{ marginLeft: '.5em' }}>，LLM 每</span>
-                  <input
-                    type='number'
-                    min='1'
-                    max='10'
-                    style={{ width: '36px' }}
-                    value={hzmLlmRatio.value}
-                    onInput={e => {
-                      const v = parseInt(e.currentTarget.value, 10)
-                      if (Number.isFinite(v) && v >= 1) hzmLlmRatio.value = v
-                    }}
-                    title='1=每次都用 LLM；3=每 3 次用 1 次（其它走启发式，省 API 费）'
-                  />
-                  <span>次</span>
-                </>
-              )}
-            </div>
-
-            {/* 偏好 / 黑名单 tag */}
-            {tagOptions.length > 0 && (
-              <>
-                <div className='cb-row' style={{ flexWrap: 'wrap' }}>
-                  <span style={{ fontWeight: 'bold', minWidth: '4em' }} title='只从勾选 tag 的梗里选；空 = 全部'>
-                    偏好 tag
-                  </span>
-                  {tagOptions.map(t => (
-                    <button
-                      key={t}
-                      type='button'
-                      className='cb-tag'
-                      onClick={() => toggleSelectedTag(t)}
-                      style={{
-                        padding: '.05em .4em',
-                        background: selected.includes(t) ? '#10b981' : '#bbb',
-                        border: 'none',
-                        borderRadius: '2px',
-                        color: '#fff',
-                        cursor: 'pointer',
-                        fontSize: '11px',
-                      }}
-                    >
-                      {t}
-                    </button>
-                  ))}
-                </div>
-                <div className='cb-row' style={{ flexWrap: 'wrap' }}>
-                  <span style={{ fontWeight: 'bold', minWidth: '4em' }} title='命中即跳过的 tag'>
-                    黑名单
-                  </span>
-                  {tagOptions.map(t => (
-                    <button
-                      key={t}
-                      type='button'
-                      className='cb-tag'
-                      onClick={() => toggleBlacklistTag(t)}
-                      style={{
-                        padding: '.05em .4em',
-                        background: blacklist.includes(t) ? '#ef4444' : '#bbb',
-                        border: 'none',
-                        borderRadius: '2px',
-                        color: '#fff',
-                        cursor: 'pointer',
-                        fontSize: '11px',
-                      }}
-                    >
-                      {t}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-
-            {/* 暂停关键词 */}
-            <div className='cb-row'>
-              <span style={{ fontWeight: 'bold', minWidth: '4em' }}>暂停词</span>
-              <span style={{ fontSize: '10px', color: '#888' }}>
-                每行一条正则；命中后 60s 不发。空 = 用默认（{pauseDefault || '无'}）
-              </span>
-            </div>
-            <textarea
-              rows={2}
-              value={hzmPauseKeywordsOverride.value}
-              onInput={e => {
-                hzmPauseKeywordsOverride.value = e.currentTarget.value
-              }}
-              style={{ boxSizing: 'border-box', width: '100%', fontSize: '11px', resize: 'vertical' }}
-              placeholder={(source.pauseKeywords ?? []).join('\n')}
-            />
-
-            {/* 统计 */}
-            <div className='cb-row' style={{ fontSize: '11px', color: '#666' }}>
-              今日已发：<b>{stats.sent}</b> 条 · LLM 调用：<b>{stats.llmCalls}</b> 次
-            </div>
-
-            {/* 文字独轮车互斥提示 */}
-            {sendMsg.value && (
-              <div
-                className='cb-soft'
-                style={{
-                  padding: '.25em .4em',
-                  background: '#fee',
-                  border: '1px dashed #d33',
-                  borderRadius: '3px',
-                  color: '#a30',
-                  fontSize: '11px',
-                }}
+                style={modeButtonStyle(mode === m)}
+                title={MODE_HINT[m]}
               >
-                ⚠️ 文字独轮车正在运行，与智驾叠加可能超出每分钟限速。建议先停一个。
-              </div>
-            )}
+                {MODE_LABEL[m]}
+              </button>
+            ))}
+          </div>
+          <div className='cb-note' style={{ marginTop: '.25em' }}>
+            当前：{MODE_HINT[mode]}
+          </div>
+        </div>
+
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
+          <input
+            id='hzmDryRun'
+            type='checkbox'
+            checked={hzmDryRun.value}
+            onInput={e => {
+              hzmDryRun.value = e.currentTarget.checked
+            }}
+          />
+          <label for='hzmDryRun' title='开启后只在日志显示候选，不真发到弹幕——新手强烈建议先开'>
+            试运行（只观察，不发送）
+          </label>
+          {!hzmDryRun.value && (
+            <span style={{ color: '#a15c00', fontSize: '0.85em' }} title='当前关闭试运行，会真实发送弹幕。'>
+              关闭后会真实发送
+            </span>
+          )}
+        </span>
+
+        <div
+          className='cb-panel'
+          style={{
+            color: isOn ? undefined : '#999',
+            lineHeight: 1.6,
+          }}
+        >
+          <div style={{ display: 'grid', gridTemplateColumns: '4.5em 1fr', gap: '.25em' }}>
+            <strong>今日</strong>
+            <span>
+              已发 <b>{stats.sent}</b> 条 · LLM 调用 <b>{stats.llmCalls}</b> 次
+            </span>
+          </div>
+        </div>
+
+        {sendMsg.value && (
+          <div style={{ color: '#a15c00', fontSize: '12px', lineHeight: 1.5 }}>
+            文字独轮车正在运行，与智驾叠加可能超出每分钟限速，建议先停一个。
           </div>
         )}
+      </div>
 
-        {/* LLM 设置（仅 mode=llm 显示） */}
-        {hzmDriveMode.value === 'llm' && (
-          <div className='cb-panel cb-stack'>
-            <div className='cb-row' style={{ fontWeight: 'bold', fontSize: '11px' }}>
-              LLM 设置
-            </div>
+      <details
+        open={advancedOpen.value}
+        onToggle={e => {
+          advancedOpen.value = e.currentTarget.open
+        }}
+        style={{ marginTop: '.5em' }}
+      >
+        <summary style={{ cursor: 'pointer', userSelect: 'none' }}>高级设置</summary>
 
-            {/* Provider 按钮组 */}
-            <div className='cb-row'>
-              <span>Provider</span>
-              {(['anthropic', 'openai', 'openai-compat'] as const).map(p => (
-                <button
-                  key={p}
-                  type='button'
-                  className={hzmLlmProvider.value === p ? 'cb-primary' : ''}
-                  style={{ fontSize: '11px', padding: '.15em .5em' }}
-                  onClick={() => {
-                    hzmLlmProvider.value = p
-                    testStatus.value = 'idle'
+        <div
+          style={{
+            margin: '.5em 0',
+            display: 'grid',
+            gap: '.5em',
+            color: isOn ? undefined : '#999',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '.25em' }}>
+            <span>发送间隔</span>
+            <input
+              type='number'
+              min='3'
+              max='120'
+              style={{ width: '40px' }}
+              value={hzmDriveIntervalSec.value}
+              onInput={e => {
+                const v = parseInt(e.currentTarget.value, 10)
+                if (Number.isFinite(v) && v > 0) hzmDriveIntervalSec.value = v
+              }}
+              title='基础间隔（秒），实际会再加 0.7~1.5× 的随机抖动。建议 5–15。'
+            />
+            <span>秒，每分钟最多</span>
+            <input
+              type='number'
+              min='1'
+              max='20'
+              style={{ width: '40px' }}
+              value={hzmRateLimitPerMin.value}
+              onInput={e => {
+                const v = parseInt(e.currentTarget.value, 10)
+                if (Number.isFinite(v) && v > 0) hzmRateLimitPerMin.value = v
+              }}
+              title='硬限速。同时开文字独轮车会叠加发送量，建议保持 ≤6 单独使用。'
+            />
+            <span>条</span>
+            {mode === 'llm' && (
+              <>
+                <span style={{ marginLeft: '.5em' }}>，LLM 每</span>
+                <input
+                  type='number'
+                  min='1'
+                  max='10'
+                  style={{ width: '36px' }}
+                  value={hzmLlmRatio.value}
+                  onInput={e => {
+                    const v = parseInt(e.currentTarget.value, 10)
+                    if (Number.isFinite(v) && v >= 1) hzmLlmRatio.value = v
                   }}
-                >
-                  {PROVIDER_LABEL[p]}
-                </button>
-              ))}
+                  title='1=每次都用 LLM；3=每 3 次用 1 次（其它走启发式，省 API 费）'
+                />
+                <span>次</span>
+              </>
+            )}
+          </div>
+
+          {tagOptions.length > 0 ? (
+            <>
+              <div className='cb-row'>
+                <span style={{ fontWeight: 'bold', minWidth: '4em' }} title='只从勾选 tag 的梗里选；空 = 全部'>
+                  偏好 tag
+                </span>
+                {tagOptions.map(t => (
+                  <button
+                    key={t}
+                    type='button'
+                    className='cb-tag'
+                    onClick={() => toggleSelectedTag(t)}
+                    title={selected.includes(t) ? '已加入偏好，点击取消' : '点击加入偏好'}
+                    style={{ '--cb-tag-bg': selected.includes(t) ? '#34c759' : undefined }}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+              <div className='cb-row'>
+                <span style={{ fontWeight: 'bold', minWidth: '4em' }} title='命中即跳过的 tag'>
+                  黑名单
+                </span>
+                {tagOptions.map(t => (
+                  <button
+                    key={t}
+                    type='button'
+                    className='cb-tag'
+                    onClick={() => toggleBlacklistTag(t)}
+                    title={blacklist.includes(t) ? '已拉黑，点击取消' : '点击拉黑这个 tag'}
+                    style={{ '--cb-tag-bg': blacklist.includes(t) ? '#ff3b30' : undefined }}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className='cb-empty'>梗库还没加载到 tag。等列表载入后再来选偏好与黑名单。</div>
+          )}
+
+          <div className='cb-row'>
+            <span style={{ fontWeight: 'bold', minWidth: '4em' }}>暂停词</span>
+            <span style={{ fontSize: '10px', color: '#888' }}>
+              每行一条正则；命中后 60s 不发。空 = 用默认（{pauseDefault || '无'}）
+            </span>
+          </div>
+          <textarea
+            rows={2}
+            value={hzmPauseKeywordsOverride.value}
+            onInput={e => {
+              hzmPauseKeywordsOverride.value = e.currentTarget.value
+            }}
+            style={{ boxSizing: 'border-box', width: '100%', fontSize: '11px', resize: 'vertical' }}
+            placeholder={(source.pauseKeywords ?? []).join('\n')}
+          />
+        </div>
+      </details>
+
+      {mode === 'llm' && (
+        <details
+          open={llmConfigOpen.value}
+          onToggle={e => {
+            llmConfigOpen.value = e.currentTarget.open
+          }}
+          style={{ marginTop: '.5em' }}
+        >
+          <summary style={{ cursor: 'pointer', userSelect: 'none' }}>
+            LLM 配置
+            <span className='cb-soft' style={{ marginLeft: '.4em' }}>
+              {apiKeyConfigured ? '已配置' : '未配置'}
+            </span>
+          </summary>
+
+          <div className='cb-stack' style={{ margin: '.5em 0' }}>
+            <div className='cb-row'>
+              <span style={{ minWidth: '4em' }}>Provider</span>
+              <div className='cb-segment' style={{ flex: 1, minWidth: 0 }}>
+                {(['anthropic', 'openai', 'openai-compat'] as const).map(p => (
+                  <button
+                    key={p}
+                    type='button'
+                    aria-pressed={hzmLlmProvider.value === p}
+                    style={modeButtonStyle(hzmLlmProvider.value === p)}
+                    onClick={() => {
+                      hzmLlmProvider.value = p
+                      testStatus.value = 'idle'
+                    }}
+                  >
+                    {PROVIDER_LABEL[p]}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            {/* API key + 内联状态 */}
             <div className='cb-row'>
               <span style={{ minWidth: '4em' }}>API Key</span>
               <input
@@ -402,18 +461,41 @@ export function HzmDrivePanel({ source, memes }: { source: MemeSource; memes: La
                 placeholder='sk-... 或 anthropic key'
                 style={{ flex: 1, minWidth: 0, boxSizing: 'border-box' }}
               />
-              <span
-                style={{
-                  fontSize: '11px',
-                  color: apiKeyConfigured ? '#0a0' : '#888',
-                  whiteSpace: 'nowrap',
+              <span className='cb-soft' style={{ whiteSpace: 'nowrap' }}>
+                {apiKeyConfigured ? maskKey(hzmLlmApiKey.value) : '未配置'}
+              </span>
+              <button
+                type='button'
+                disabled={!apiKeyConfigured}
+                onClick={() => {
+                  clearHzmLlmApiKey()
+                  testStatus.value = 'idle'
                 }}
+                title='把 key 从内存和 GM 存储里都抹掉'
               >
-                {apiKeyConfigured ? `✅ ${maskKey(hzmLlmApiKey.value)}` : '⚪ 未配置'}
+                清除
+              </button>
+            </div>
+            <div className='cb-row'>
+              <span style={{ minWidth: '4em' }} />
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em', flex: 1 }}>
+                <input
+                  id='hzmLlmApiKeyPersist'
+                  type='checkbox'
+                  checked={hzmLlmApiKeyPersist.value}
+                  onInput={e => {
+                    hzmLlmApiKeyPersist.value = e.currentTarget.checked
+                  }}
+                />
+                <label
+                  for='hzmLlmApiKeyPersist'
+                  title='不勾：key 仅留在内存，刷新页面就清空，GM 存储里的旧值也立即抹掉'
+                >
+                  保存到 GM 存储（关闭后仅本次会话有效）
+                </label>
               </span>
             </div>
 
-            {/* 模型 */}
             <div className='cb-row'>
               <span style={{ minWidth: '4em' }}>模型</span>
               <input
@@ -423,13 +505,12 @@ export function HzmDrivePanel({ source, memes }: { source: MemeSource; memes: La
                   hzmLlmModel.value = e.currentTarget.value
                   testStatus.value = 'idle'
                 }}
-                placeholder='claude-haiku-4-5-20251001 / gpt-4o-mini / deepseek-chat'
+                placeholder='例：claude-haiku-4-5-20251001'
                 title='Anthropic 推荐 claude-haiku-4-5-20251001；OpenAI 推荐 gpt-4o-mini；DeepSeek 用 deepseek-chat'
                 style={{ flex: 1, minWidth: 0, boxSizing: 'border-box' }}
               />
             </div>
 
-            {/* Base URL（仅 openai-compat 显示） */}
             {hzmLlmProvider.value === 'openai-compat' && (
               <div className='cb-row'>
                 <span style={{ minWidth: '4em' }}>Base URL</span>
@@ -440,14 +521,13 @@ export function HzmDrivePanel({ source, memes }: { source: MemeSource; memes: La
                     hzmLlmBaseURL.value = e.currentTarget.value
                     testStatus.value = 'idle'
                   }}
-                  placeholder='https://api.deepseek.com（不带尾斜线，自动追加 /v1/chat/completions）'
-                  title='DeepSeek=https://api.deepseek.com / Moonshot=https://api.moonshot.cn / OpenRouter=https://openrouter.ai/api'
+                  placeholder='https://api.deepseek.com（带不带 /v1 都行，自动补全到 /v1/chat/completions）'
+                  title='DeepSeek=https://api.deepseek.com / Moonshot=https://api.moonshot.cn / OpenRouter=https://openrouter.ai/api / 小米 mimo=https://token-plan-sgp.xiaomimimo.com/v1'
                   style={{ flex: 1, minWidth: 0, boxSizing: 'border-box' }}
                 />
               </div>
             )}
 
-            {/* 测试连接 */}
             <div className='cb-row'>
               <button
                 type='button'
@@ -455,21 +535,29 @@ export function HzmDrivePanel({ source, memes }: { source: MemeSource; memes: La
                 onClick={() => void handleTestLLM()}
                 title='发一个最小请求验证 key/路由能跑通；不消耗你的实际智驾配额'
               >
-                {testStatus.value === 'testing' ? '测试中…' : '🧪 测试连接'}
+                {testStatus.value === 'testing' ? '测试中…' : '测试连接'}
               </button>
-              {testStatus.value === 'ok' && <span style={{ color: '#0a0', fontSize: '11px' }}>✅ 连接成功</span>}
+              {testStatus.value === 'ok' && (
+                <span className='cb-soft' style={{ color: '#0a7f55' }}>
+                  连接成功
+                </span>
+              )}
               {testStatus.value === 'fail' && (
-                <span style={{ color: '#c00', fontSize: '11px', wordBreak: 'break-all' }}>❌ {testError.value}</span>
+                <span style={{ color: '#c00', fontSize: '11px', wordBreak: 'break-all' }}>
+                  连接失败：{testError.value}
+                </span>
               )}
             </div>
 
-            <div style={{ fontSize: '10px', color: '#a86', lineHeight: 1.4 }}>
-              ⚠️ Key 明文保存在浏览器 GM 存储，泄露风险自担。openai-compat 自定义域首次调用时 Tampermonkey
-              可能弹权限确认。
+            <div className='cb-note' style={{ color: '#a15c00' }}>
+              {hzmLlmApiKeyPersist.value
+                ? 'Key 明文保存在浏览器 GM 存储；共用电脑或备份导出会暴露。担心可关掉「保存到 GM 存储」改为仅本会话。'
+                : 'Key 仅留在内存，刷新页面后清空。'}
+              openai-compat 自定义域首次调用时 Tampermonkey 会弹权限确认，需手动允许。
             </div>
           </div>
-        )}
-      </div>
+        </details>
+      )}
     </details>
   )
 }

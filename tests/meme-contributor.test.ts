@@ -32,6 +32,8 @@ const {
   memeContributorSeenTextsByRoom,
 } = await import('../src/lib/store')
 
+const { currentMemesList } = await import('../src/lib/store-meme')
+
 const { clearMemeSession, ignoreMemeCandidate, recordMemeCandidate } = await import('../src/lib/meme-contributor')
 
 function setClock(ms: number): void {
@@ -55,6 +57,8 @@ describe('meme-contributor per-room isolation', () => {
     clearMemeSession(ROOM_A)
     clearMemeSession(ROOM_B)
     cachedRoomId.value = null
+    // Phase D: 默认空 library,大多数测试不需要"已在库"过滤介入。
+    currentMemesList.value = []
   })
 
   test('candidate added in room A is not visible in room B', () => {
@@ -157,6 +161,53 @@ describe('meme-contributor per-room isolation', () => {
 
     cachedRoomId.value = ROOM_B
     expect(memeContributorSeenTexts.value).toEqual([])
+  })
+
+  // Phase D: "已在库自动跳过" —— 当前烂梗库已包含某条文本(经规整后等同),
+  // 候选挖掘不应该再把它加入 candidates,而是直接放进 seen,避免重复打扰。
+  describe('skip-if-already-in-library (Phase D)', () => {
+    function fakeMeme(content: string): { content: string; id: number } {
+      // currentMemesList 元素只需要 .content 字段被读取,其它字段不影响测试逻辑。
+      return { content, id: 1 } as never
+    }
+
+    test('candidate that exactly matches an existing library entry is skipped', () => {
+      currentMemesList.value = [fakeMeme('已在库的梗')] as never
+      recordMemeCandidate('已在库的梗', ROOM_A)
+      advance(TEN_MIN_MS + 1000)
+      recordMemeCandidate('已在库的梗', ROOM_A)
+
+      expect(memeContributorCandidatesByRoom.value[String(ROOM_A)]).toBeUndefined()
+      expect(memeContributorSeenTextsByRoom.value[String(ROOM_A)]).toContain('已在库的梗')
+    })
+
+    test('matches across whitespace / case / zero-width differences', () => {
+      currentMemesList.value = [fakeMeme('Hello World')] as never
+      recordMemeCandidate('  hello   world  ', ROOM_A)
+      advance(TEN_MIN_MS + 1000)
+      recordMemeCandidate('  hello   world  ', ROOM_A)
+
+      expect(memeContributorCandidatesByRoom.value[String(ROOM_A)]).toBeUndefined()
+      expect(memeContributorSeenTextsByRoom.value[String(ROOM_A)]).toContain('  hello   world  ')
+    })
+
+    test('candidate not in library still goes through normal flow', () => {
+      currentMemesList.value = [fakeMeme('完全无关的另一条')] as never
+      recordMemeCandidate('真正的新梗AAA', ROOM_A)
+      advance(TEN_MIN_MS + 1000)
+      recordMemeCandidate('真正的新梗AAA', ROOM_A)
+
+      expect(memeContributorCandidatesByRoom.value[String(ROOM_A)]).toContain('真正的新梗AAA')
+    })
+
+    test('empty library list is treated as "no filter active"', () => {
+      currentMemesList.value = []
+      recordMemeCandidate('库还没载完时的梗', ROOM_A)
+      advance(TEN_MIN_MS + 1000)
+      recordMemeCandidate('库还没载完时的梗', ROOM_A)
+
+      expect(memeContributorCandidatesByRoom.value[String(ROOM_A)]).toContain('库还没载完时的梗')
+    })
   })
 
   test('record is a no-op when enableMemeContribution is off', () => {

@@ -18,11 +18,14 @@
  * 与文字独轮车（loop.ts）共存：同上，只是日志多一条提示。
  */
 
+import { effect } from '@preact/signals'
+
 import type { MemeSource } from './meme-sources'
 import type { LaplaceMemeWithSource } from './sbhzm-client'
 
 import { ensureRoomId, getCsrfToken } from './api'
 import { subscribeDanmaku } from './danmaku-stream'
+import { formatHzmDriveStatus } from './hzm-drive-status'
 import { appendLog, notifyUser } from './log'
 import { enqueueDanmaku, SendPriority } from './send-queue'
 import {
@@ -31,8 +34,10 @@ import {
   getBlacklistTags,
   getRecentSent,
   getSelectedTags,
+  hzmDriveEnabled,
   hzmDriveIntervalSec,
   hzmDriveMode,
+  hzmDriveStatusText,
   hzmDryRun,
   hzmLlmApiKey,
   hzmLlmBaseURL,
@@ -63,6 +68,8 @@ let heuristicTickCount = 0
 let activeRoomId: number | null = null
 let activeSource: MemeSource | null = null
 let memesProvider: (() => LaplaceMemeWithSource[]) | null = null
+/** 最近一次成功发送（含 dryRun 候选）的时间戳。喂给 formatHzmDriveStatus。 */
+let lastActionAt: number | null = null
 
 /** 重置全部运行时状态（停车时调用）。 */
 function resetRuntime(): void {
@@ -73,7 +80,27 @@ function resetRuntime(): void {
   activeRoomId = null
   activeSource = null
   memesProvider = null
+  lastActionAt = null
 }
+
+function updateHzmStatusText(): void {
+  hzmDriveStatusText.value = formatHzmDriveStatus({
+    enabled: hzmDriveEnabled.value,
+    mode: hzmDriveMode.value,
+    dryRun: hzmDryRun.value,
+    lastActionAt,
+    now: Date.now(),
+  })
+}
+
+// 任何相关 signal 变化都让状态文本重算。
+effect(() => {
+  // touch all deps to subscribe
+  void hzmDriveEnabled.value
+  void hzmDriveMode.value
+  void hzmDryRun.value
+  updateHzmStatusText()
+})
 
 function getRecentDanmuTexts(): string[] {
   const cutoff = Date.now() - RECENT_DANMU_TTL_MS
@@ -232,8 +259,10 @@ async function pickByLLM(roomId: number, source: MemeSource): Promise<LaplaceMem
 
 async function sendOne(roomId: number, meme: LaplaceMemeWithSource): Promise<void> {
   if (hzmDryRun.value) {
-    appendLog(`🚗[dryRun] 智驾候选：${meme.content}`)
+    appendLog(`🚗[试运行] 智驾候选：${meme.content}`)
     pushRecentSent(roomId, meme.content)
+    lastActionAt = Date.now()
+    updateHzmStatusText()
     return
   }
 
@@ -250,6 +279,8 @@ async function sendOne(roomId: number, meme: LaplaceMemeWithSource): Promise<voi
       sentTimestamps.push(Date.now())
       pushRecentSent(roomId, meme.content)
       bumpDailySent(roomId)
+      lastActionAt = Date.now()
+      updateHzmStatusText()
       appendLog(`🚗 智驾：${meme.content}`)
     } else if (result.cancelled) {
       appendLog(`⏭ 智驾被打断：${meme.content}`)
@@ -262,8 +293,8 @@ async function sendOne(roomId: number, meme: LaplaceMemeWithSource): Promise<voi
 }
 
 async function tick(): Promise<void> {
-  // 模式被 UI 改成 off / 房间号变了 → 静默退出
-  if (hzmDriveMode.value === 'off' || activeRoomId === null || activeSource === null) {
+  // 已停车 / 房间号变了 → 静默退出
+  if (!hzmDriveEnabled.value || activeRoomId === null || activeSource === null) {
     tickTimer = null
     return
   }
@@ -310,7 +341,7 @@ async function tick(): Promise<void> {
 }
 
 function scheduleNext(baseSec: number): void {
-  if (hzmDriveMode.value === 'off') {
+  if (!hzmDriveEnabled.value) {
     tickTimer = null
     return
   }
@@ -362,8 +393,9 @@ export async function startHzmAutoDrive(opts: {
   })
 
   appendLog(
-    `🤖 智能辅助驾驶已启动（mode=${hzmDriveMode.value}，dryRun=${hzmDryRun.value ? '开' : '关'}）— 独轮车工具无罪，请合理使用`
+    `🤖 智能辅助驾驶已启动（mode=${hzmDriveMode.value}，试运行=${hzmDryRun.value ? '开' : '关'}）— 独轮车工具无罪，请合理使用`
   )
+  updateHzmStatusText()
   // 立即跑第一 tick（不等 jitter）
   void tick()
 }
@@ -379,6 +411,7 @@ export function stopHzmAutoDrive(): void {
     unsubscribe = null
   }
   resetRuntime()
+  updateHzmStatusText()
 }
 
 /** 测试用：当前监听到的最近弹幕。 */

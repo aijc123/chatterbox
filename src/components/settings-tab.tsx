@@ -3,6 +3,7 @@ import { useSignal } from '@preact/signals'
 import { maxLogLines } from '../lib/log'
 import { EmoteIds } from './emote-ids'
 import { BackupSection } from './settings/backup-section'
+import { CbBackendSection } from './settings/cb-backend-section'
 import { CustomChatSection } from './settings/custom-chat-section'
 import { DanmakuDirectSection } from './settings/danmaku-direct-section'
 import { LayoutSection } from './settings/layout-section'
@@ -84,6 +85,7 @@ export function SettingsTab() {
 
       <GroupHeading query={query}>工具</GroupHeading>
       <MedalCheckSection query={query} />
+      <CbBackendSection query={query} />
       <BackupSection query={query} />
 
       <GroupHeading query={query}>系统</GroupHeading>

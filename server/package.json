@@ -1,0 +1,27 @@
+{
+  "name": "chatterbox-cloud",
+  "private": true,
+  "version": "0.2.0",
+  "description": "chatterbox 第三方烂梗后端:聚合 LAPLACE + SBHZM + 自建社区库,硬审核流程。Phase B。",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --local --port 8787",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "migrate:local": "wrangler d1 migrations apply chatterbox-cloud --local",
+    "migrate:prod": "wrangler d1 migrations apply chatterbox-cloud --remote",
+    "seed:local": "wrangler d1 execute chatterbox-cloud --local --file=seeds/dev-memes.sql",
+    "gen-admin-key": "bun scripts/gen-admin-key.ts"
+  },
+  "dependencies": {
+    "hono": "^4.6.14"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20251001.0",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8",
+    "@cloudflare/vitest-pool-workers": "^0.5.39",
+    "wrangler": "^4.0.0"
+  }
+}

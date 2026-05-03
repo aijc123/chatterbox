@@ -125,7 +125,7 @@ export interface SbhzmMeme extends LaplaceMeme {
 }
 
 export interface LaplaceMemeWithSource extends LaplaceMeme {
-  _source?: 'laplace' | 'sbhzm'
+  _source?: 'laplace' | 'sbhzm' | 'cb'
 }
 
 const PAGE_SIZE = 100

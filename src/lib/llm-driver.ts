@@ -49,8 +49,24 @@ function buildUserMessage(opts: ChooseMemeOptions): string {
   })
 }
 
-function trimBaseURL(base: string): string {
-  return base.replace(/\/+$/, '')
+/**
+ * Build the chat-completions URL from a user-configured OpenAI-compatible
+ * base URL.
+ *
+ * Real users paste the base in three different shapes:
+ *   - `https://api.deepseek.com`                       (just the host)
+ *   - `https://token-plan-sgp.xiaomimimo.com/v1`       (host + /v1)
+ *   - `https://x.example.com/v1/chat/completions`      (the full endpoint)
+ *
+ * Naively appending `/v1/chat/completions` would produce `/v1/v1/...` for the
+ * second case, which is exactly the failure reported by the Mimo user. So we
+ * detect the existing suffix and only add what's missing.
+ */
+export function buildOpenAICompatChatURL(base: string): string {
+  const trimmed = base.replace(/\/+$/, '')
+  if (/\/v1\/chat\/completions$/i.test(trimmed)) return trimmed
+  if (/\/v1$/i.test(trimmed)) return `${trimmed}/chat/completions`
+  return `${trimmed}/v1/chat/completions`
 }
 
 interface LlmResponseChoice {
@@ -154,9 +170,9 @@ export async function testLLMConnection(opts: {
     } else if (opts.provider === 'openai') {
       parsed = await callOpenAI(probe)
     } else {
-      const base = trimBaseURL(opts.baseURL ?? '')
+      const base = (opts.baseURL ?? '').trim()
       if (!base) return { ok: false, error: '需要填 base URL（例如 https://api.deepseek.com）' }
-      parsed = await callOpenAI(probe, `${base}/v1/chat/completions`)
+      parsed = await callOpenAI(probe, buildOpenAICompatChatURL(base))
     }
     if (parsed === null) return { ok: false, error: '响应里未解析出文本（模型可能返回了空）' }
     return { ok: true }
@@ -184,9 +200,9 @@ export async function chooseMemeWithLLM(opts: ChooseMemeOptions): Promise<string
     parsed = await callOpenAI(opts)
   } else {
     // openai-compat
-    const base = trimBaseURL(opts.baseURL ?? '')
+    const base = (opts.baseURL ?? '').trim()
     if (!base) throw new Error('openai-compat 需要填 base URL（例如 https://api.deepseek.com）')
-    parsed = await callOpenAI(opts, `${base}/v1/chat/completions`)
+    parsed = await callOpenAI(opts, buildOpenAICompatChatURL(base))
   }
 
   if (!parsed) return null

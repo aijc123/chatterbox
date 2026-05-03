@@ -26,12 +26,17 @@ export default defineConfig({
           'localhost',
           // 烂梗库专属梗源（灰泽满直播间等社区自建库）
           'sbhzm.cn',
+          // chatterbox-cloud 自建后端（聚合 LAPLACE+SBHZM+社区贡献，硬审核）
+          // 默认部署在 *.workers.dev；本地开发时 cbBackendUrlOverride 走上面的 localhost。
+          'chatterbox-cloud.aijc-eric.workers.dev',
           // 智能辅助驾驶 LLM 默认 provider
           'api.anthropic.com',
           'api.openai.com',
-          // OpenAI 兼容自定义 base URL（DeepSeek/Moonshot/OpenRouter/Ollama）
-          // Tampermonkey 会在首次访问未列出域时弹权限确认；用户可在 Tampermonkey
-          // 设置中允许特定域。我们在 UI 上提示这一点。
+          // OpenAI 兼容自定义 base URL（DeepSeek/Moonshot/OpenRouter/Ollama/小米 mimo 等）。
+          // 之前我们没有兜底 → TM 直接以 "domain is not a part of the @connect list"
+          // 拒绝，连权限弹窗都不会出。加 '*' 后 TM 仍会在首次访问每个新域时弹一次
+          // 用户确认（这是用户授权 LLM 的最后一道闸门），但不会再无声拒绝。
+          '*',
         ],
         'run-at': 'document-start',
       },

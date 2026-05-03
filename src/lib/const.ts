@@ -72,6 +72,14 @@ export const BASE_URL = {
   /** sbhzm.cn submit page (kept as user-facing fallback link). */
   SBHZM_SUBMIT_PAGE: 'https://sbhzm.cn/submit',
 
+  /**
+   * chatterbox-cloud 后端基础 URL(自建第三方烂梗库 + LAPLACE/SBHZM 聚合)。
+   * Phase A 阶段:仅有 GET /health 和 GET /memes(写死 3 条样例)。
+   * 默认指向待部署的生产域名;开发期通过 cbBackendUrlOverride GM-signal 指到本地
+   * `http://localhost:8787`。读取应走 `getCbBackendBaseUrl()`(cb-backend-client.ts)。
+   */
+  CB_BACKEND: 'https://chatterbox-cloud.aijc-eric.workers.dev',
+
   /** Anthropic Messages API. POST. Used by 智能辅助驾驶 LLM mode. */
   ANTHROPIC_MESSAGES: 'https://api.anthropic.com/v1/messages',
   /** OpenAI chat completions. POST. Also reused for OpenAI-compatible providers via custom base URL. */
