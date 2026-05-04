@@ -46,7 +46,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.14",
-    "@laplace.live/internal": "^1.3.10",
+    "@laplace.live/internal": "^1.3.11",
     "@preact/preset-vite": "^2.10.5",
     "@types/bun": "^1.3.13",
     "happy-dom": "^20.9.0",
