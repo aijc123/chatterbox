@@ -11,6 +11,13 @@
  * and `verifyBroadcast` is the higher-level helper that the four send paths
  * (auto-blend, loop, manual/+1, native B站 input) call to log a `⚠️` warning
  * when the API succeeded but no broadcast echo arrived within the timeout.
+ *
+ * `verifyBroadcast` resolves with the same `EchoSource` that
+ * `waitForSentEcho` produces (`'ws' | 'dom' | 'local' | null`) so callers
+ * that need to branch on broadcast confirmation (e.g. auto-blend's silent-drop
+ * counter + room-restriction probe) can do so without a second wait. For
+ * emoticon-only sends (whose broadcast text often differs from the input)
+ * verification is skipped and the result is `null`.
  */
 
 import { requestAiSuggestion, tryAiEvasion } from './ai-evasion'
@@ -235,6 +242,16 @@ export function clearVerifyBroadcastToastDedupe(): void {
   lastToastAt.clear()
 }
 
+// Test-only override for the echo wait window. Production callers (`+1`,
+// 独轮车 loop, 手动) don't pass `timeoutMs`, so the real `SEND_ECHO_TIMEOUT_MS`
+// (4s) is used. Integration tests that exercise the shadow-ban → AI-evasion
+// path otherwise have to wait the full 4s window — this seam lets them
+// shrink it to a few tens of ms without forking the verifyBroadcast API.
+let echoTimeoutOverride: number | null = null
+export function _setEchoTimeoutForTests(ms: number | null): void {
+  echoTimeoutOverride = ms
+}
+
 /**
  * Awaits `waitForSentEcho` and writes the appropriate log line:
  * - On real broadcast (`ws` / `dom`): silent (the existing `✅` from `appendLog`
@@ -242,14 +259,15 @@ export function clearVerifyBroadcastToastDedupe(): void {
  * - On `local` or `null`: writes `⚠️ {label}: {display}（接口成功但未检测到广播，可能被屏蔽）`.
  *   Toast suppression is governed by `surfaceToast` and `toastDedupeKey`.
  */
-export async function verifyBroadcast(input: VerifyBroadcastInput): Promise<void> {
+export async function verifyBroadcast(input: VerifyBroadcastInput): Promise<EchoSource> {
   const isEmoticon = input.isEmoticon ?? isEmoticonUnique(input.text)
-  if (isEmoticon) return
+  if (isEmoticon) return null
 
   const uid = getDedeUid() ?? null
-  const source = await waitForSentEcho(input.text, uid, input.sinceTs, input.timeoutMs)
+  const effectiveTimeout = input.timeoutMs ?? echoTimeoutOverride ?? undefined
+  const source = await waitForSentEcho(input.text, uid, input.sinceTs, effectiveTimeout)
   console.log(`[CB][VERIFY] t=${Date.now()} text="${input.text}" source=${source} wsStatus=${currentWsStatus}`)
-  if (source === 'ws' || source === 'dom') return
+  if (source === 'ws' || source === 'dom') return source
 
   // For self-sent messages, WS-self is the only trustworthy broadcast proof
   // (DOM-self is filtered as unreliable — see findRecentDomDanmakuSource).
@@ -260,7 +278,7 @@ export async function verifyBroadcast(input: VerifyBroadcastInput): Promise<void
   // of emitting a misleading ⚠️ warning + bogus rewrite candidates.
   if (currentWsStatus !== 'live') {
     appendLogQuiet(`⚪ ${input.label}: ${input.display}（广播校验跳过：WS 未就绪 ${currentWsStatus}）`)
-    return
+    return source
   }
 
   // Conservative fallback (pending diagnosis): WS is live but no self-WS echo
@@ -276,7 +294,7 @@ export async function verifyBroadcast(input: VerifyBroadcastInput): Promise<void
   )
   if (recentSelfDom) {
     appendLogQuiet(`⚪ ${input.label}: ${input.display}（仅本地回显，未拿到 WS 广播证据 — 可能是 B站 不向自身推送）`)
-    return
+    return source
   }
 
   const message = `⚠️ ${input.label}: ${input.display}（接口成功但未检测到广播，可能被屏蔽）`
@@ -301,7 +319,7 @@ export async function verifyBroadcast(input: VerifyBroadcastInput): Promise<void
   // didn't broadcast. Record without re-triggering anything.
   if (input.isPostEvasion) {
     recordShadowBanObservation({ text: input.text, roomId: input.roomId, evadedAlready: true })
-    return
+    return source
   }
 
   // ---- Bypass suggestions ----
@@ -352,7 +370,7 @@ export async function verifyBroadcast(input: VerifyBroadcastInput): Promise<void
     input.roomId !== undefined &&
     typeof input.csrfToken === 'string' &&
     input.csrfToken.length > 0
-  if (!canAutoResend) return
+  if (!canAutoResend) return source
 
   const roomId = input.roomId as number
   const csrfToken = input.csrfToken as string
@@ -377,4 +395,5 @@ export async function verifyBroadcast(input: VerifyBroadcastInput): Promise<void
       surfaceToast: false,
     })
   }
+  return source
 }

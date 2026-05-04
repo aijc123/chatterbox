@@ -30,7 +30,7 @@ import {
 } from './moderation'
 import { applyReplacements } from './replacement'
 import { enqueueDanmaku, SendPriority } from './send-queue'
-import { SEND_ECHO_TIMEOUT_MS, waitForSentEcho } from './send-verification'
+import { verifyBroadcast } from './send-verification'
 import {
   autoBlendBurstSettleMs,
   autoBlendCandidateText,
@@ -556,21 +556,39 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
 
         if (result.success && !result.cancelled) {
           autoBlendLastActionText.value = `已提交，等待回显：${shortAutoBlendText(display)}`
-          const echoSource = await waitForSentEcho(toSend, myUid, result.startedAt ?? Date.now())
+          // Route through verifyBroadcast so the auto-follow path gets the
+          // same shadow-ban → AI-evasion → rule-learning chain that the
+          // manual / +1 / loop paths use. verifyBroadcast handles the ⚠️
+          // log + bypass-suggestion candidates + optional auto-resend
+          // (when shadowBanMode === 'auto-resend') internally.
+          const echoSource = await verifyBroadcast({
+            text: toSend,
+            label: '自动',
+            display,
+            sinceTs: result.startedAt ?? Date.now(),
+            isEmoticon: isEmote,
+            enableAiEvasion: true,
+            roomId,
+            csrfToken,
+            toastDedupeKey: `auto-blend:${originalText}`,
+          })
           if (echoSource === 'ws' || echoSource === 'dom') {
             consecutiveSilentDrops = 0
             const sourceLabel = echoSource === 'ws' ? 'WS' : 'DOM'
             autoBlendLastActionText.value = `已${sourceLabel}回显：${shortAutoBlendText(display)}`
+          } else if (isEmote) {
+            // verifyBroadcast skips echo wait for emoticons (broadcast text
+            // often differs from the click-text). Don't count as a silent drop.
+            consecutiveSilentDrops = 0
           } else {
             // API accepted (code 0) but no WS/DOM broadcast echo — Bilibili silently
             // discarded the message. Common causes: muted in room, fan medal required,
             // account risk control, or send frequency too high.
+            // verifyBroadcast already wrote the ⚠️ warning + AI evasion side
+            // effects; here we just keep the silent-drop counter for the
+            // 3-strike room-restriction probe and update the panel status.
             consecutiveSilentDrops++
             autoBlendLastActionText.value = `接口成功未见广播：${shortAutoBlendText(display)}`
-            logAutoBlend(
-              `自动跟车接口成功，但 ${Math.round(SEND_ECHO_TIMEOUT_MS / 1000)}s 内未看到广播回显：${display}`,
-              'warning'
-            )
 
             if (consecutiveSilentDrops >= SILENT_DROP_CHECK_THRESHOLD) {
               consecutiveSilentDrops = 0
@@ -692,8 +710,40 @@ export function stopAutoBlend(): void {
   const currentRoomId = cachedRoomId.peek()
   if (currentRoomId !== null) clearMemeSession(currentRoomId)
   cooldownUntil = 0
+  // Mirror `_resetAutoBlendStateForTests`: a triggerSend awaiting
+  // verifyBroadcast holds `isSending = true` past stopAutoBlend, so toggling
+  // off → on inside that window left the module wedged (next burst gated by
+  // the stale flag). The in-flight closure's `finally` will still run and
+  // re-set isSending=false harmlessly.
+  isSending = false
+  consecutiveSilentDrops = 0
+  rateLimitHitCount = 0
+  firstRateLimitHitAt = 0
   autoBlendStatusText.value = '已关闭'
   autoBlendCandidateText.value = '暂无'
   autoBlendLastActionText.value = moderationStopReason ?? '暂无'
   moderationStopReason = null
+}
+
+/**
+ * 测试用：把模块级状态完全清掉。`triggerSend` 在等待 `waitForSentEcho`（最长 4s）
+ * 时不会立刻退出，于是 `isSending` 这种闭包状态会跨测试泄漏，触发下一个测试
+ * 的 `scheduleBurstSend` 早退。仿照 `live-ws-source._resetLiveWsStateForTests`
+ * 的形态提供一个测试 seam，便于集成测试在 afterEach 里把模块归零。
+ */
+export function _resetAutoBlendStateForTests(): void {
+  isSending = false
+  consecutiveSilentDrops = 0
+  rateLimitHitCount = 0
+  firstRateLimitHitAt = 0
+  moderationStopReason = null
+  cooldownUntil = 0
+  pendingBurstText = null
+  if (burstSettleTimer) {
+    clearTimeout(burstSettleTimer)
+    burstSettleTimer = null
+  }
+  trendMap.clear()
+  nextTrendPruneAt = Number.POSITIVE_INFINITY
+  lastPruneWindowMs = 0
 }

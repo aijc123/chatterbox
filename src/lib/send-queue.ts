@@ -163,6 +163,19 @@ export function getQueueDepth(): number {
 }
 
 /**
+ * Test-only: reset module-level state so an integration test can run a
+ * second `enqueueDanmaku` without waiting through `HARD_MIN_GAP_MS` carried
+ * over from a previous test's send. Production code never resets this — the
+ * gap is the rate-limit safety net.
+ */
+export function _resetSendQueueForTests(): void {
+  queue.length = 0
+  processing = false
+  lastSendCompletedAt = 0
+  inflight = null
+}
+
+/**
  * Immediately cancels all queued AUTO-priority items, plus any AUTO item that
  * has already been dequeued but is still waiting through the hard rate-limit
  * gap. Called by cancelLoop() so clicking 停车 drains the queue at once
