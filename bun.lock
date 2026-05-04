@@ -12,7 +12,7 @@
       },
       "devDependencies": {
         "@biomejs/biome": "^2.4.14",
-        "@laplace.live/internal": "^1.3.10",
+        "@laplace.live/internal": "^1.3.11",
         "@preact/preset-vite": "^2.10.5",
         "@types/bun": "^1.3.13",
         "happy-dom": "^20.9.0",
@@ -158,7 +158,7 @@
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
 
-    "@laplace.live/internal": ["@laplace.live/internal@1.3.10", "", { "peerDependencies": { "typescript": "^5.9.3" } }, "sha512-bwisNM9FN3hMSawk6REFOg9fO5a62B96o9shoXk/YA63WT9zVx8tPkezK4YuBao3QldTZXSlnYwxdfNSHWUVbA=="],
+    "@laplace.live/internal": ["@laplace.live/internal@1.3.11", "", { "peerDependencies": { "typescript": "^5.9.3" } }, "sha512-dZ58CDYGH0M/x7azZ+G8Smv3z9/fkVg2gpvxGZmfnqY7lattRjrgI5s6jgE7eV+mffrHNExvdX0zAv0HoDKnhA=="],
 
     "@laplace.live/ws": ["@laplace.live/ws@7.1.10", "", { "dependencies": { "@laplace.live/internal": "^1.3.9" } }, "sha512-3FWgg/8xEjIT9sGBRCc51fx1kJhOnMKcUUWws8yJM0i83WBfIyLUa3QecF4gu6QjDTBUTZmW1t7h/wPR3czM+A=="],
 
