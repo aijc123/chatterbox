@@ -105,7 +105,12 @@ describe('backup round-trip integration (P0-3)', () => {
     flushPendingWrites()
     const exported = exportSettings()
     const parsed = JSON.parse(exported) as Record<string, unknown>
-    parsed.localRoomRules = { '101': [{ from: 'foo', to: 'bar-v2' }, { from: 'baz', to: 'qux' }] }
+    parsed.localRoomRules = {
+      '101': [
+        { from: 'foo', to: 'bar-v2' },
+        { from: 'baz', to: 'qux' },
+      ],
+    }
     const mutatedJson = JSON.stringify(parsed)
 
     const before = observed.length

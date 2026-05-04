@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.10.4
+// @version      2.10.5
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -58,7 +58,7 @@
 System.addImportMap({ imports: {"@soniox/speech-to-text-web":"user:@soniox/speech-to-text-web"} });
 System.set("user:@soniox/speech-to-text-web", (()=>{const _=SonioxSpeechToTextWeb;('default' in _)||(_.default=_);return _})());
 
-System.register("./__entry.js", ['./__monkey.entry-Ce1CQGtJ.js'], (function (exports, module) {
+System.register("./__entry.js", ['./__monkey.entry-GFLi6U5h.js'], (function (exports, module) {
 	'use strict';
 	return {
 		setters: [null],
@@ -70,7 +70,7 @@ System.register("./__entry.js", ['./__monkey.entry-Ce1CQGtJ.js'], (function (exp
 	};
 }));
 
-System.register("./__monkey.entry-Ce1CQGtJ.js", ['@soniox/speech-to-text-web'], (function (exports, module) {
+System.register("./__monkey.entry-GFLi6U5h.js", ['@soniox/speech-to-text-web'], (function (exports, module) {
   'use strict';
   var SonioxClient;
   return {
@@ -6214,16 +6214,18 @@ candidates: input.candidates ?? prev.candidates
       }
       const TOAST_COOLDOWN_MS = 3e4;
       const lastToastAt = new Map();
+      let echoTimeoutOverride = null;
       async function verifyBroadcast(input) {
         const isEmoticon = input.isEmoticon ?? isEmoticonUnique(input.text);
-        if (isEmoticon) return;
+        if (isEmoticon) return null;
         const uid = getDedeUid() ?? null;
-        const source = await waitForSentEcho(input.text, uid, input.sinceTs, input.timeoutMs);
+        const effectiveTimeout = input.timeoutMs ?? echoTimeoutOverride ?? void 0;
+        const source = await waitForSentEcho(input.text, uid, input.sinceTs, effectiveTimeout);
         console.log(`[CB][VERIFY] t=${Date.now()} text="${input.text}" source=${source} wsStatus=${currentWsStatus$1}`);
-        if (source === "ws" || source === "dom") return;
+        if (source === "ws" || source === "dom") return source;
         if (currentWsStatus$1 !== "live") {
           appendLogQuiet(`⚪ ${input.label}: ${input.display}（广播校验跳过：WS 未就绪 ${currentWsStatus$1}）`);
-          return;
+          return source;
         }
         const target = input.text.trim();
         const recentSelfDom = recentDomDanmaku.some(
@@ -6231,7 +6233,7 @@ candidates: input.candidates ?? prev.candidates
         );
         if (recentSelfDom) {
           appendLogQuiet(`⚪ ${input.label}: ${input.display}（仅本地回显，未拿到 WS 广播证据 — 可能是 B站 不向自身推送）`);
-          return;
+          return source;
         }
         const message = `⚠️ ${input.label}: ${input.display}（接口成功但未检测到广播，可能被屏蔽）`;
         let surfaceToast = input.surfaceToast !== false;
@@ -6251,7 +6253,7 @@ candidates: input.candidates ?? prev.candidates
         }
         if (input.isPostEvasion) {
           recordShadowBanObservation({ text: input.text, roomId: input.roomId, evadedAlready: true });
-          return;
+          return source;
         }
         const heuristic = generateHeuristicCandidates(input.text);
         const candidates = [...heuristic];
@@ -6279,7 +6281,7 @@ candidates: input.candidates ?? prev.candidates
           candidates
         });
         const canAutoResend = shadowBanMode.value === "auto-resend" && aiSuggestion !== null && input.roomId !== void 0 && typeof input.csrfToken === "string" && input.csrfToken.length > 0;
-        if (!canAutoResend) return;
+        if (!canAutoResend) return source;
         const roomId = input.roomId;
         const csrfToken = input.csrfToken;
         const result = await tryAiEvasion(input.text, roomId, csrfToken, `${input.label}·影子屏蔽-`);
@@ -6301,6 +6303,7 @@ candidates: input.candidates ?? prev.candidates
             surfaceToast: false
           });
         }
+        return source;
       }
       const GET_INFO_BY_USER_PATTERN = "/xlive/web-room/v1/index/getInfoByUser";
       function shouldHijackUrl(url) {
@@ -8340,18 +8343,26 @@ _clearForTests() {
               }
               if (result.success && !result.cancelled) {
                 autoBlendLastActionText.value = `已提交，等待回显：${shortAutoBlendText(display)}`;
-                const echoSource = await waitForSentEcho(toSend, myUid, result.startedAt ?? Date.now());
+                const echoSource = await verifyBroadcast({
+                  text: toSend,
+                  label: "自动",
+                  display,
+                  sinceTs: result.startedAt ?? Date.now(),
+                  isEmoticon: isEmote,
+                  enableAiEvasion: true,
+                  roomId,
+                  csrfToken,
+                  toastDedupeKey: `auto-blend:${originalText}`
+                });
                 if (echoSource === "ws" || echoSource === "dom") {
                   consecutiveSilentDrops = 0;
                   const sourceLabel = echoSource === "ws" ? "WS" : "DOM";
                   autoBlendLastActionText.value = `已${sourceLabel}回显：${shortAutoBlendText(display)}`;
+                } else if (isEmote) {
+                  consecutiveSilentDrops = 0;
                 } else {
                   consecutiveSilentDrops++;
                   autoBlendLastActionText.value = `接口成功未见广播：${shortAutoBlendText(display)}`;
-                  logAutoBlend(
-                    `自动跟车接口成功，但 ${Math.round(SEND_ECHO_TIMEOUT_MS / 1e3)}s 内未看到广播回显：${display}`,
-                    "warning"
-                  );
                   if (consecutiveSilentDrops >= SILENT_DROP_CHECK_THRESHOLD) {
                     consecutiveSilentDrops = 0;
                     logAutoBlend("自动跟车：连续多次未见广播，正在巡检当前房间限制状态…");
@@ -8458,6 +8469,10 @@ _clearForTests() {
         const currentRoomId = cachedRoomId.peek();
         if (currentRoomId !== null) clearMemeSession(currentRoomId);
         cooldownUntil = 0;
+        isSending = false;
+        consecutiveSilentDrops = 0;
+        rateLimitHitCount = 0;
+        firstRateLimitHitAt = 0;
         autoBlendStatusText.value = "已关闭";
         autoBlendCandidateText.value = "暂无";
         autoBlendLastActionText.value = moderationStopReason ?? "暂无";
@@ -14334,7 +14349,7 @@ u$2("label", { for: "persistSendState", children: "保持当前直播间独轮�
         bumpDailyLlmCalls(roomId);
         try {
           const chooser = opts?.chooser ?? (await __vitePreload(async () => {
-            const { chooseMemeWithLLM } = await module.import('./llm-driver-DOCgP3Mf-BAlYUCF5.js');
+            const { chooseMemeWithLLM } = await module.import('./llm-driver-f6gqD523-BXBI04b6.js');
             return { chooseMemeWithLLM };
           }, true ? void 0 : void 0)).chooseMemeWithLLM;
           const chosenContent = await chooser({
@@ -14579,7 +14594,7 @@ u$2("label", { for: "persistSendState", children: "保持当前直播间独轮�
           testError.value = "";
           try {
             const { testLLMConnection } = await __vitePreload(async () => {
-              const { testLLMConnection: testLLMConnection2 } = await module.import('./llm-driver-DOCgP3Mf-BAlYUCF5.js');
+              const { testLLMConnection: testLLMConnection2 } = await module.import('./llm-driver-f6gqD523-BXBI04b6.js');
               return { testLLMConnection: testLLMConnection2 };
             }, true ? void 0 : void 0);
             const r2 = await testLLMConnection({
@@ -20353,7 +20368,7 @@ u$2(AlertDialog, {})
   };
 }));
 
-System.register("./llm-driver-DOCgP3Mf-BAlYUCF5.js", ['./__monkey.entry-Ce1CQGtJ.js', '@soniox/speech-to-text-web'], (function (exports, module) {
+System.register("./llm-driver-f6gqD523-BXBI04b6.js", ['./__monkey.entry-GFLi6U5h.js', '@soniox/speech-to-text-web'], (function (exports, module) {
   'use strict';
   var appendLog, gmFetch, BASE_URL;
   return {
