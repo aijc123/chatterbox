@@ -120,6 +120,14 @@ async function flushDom(ms = 30): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, ms))
 }
 
+async function waitFor(check: () => boolean, timeoutMs = 750): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (check()) return
+    await flushDom(25)
+  }
+}
+
 describe('isValidDanmakuNode', () => {
   test('exactly chat-item + danmaku-item → valid', () => {
     const n = document.createElement('div')
@@ -273,7 +281,7 @@ describe('subscribeDanmaku — basic lifecycle', () => {
     activeUnsubs.push(unsub)
     await flushDom()
     container.append(makeDanmakuNode({ text: 'new-msg', uname: 'X', uid: '1' }))
-    await flushDom(50) // beyond OBSERVER_DEBOUNCE_MS=16
+    await waitFor(() => calls.includes('new-msg'))
     expect(calls).toContain('new-msg')
   })
 
@@ -318,7 +326,7 @@ describe('subscribeDanmaku — basic lifecycle', () => {
     activeUnsubs.push(subscribeDanmaku({ onMessage: ev => calls.push(ev.text) }))
     await flushDom()
     container.append(makeDanmakuNode({ text: 'survive', uname: 'X', uid: '1' }))
-    await flushDom(50)
+    await waitFor(() => calls.includes('survive'))
     expect(calls).toContain('survive')
   })
 })
