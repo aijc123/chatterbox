@@ -24,12 +24,36 @@ const happyWindow = new Window()
 // auto-attach into happy-dom's window.
 ;(happyWindow as unknown as { SyntaxError: SyntaxErrorConstructor }).SyntaxError = SyntaxError
 
+type TestMutationRecord = Pick<MutationRecord, 'addedNodes'>
+
+class TestMutationObserver {
+  static instances: TestMutationObserver[] = []
+  private target: Node | null = null
+
+  constructor(private readonly callback: MutationCallback) {
+    TestMutationObserver.instances.push(this)
+  }
+
+  observe(target: Node): void {
+    this.target = target
+  }
+
+  disconnect(): void {
+    this.target = null
+  }
+
+  emit(target: Node, addedNodes: Node[]): void {
+    if (this.target !== target) return
+    this.callback([{ addedNodes: addedNodes as unknown as NodeList } as TestMutationRecord as MutationRecord], this)
+  }
+}
+
 Object.assign(globalThis, {
   document: happyWindow.document,
   HTMLElement: happyWindow.HTMLElement,
   HTMLImageElement: happyWindow.HTMLImageElement,
   Node: happyWindow.Node,
-  MutationObserver: happyWindow.MutationObserver,
+  MutationObserver: TestMutationObserver,
   window: happyWindow,
 })
 
@@ -99,11 +123,19 @@ function setupContainer(): HTMLElement {
   return container
 }
 
+function appendObserved(container: HTMLElement, node: HTMLElement): void {
+  container.append(node)
+  for (const observer of TestMutationObserver.instances) {
+    observer.emit(container, [node])
+  }
+}
+
 let activeUnsubs: Array<() => void> = []
 
 beforeEach(() => {
   document.body.innerHTML = ''
   activeUnsubs = []
+  TestMutationObserver.instances = []
 })
 
 afterEach(() => {
@@ -280,7 +312,7 @@ describe('subscribeDanmaku — basic lifecycle', () => {
     const unsub = subscribeDanmaku({ onMessage: ev => calls.push(ev.text) })
     activeUnsubs.push(unsub)
     await flushDom()
-    container.append(makeDanmakuNode({ text: 'new-msg', uname: 'X', uid: '1' }))
+    appendObserved(container, makeDanmakuNode({ text: 'new-msg', uname: 'X', uid: '1' }))
     await waitFor(() => calls.includes('new-msg'))
     expect(calls).toContain('new-msg')
   })
@@ -295,7 +327,7 @@ describe('subscribeDanmaku — basic lifecycle', () => {
     bad.className = 'gift-item'
     bad.dataset.danmaku = 'should-not-fire'
     bad.dataset.replymid = '0'
-    container.append(bad)
+    appendObserved(container, bad)
     await flushDom(50)
     expect(calls).not.toContain('should-not-fire')
   })
@@ -307,7 +339,7 @@ describe('subscribeDanmaku — basic lifecycle', () => {
     activeUnsubs.push(subscribeDanmaku({ onMessage: ev => calls1.push(ev.text) }))
     activeUnsubs.push(subscribeDanmaku({ onMessage: ev => calls2.push(ev.text) }))
     await flushDom()
-    container.append(makeDanmakuNode({ text: 'broadcast', uname: 'B', uid: '1' }))
+    appendObserved(container, makeDanmakuNode({ text: 'broadcast', uname: 'B', uid: '1' }))
     await flushDom(50)
     expect(calls1).toContain('broadcast')
     expect(calls2).toContain('broadcast')
@@ -325,7 +357,7 @@ describe('subscribeDanmaku — basic lifecycle', () => {
     )
     activeUnsubs.push(subscribeDanmaku({ onMessage: ev => calls.push(ev.text) }))
     await flushDom()
-    container.append(makeDanmakuNode({ text: 'survive', uname: 'X', uid: '1' }))
+    appendObserved(container, makeDanmakuNode({ text: 'survive', uname: 'X', uid: '1' }))
     await waitFor(() => calls.includes('survive'))
     expect(calls).toContain('survive')
   })
@@ -373,7 +405,7 @@ describe('subscribeDanmaku — reference counting', () => {
     const unsubB = subscribeDanmaku({ onMessage: ev => callsB.push(ev.text) })
     activeUnsubs.push(unsubB)
     await flushDom()
-    container.append(makeDanmakuNode({ text: 'phase-2', uname: 'Y', uid: '1' }))
+    appendObserved(container, makeDanmakuNode({ text: 'phase-2', uname: 'Y', uid: '1' }))
     await waitFor(() => callsB.includes('phase-2'))
     expect(callsA).not.toContain('phase-2')
     expect(callsB).toContain('phase-2')
