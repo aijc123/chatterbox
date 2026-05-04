@@ -108,6 +108,7 @@ The build output is written to `dist/`. The main userscript output is `dist/bili
 - Distribution to users is two-stage: GitHub Pages serves `dist/bilibili-live-wheel-auto-follow.user.js` (Tampermonkey/Violentmonkey installs read it directly), and Greasy Fork auto-syncs from the same URL on its own ~24h cycle. There is no Chrome Web Store or app-store review step — this is a userscript, not an extension.
 - To make `scripts/release.ts` print the Greasy Fork URL at the end of a release, add a `"greasyfork": { "scriptId": "<id>" }` field to `package.json`. If the field is absent, the URL is just skipped.
 - Branch protection on `master` is **active** as a GitHub ruleset, not just documented. Required status check: `validate`; force-push and branch deletion are blocked; repository admin role is on the bypass list so `bun run release:patch` can still push directly. Full ruleset: [docs/branch-protection.md](docs/branch-protection.md).
+- Coverage policy + whitelist: [docs/coverage-policy.md](docs/coverage-policy.md).
 
 ## External Services
 

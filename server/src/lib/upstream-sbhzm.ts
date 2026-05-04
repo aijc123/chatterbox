@@ -23,17 +23,49 @@
  *  - 后端只在"客户端没在线"的时候才出手,流量峰值平摊到全天
  */
 
-import type { CbMeme, CbTag } from '../types'
+import type { AppBindings, CbMeme, CbTag } from '../types'
 
 import { contentHash } from './hash'
 
-const SBHZM_LIST = 'https://sbhzm.cn/api/public/memes'
+const DEFAULT_SBHZM_LIST = 'https://sbhzm.cn/api/public/memes'
 const PAGE_SIZE = 100
 const DEFAULT_MIRROR_PAGES = 10
 const ADMIN_FORCE_PAGES = 50
-const STALE_THRESHOLD_HOURS = 12
+const DEFAULT_STALE_THRESHOLD_HOURS = 12
 const CACHE_FRESH_HOURS = 24 // 老 cache 表的旧逻辑保留:>24h 旧 → ok=false
 const CACHE_GC_RETAIN_DAYS = 7
+
+/**
+ * 解析 SBHZM 上游 URL —— 优先取 wrangler env var,否则默认值。env var 不在
+ * https:// (或 http://localhost) 时拒掉(避免一个错配置把后端流量转到攻击者控制的域)。
+ */
+export function resolveSbhzmListUrl(env?: Pick<AppBindings, 'SBHZM_LIST_URL'>): string {
+  const raw = env?.SBHZM_LIST_URL?.trim()
+  if (!raw) return DEFAULT_SBHZM_LIST
+  let parsed: URL
+  try {
+    parsed = new URL(raw)
+  } catch {
+    return DEFAULT_SBHZM_LIST
+  }
+  if (parsed.protocol === 'https:') return raw
+  if (parsed.protocol === 'http:' && (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1')) {
+    return raw
+  }
+  return DEFAULT_SBHZM_LIST
+}
+
+/** 解析 staleness gate 小时数 —— env var 是字符串,这里 parseFloat + 边界保护。 */
+export function resolveSbhzmStaleHours(env?: Pick<AppBindings, 'SBHZM_STALE_HOURS'>): number {
+  const raw = env?.SBHZM_STALE_HOURS
+  if (!raw) return DEFAULT_STALE_THRESHOLD_HOURS
+  const parsed = Number.parseFloat(raw)
+  // 边界:1 分钟 ~ 30 天。超出范围视为配置错误,回退默认值。
+  if (!Number.isFinite(parsed) || parsed < 1 / 60 || parsed > 24 * 30) {
+    return DEFAULT_STALE_THRESHOLD_HOURS
+  }
+  return parsed
+}
 
 interface RawSbhzmMeme {
   id?: number | string
@@ -125,10 +157,12 @@ function extractList(body: unknown): { items: RawSbhzmMeme[]; total: number | nu
  * 分页拉取 SBHZM 列表。失败时把已收集的项原样返回(让 caller 决定要不要写)。
  *
  * fetchImpl 是为测试预留的注入点;生产路径走全局 fetch。
+ * listUrl 默认走默认上游,允许 caller(从 env)注入。
  */
 async function fetchSbhzmPages(
   maxPages: number,
-  fetchImpl: typeof fetch = fetch
+  fetchImpl: typeof fetch = fetch,
+  listUrl: string = DEFAULT_SBHZM_LIST
 ): Promise<{ items: RawSbhzmMeme[]; ok: boolean }> {
   const collected: RawSbhzmMeme[] = []
   const seen = new Set<string | number>()
@@ -138,7 +172,7 @@ async function fetchSbhzmPages(
   for (let page = 1; page <= maxPages; page++) {
     let resp: Response
     try {
-      resp = await fetchImpl(`${SBHZM_LIST}?page=${page}&page_size=${PAGE_SIZE}`, {
+      resp = await fetchImpl(`${listUrl}?page=${page}&page_size=${PAGE_SIZE}`, {
         method: 'GET',
         headers: { Accept: 'application/json' },
         signal: AbortSignal.timeout(8_000),
@@ -184,6 +218,8 @@ export interface PullMirrorOptions {
   actor?: string
   /** 测试注入点:不传则用全局 fetch。 */
   fetchImpl?: typeof fetch
+  /** 上游列表 URL 覆盖。默认走 DEFAULT_SBHZM_LIST;调用方一般通过 `resolveSbhzmListUrl(env)` 取。 */
+  listUrl?: string
 }
 
 export interface PullMirrorResult {
@@ -205,7 +241,7 @@ export async function pullSbhzmIntoMirror(db: D1Database, options: PullMirrorOpt
   const maxPages = options.pages ?? DEFAULT_MIRROR_PAGES
   const actor = options.actor ?? 'cron'
 
-  const { items: collected, ok: fetchOk } = await fetchSbhzmPages(maxPages, options.fetchImpl)
+  const { items: collected, ok: fetchOk } = await fetchSbhzmPages(maxPages, options.fetchImpl, options.listUrl)
   const normalized = collected.map(normalizeSbhzmMeme).filter((m): m is CbMeme => m !== null)
 
   if (normalized.length === 0) {
@@ -266,8 +302,10 @@ export async function pullSbhzmIntoMirror(db: D1Database, options: PullMirrorOpt
 export interface PullIfStaleOptions {
   /** 测试注入点:不传则用全局 fetch。 */
   fetchImpl?: typeof fetch
-  /** 测试注入点:覆盖默认的 STALE_THRESHOLD_HOURS。 */
+  /** 测试注入点 / env 覆盖:不传则用 DEFAULT_STALE_THRESHOLD_HOURS。 */
   staleThresholdHours?: number
+  /** env 覆盖:上游列表 URL。不传则用 DEFAULT_SBHZM_LIST。 */
+  listUrl?: string
 }
 
 export interface PullIfStaleResult {
@@ -285,7 +323,7 @@ export interface PullIfStaleResult {
  * 同时清理 7 天前的旧 upstream_sbhzm_cache 行(每次 cron 顺便 GC)。
  */
 export async function pullSbhzmIfStale(db: D1Database, options: PullIfStaleOptions = {}): Promise<PullIfStaleResult> {
-  const hours = options.staleThresholdHours ?? STALE_THRESHOLD_HOURS
+  const hours = options.staleThresholdHours ?? DEFAULT_STALE_THRESHOLD_HOURS
   const since = new Date(Date.now() - hours * 3600_000).toISOString()
 
   // 顺便 GC 旧 cache 行,每次 cron 跑一次。
@@ -314,7 +352,7 @@ export async function pullSbhzmIfStale(db: D1Database, options: PullIfStaleOptio
     }
   }
 
-  const pull = await pullSbhzmIntoMirror(db, { fetchImpl: options.fetchImpl })
+  const pull = await pullSbhzmIntoMirror(db, { fetchImpl: options.fetchImpl, listUrl: options.listUrl })
   return {
     skipped: false,
     reason: pull.ok ? undefined : 'fetch_failed',

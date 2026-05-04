@@ -81,6 +81,13 @@ crypto,不进 miniflare。
 
 ## 部署
 
+> ⚠️ **后端不会随 userscript release 自动发布。**
+> `release.yml` 只把 userscript build 推到 GitHub Pages;chatterbox-cloud 必须
+> maintainer 手动 `wrangler deploy`。release.yml 在 `server/` 自上次 tag 起
+> 有任何变更时会在 workflow summary 顶部贴红色提醒,但 **不阻塞** 用户脚本发布
+> (有意:大多数 release 只动 userscript,后端没改的时候不能让流水线挂等
+> 一个不存在的部署步骤)。
+
 ```bash
 # 一次性
 wrangler login
@@ -90,12 +97,22 @@ wrangler d1 migrations apply chatterbox-cloud --remote
 bun scripts/gen-admin-key.ts owner
 wrangler d1 execute chatterbox-cloud --remote --command "INSERT INTO api_keys ..."
 
-# 之后每次发版
+# 之后每次发版(release.yml workflow summary 提醒命中时跑)
+cd server
+wrangler d1 migrations apply chatterbox-cloud --remote   # 仅当本次有新 migration
 wrangler deploy
 ```
 
 新加 schema 改动时:写新的 `migrations/0002_*.sql`,**永不修改已应用的 migration**,
 然后 `wrangler d1 migrations apply --remote`。
+
+### 什么时候真的需要 `wrangler deploy`?
+
+`server/` 下任意 `.ts` / `.sql` / `wrangler.jsonc` / 路由 / lib 改动都要部署 ——
+release.yml 里的 "Server deploy reminder" 步骤会自动判断,看 workflow summary 即可。
+
+只动 `server/README.md` / `server/*.test.ts` / `seeds/` 一类纯文档或测试文件时,
+按提醒文案对照变更内容判断:不影响产线行为的纯文档 / 测试改动可以跳过。
 
 ## 后续阶段
 

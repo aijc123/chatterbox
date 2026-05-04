@@ -28,6 +28,9 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.ref }}
+          # Need history (default fetch-depth=1 in GH Actions) to diff this tag
+          # against the previous one for the server-deploy reminder below.
+          fetch-depth: 0
 
       - uses: oven-sh/setup-bun@v2
 
@@ -56,3 +59,50 @@ jobs:
 
       - id: deployment
         uses: actions/deploy-pages@v5
+
+      # 用户脚本是 GitHub Pages 自动发的;chatterbox-cloud 后端(`server/`)不在
+      # 这条流水线里,需要 maintainer 手动 `cd server && wrangler deploy`。
+      # 这一步比较 prev tag → current tag,如果 server/ 有差异就在 workflow summary
+      # 里贴一条醒目提醒,避免"用户脚本发了新功能但后端老接口对不上"的 silent skew。
+      - name: Server deploy reminder
+        if: always()
+        env:
+          CURRENT_TAG: ${{ github.ref_name }}
+        run: |
+          set -e
+          # 找上一个 v* tag(排除当前)。第一次发版 / 没有上游 tag 时跳过。
+          prev_tag=$(git describe --tags --abbrev=0 --match 'v*' "${CURRENT_TAG}^" 2>/dev/null || echo "")
+          if [ -z "$prev_tag" ]; then
+            echo "No previous v* tag; skipping server-deploy gate."
+            exit 0
+          fi
+          server_changes=$(git log --oneline "$prev_tag..$CURRENT_TAG" -- server/ migrations | wc -l | tr -d ' ')
+          migration_changes=$(git log --oneline "$prev_tag..$CURRENT_TAG" -- 'server/migrations/**' | wc -l | tr -d ' ')
+          if [ "$server_changes" = "0" ]; then
+            echo "server/ unchanged since $prev_tag; no backend deploy needed."
+            exit 0
+          fi
+          # workflow log annotation(GitHub UI 顶部红条)
+          echo "::warning::server/ changed since $prev_tag ($server_changes commits). Backend does NOT auto-deploy — run 'cd server && wrangler deploy' to update chatterbox-cloud."
+          # workflow summary 块(release run 页面顶部)
+          {
+            echo "## ⚠️ Backend deploy needed"
+            echo ""
+            echo "\`server/\` has **$server_changes commit(s)** since \`$prev_tag\` (this release tag = \`$CURRENT_TAG\`)."
+            echo ""
+            echo "The userscript was deployed via Pages, but **chatterbox-cloud (backend) is NOT auto-deployed**."
+            echo ""
+            echo "Run from the repo root:"
+            echo ""
+            echo '```bash'
+            echo "cd server"
+            if [ "$migration_changes" != "0" ]; then
+              echo "wrangler d1 migrations apply chatterbox-cloud --remote   # $migration_changes new migration commit(s)"
+            fi
+            echo "wrangler deploy"
+            echo '```'
+            echo ""
+            echo "### Server commits in this release"
+            echo ""
+            git log --oneline "$prev_tag..$CURRENT_TAG" -- server/ | sed 's/^/- /'
+          } >> "$GITHUB_STEP_SUMMARY"

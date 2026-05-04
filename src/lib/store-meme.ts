@@ -1,8 +1,9 @@
-import { signal } from '@preact/signals'
+import { effect, signal } from '@preact/signals'
 
 import type { LaplaceMemeWithSource } from './sbhzm-client'
 
 import { gmSignal } from './gm-signal'
+import { clearUserMemeSources, registerMemeSource } from './meme-sources'
 
 // Meme Contributor (社区烂梗贡献者)
 export const enableMemeContribution = gmSignal('enableMemeContribution', false)
@@ -43,3 +44,31 @@ export const cbBackendHealthDetail = signal<string>('')
  * 重复的网络请求。MemesList 默认 30s 轮询保证数据新鲜。
  */
 export const currentMemesList = signal<LaplaceMemeWithSource[]>([])
+
+// ---------------------------------------------------------------------------
+// 用户自配梗源(GM-persisted)
+//
+// 用户可以在 Tampermonkey 的 storage 编辑器里直接改 GM key `userMemeSources`,
+// 写一个 MemeSource 数组 —— 每条会在加载 / 改动时被注册到 meme-sources.ts 的
+// 注册表里;格式不对的条静默丢弃(由 registerMemeSource 内部 validate)。
+//
+// 验证策略:gmSignal 的 validate 只做 shape 粗筛(必须是数组),细粒度校验在
+// `registerMemeSource` 里逐条做。这避免一条坏数据让整个数组被回退到默认值。
+// ---------------------------------------------------------------------------
+function isUnknownArray(val: unknown): val is unknown[] {
+  return Array.isArray(val)
+}
+
+export const userMemeSources = gmSignal<unknown[]>('userMemeSources', [], { validate: isUnknownArray })
+
+// 把 signal → registry 的同步绑成一个 effect:首次 read 时立刻 sync,后续每次
+// 用户改写 signal(从 settings UI 或 storage 编辑器)都自动重放。
+effect(() => {
+  const list = userMemeSources.value
+  clearUserMemeSources()
+  if (!Array.isArray(list)) return
+  for (const item of list) {
+    // registerMemeSource 内部会 validate;非法条目静默丢。
+    registerMemeSource(item)
+  }
+})

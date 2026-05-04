@@ -6,8 +6,14 @@
  * 这些专属梗源，按 roomId 触发：当观众进入注册过的直播间时，烂梗库 UI 会
  * 同时拉 LAPLACE 与该专属源，并启用"智能辅助驾驶"面板。
  *
- * 想加新房间——只需在 DEFAULT_MEME_SOURCES 加一条配置即可，不必动逻辑代码。
- * 未来可加用户面板让用户自配置（持久化在 GM 存储），目前先内置已知房间。
+ * **来源两类**：
+ *  1. **内置(built-in)**：`DEFAULT_MEME_SOURCES`，跟代码一起发版,所有用户共享。
+ *  2. **用户自配(user-supplied)**：通过 `registerMemeSource()` 注入,通常来源于
+ *     `userMemeSources` GM-signal(见 store-meme.ts)。同 roomId 时**用户自配优先**,
+ *     允许覆盖内置默认。卸载时只清 user 集合,内置不动。
+ *
+ * 想加新内置房间——在 DEFAULT_MEME_SOURCES 加一条配置即可。
+ * 想本地试自定义房间——在 Tampermonkey 设置里改 GM key `userMemeSources`(数组)。
  */
 
 export interface MemeSource {
@@ -81,16 +87,160 @@ export const DEFAULT_MEME_SOURCES: Record<string, MemeSource> = {
   },
 }
 
+// ---------------------------------------------------------------------------
+// 注册表
+//
+// 内置 source 在模块加载时一次性 freeze 进 builtInSources,运行期不变。
+// 用户提供的 source 进入 userSources;查询时 userSources 优先(允许覆盖内置)。
+// ---------------------------------------------------------------------------
+
+const builtInSources = new Map<string, MemeSource>(Object.entries(DEFAULT_MEME_SOURCES))
+const userSources = new Map<string, MemeSource>()
+
+const URL_MAX_LEN = 500
+const NAME_MAX_LEN = 64
+const TAG_MAX_LEN = 64
+const TAGS_MAX_COUNT = 32
+const PAUSE_MAX_COUNT = 64
+const KEYWORD_PATTERN_MAX_LEN = 256
+const KEYWORD_MAP_MAX_ENTRIES = 256
+
 /**
- * 返回当前房间的梗源配置。
- * @returns 找到则返回 MemeSource，否则返回 null（这是大多数房间的情况）。
+ * URL 校验:只允许 https://,本地开发可用 http://localhost / 127.0.0.1。
+ * 这是一道"用户能配置但拿配置的代码会调到攻击者"的防线 —— 同 normalizeCbBackendUrl /
+ * normalizeGuardRoomEndpoint 的规则,本地维护一份避免反向 import。
+ */
+function normalizeSourceUrl(input: unknown): string | null {
+  if (typeof input !== 'string') return null
+  const trimmed = input.trim()
+  if (!trimmed || trimmed.length > URL_MAX_LEN) return null
+  let parsed: URL
+  try {
+    parsed = new URL(trimmed)
+  } catch {
+    return null
+  }
+  if (parsed.protocol === 'https:') return trimmed
+  if (parsed.protocol === 'http:') {
+    const host = parsed.hostname
+    const bare = host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host
+    if (bare === 'localhost' || bare === '127.0.0.1' || bare === '::1') return trimmed
+  }
+  return null
+}
+
+/**
+ * 把任意输入归一成合法的 MemeSource(或 null)。**永不抛错** —— 用户存储里
+ * 进来的可能是任意 JSON,我们只接受能用的部分,其余字段静默丢弃。
+ *
+ * 对外暴露给:
+ *  - registerMemeSource (内部调用)
+ *  - 测试用例(直接 unit test 校验逻辑)
+ *  - GM-signal 加载时的 batch validate
+ */
+export function validateMemeSource(input: unknown): MemeSource | null {
+  if (typeof input !== 'object' || input === null) return null
+  const r = input as Record<string, unknown>
+
+  if (typeof r.roomId !== 'number' || !Number.isInteger(r.roomId) || r.roomId <= 0) return null
+
+  const nameRaw = typeof r.name === 'string' ? r.name.trim() : ''
+  if (nameRaw.length === 0) return null
+
+  const listEndpoint = normalizeSourceUrl(r.listEndpoint)
+  if (!listEndpoint) return null
+
+  const out: MemeSource = {
+    roomId: r.roomId,
+    name: nameRaw.slice(0, NAME_MAX_LEN),
+    listEndpoint,
+  }
+
+  const randomEndpoint = r.randomEndpoint == null ? null : normalizeSourceUrl(r.randomEndpoint)
+  if (randomEndpoint) out.randomEndpoint = randomEndpoint
+
+  const submitPage = r.submitPage == null ? null : normalizeSourceUrl(r.submitPage)
+  if (submitPage) out.submitPage = submitPage
+
+  if (Array.isArray(r.defaultTags)) {
+    const cleaned: string[] = []
+    for (const t of r.defaultTags) {
+      if (cleaned.length >= TAGS_MAX_COUNT) break
+      if (typeof t === 'string') {
+        const trimmed = t.trim()
+        if (trimmed.length > 0 && trimmed.length <= TAG_MAX_LEN) cleaned.push(trimmed)
+      }
+    }
+    if (cleaned.length > 0) out.defaultTags = cleaned
+  }
+
+  if (Array.isArray(r.pauseKeywords)) {
+    const cleaned: string[] = []
+    for (const t of r.pauseKeywords) {
+      if (cleaned.length >= PAUSE_MAX_COUNT) break
+      if (typeof t === 'string') {
+        const trimmed = t.trim()
+        if (trimmed.length > 0 && trimmed.length <= TAG_MAX_LEN) cleaned.push(trimmed)
+      }
+    }
+    if (cleaned.length > 0) out.pauseKeywords = cleaned
+  }
+
+  if (r.keywordToTag && typeof r.keywordToTag === 'object' && !Array.isArray(r.keywordToTag)) {
+    const map: Record<string, string> = {}
+    let count = 0
+    for (const [k, v] of Object.entries(r.keywordToTag as Record<string, unknown>)) {
+      if (count >= KEYWORD_MAP_MAX_ENTRIES) break
+      if (typeof k !== 'string' || k.length === 0 || k.length > KEYWORD_PATTERN_MAX_LEN) continue
+      if (typeof v !== 'string') continue
+      const tagName = v.trim()
+      if (tagName.length === 0 || tagName.length > TAG_MAX_LEN) continue
+      map[k] = tagName
+      count++
+    }
+    if (count > 0) out.keywordToTag = map
+  }
+
+  return out
+}
+
+/**
+ * 注册一个用户自配 source。返回 true 表示注册成功,false 表示输入非法被拒。
+ * 同 roomId 重复注册会**覆盖前一份**(典型的 user-config 语义)。
+ */
+export function registerMemeSource(input: unknown): boolean {
+  const valid = validateMemeSource(input)
+  if (!valid) return false
+  userSources.set(String(valid.roomId), valid)
+  return true
+}
+
+/** 移除用户自配 source。返回 true 表示之前确实存在过这条。内置不会被这里影响。 */
+export function unregisterMemeSource(roomId: number): boolean {
+  return userSources.delete(String(roomId))
+}
+
+/** 清空全部用户自配 source(内置保留)。GM-signal 重写时由 sync effect 调用。 */
+export function clearUserMemeSources(): void {
+  userSources.clear()
+}
+
+/**
+ * 返回当前房间的梗源配置。用户自配优先,内置兜底。
+ * @returns 找到则返回 MemeSource,否则返回 null(这是大多数房间的情况)。
  */
 export function getMemeSourceForRoom(roomId: number | null | undefined): MemeSource | null {
   if (roomId == null) return null
-  return DEFAULT_MEME_SOURCES[String(roomId)] ?? null
+  const key = String(roomId)
+  return userSources.get(key) ?? builtInSources.get(key) ?? null
 }
 
 /** 给定房间是否有专属梗源。 */
 export function hasMemeSourceForRoom(roomId: number | null | undefined): boolean {
   return getMemeSourceForRoom(roomId) !== null
+}
+
+/** 测试用:重置 user 注册表(内置不动)。 */
+export function _resetMemeSourceRegistryForTests(): void {
+  userSources.clear()
 }

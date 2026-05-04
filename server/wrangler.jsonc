@@ -26,4 +26,9 @@
   "triggers": {
     "crons": ["0 */6 * * *"]
   }
+  // 可选 env vars(都有代码侧默认值,不设就走默认):
+  //   "vars": {
+  //     "SBHZM_LIST_URL": "https://sbhzm.cn/api/public/memes",  // 想接 staging mock / 自建镜像时改
+  //     "SBHZM_STALE_HOURS": "12"                                // cron liveness gate 阈值;字符串
+  //   }
 }

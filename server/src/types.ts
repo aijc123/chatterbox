@@ -5,6 +5,16 @@ export interface AppBindings {
   DB: D1Database
   /** 用于 hashIp 的 salt(避免 IP 直接落库被关联)。在 wrangler dev 里用默认值;生产用 secret put。 */
   IP_HASH_SALT?: string
+  /**
+   * SBHZM 上游列表 endpoint 覆盖。默认 https://sbhzm.cn/api/public/memes;
+   * 想接 staging mock / 自建镜像时通过 wrangler.jsonc `vars` 或 `wrangler dev --var` 改。
+   */
+  SBHZM_LIST_URL?: string
+  /**
+   * Cron `pullSbhzmIfStale` 的 staleness gate 阈值(小时)。默认 12h。
+   * 字符串型 —— Workers env vars 都是字符串,数值在使用点解析。
+   */
+  SBHZM_STALE_HOURS?: string
 }
 
 export type AppEnv = { Bindings: AppBindings }

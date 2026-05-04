@@ -1,6 +1,22 @@
 import { LiveWS } from '@laplace.live/ws/client'
 
 import { ensureRoomId, getDedeUid } from './api'
+
+// Test-only DI seam: production never sets `_liveWsFactoryOverride`. Tests
+// inject a fake LiveWS class so we can drive `bindEvents` handlers and
+// assert reconnect / lifecycle behavior without a real WebSocket.
+//
+// Same rationale as `_setGmXhrForTests` in `gm-fetch.ts`: bun caches `$`
+// imports across test files, so `mock.module` on `@laplace.live/ws/client`
+// is unreliable; an explicit DI hook is the project convention.
+type LiveWsCtorArgs = ConstructorParameters<typeof LiveWS>
+type LiveWsFactory = (...args: LiveWsCtorArgs) => LiveWS
+let _liveWsFactoryOverride: LiveWsFactory | null = null
+/** @internal Tests only. Pass `null` to clear the override. */
+export function _setLiveWsFactoryForTests(factory: LiveWsFactory | null): void {
+  _liveWsFactoryOverride = factory
+}
+
 import { BASE_URL } from './const'
 import {
   type CustomChatEvent,
@@ -466,10 +482,10 @@ async function connect(): Promise<void> {
     }
     if (buvid) authBody.buvid = buvid
 
-    const live = new LiveWS(roomId, {
+    const wsOpts = {
       address,
       authBody,
-      createWebSocket: url => {
+      createWebSocket: (url: string) => {
         const ws = new WebSocket(url)
         ws.addEventListener('close', event => {
           lastWsCloseDetail = `${url} ${formatCloseDetail(event)}`
@@ -479,7 +495,8 @@ async function connect(): Promise<void> {
         })
         return ws
       },
-    })
+    }
+    const live = _liveWsFactoryOverride ? _liveWsFactoryOverride(roomId, wsOpts) : new LiveWS(roomId, wsOpts)
     const previous = liveConnection
     liveConnection = live
     previous?.close()
@@ -566,4 +583,32 @@ export function stopLiveWsSource(): void {
   }
   liveConnection?.close()
   liveConnection = null
+}
+
+/**
+ * 测试用：把模块级状态完全清掉。`startLiveWsSource` / `stopLiveWsSource` 走的是
+ * 引用计数协议，无法在测试 setup 中确定性归零（先前 test 的 stop 可能没把
+ * `consumerCount` 减到 0）。这个 hook 把 connection / counters / 计时器
+ * 全部撕掉，让每个 test 从干净状态起步。
+ */
+export function _resetLiveWsStateForTests(): void {
+  started = false
+  consumerCount = 0
+  connectionSerial += 1
+  connectionHealthy = false
+  reconnectAttempt = 0
+  addressIndex = 0
+  lastStartupFailure = ''
+  lastStartupFailureAt = 0
+  lastWsCloseDetail = ''
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+  liveConnection?.close()
+  liveConnection = null
+  recentDanmaku.clear()
+  recentSweepCounter = 0
+  liveWsCoercionDiagnostics.numberFallbacks = 0
+  liveWsCoercionDiagnostics.stringFallbacks = 0
 }

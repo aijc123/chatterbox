@@ -39,6 +39,17 @@ export function _resetCachedWbiKeysForTests(): void {
   cachedWbiKeys = null
 }
 
+/**
+ * Test-only setter for the cached WBI keys. Lets tests skip the 1.5s
+ * `waitForWbiKeys` polling delay in `ensureWbiKeys` by seeding the cache
+ * directly. Production code never sets keys this way — they always come
+ * from the XHR hijack on `/x/web-interface/nav` or the explicit fetch
+ * fallback.
+ */
+export function _setCachedWbiKeysForTests(keys: BilibiliWbiKeys | null): void {
+  cachedWbiKeys = keys
+}
+
 ;(() => {
   // Sentinel: avoid double-wrapping the prototype if this module is re-imported
   // (e.g. when the userscript runs in both the top frame and a nested iframe).

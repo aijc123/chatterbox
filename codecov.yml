@@ -1,3 +1,10 @@
+# Coverage thresholds in `coverage.status` are intentionally unchanged here —
+# tightening them is a separate decision tracked in docs/coverage-policy.md
+# (see "Post-whitelist target"). This file enforces only the whitelist's
+# file-level exclusions; sub-file ranges from the policy are not enforced
+# anywhere yet because Bun's --coverage does not honor `/* c8 ignore */`
+# markers (oven-sh/bun#7662). When that lands or we wrap with c8, mark the
+# ranges named in docs/coverage-policy.md.
 coverage:
   status:
     project:
@@ -16,3 +23,8 @@ ignore:
   - "node_modules/**"
   - "server/node_modules/**"
   - "tests/**"
+  # File-level whitelist per docs/coverage-policy.md (Whitelist (file-level)).
+  - "src/lib/md5.ts"
+  - "src/lib/fetch-hijack.ts"
+  - "src/components/emote-picker.tsx"
+  - "src/components/ui/alert-dialog.tsx"

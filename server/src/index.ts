@@ -17,7 +17,7 @@ import { cors } from 'hono/cors'
 import type { AppBindings, AppEnv } from './types'
 
 import { ADMIN_HTML } from './admin-ui'
-import { pullSbhzmIfStale } from './lib/upstream-sbhzm'
+import { pullSbhzmIfStale, resolveSbhzmListUrl, resolveSbhzmStaleHours } from './lib/upstream-sbhzm'
 import { adminRoutes } from './routes/admin'
 import { publicRoutes } from './routes/public'
 
@@ -110,7 +110,10 @@ export default {
         // 都得显式打印,否则会被 Workers runtime 静默吞掉,只在 dashboard 的 invocation
         // logs 里留个红条,我们看不到根因。
         try {
-          const result = await pullSbhzmIfStale(env.DB)
+          const result = await pullSbhzmIfStale(env.DB, {
+            listUrl: resolveSbhzmListUrl(env),
+            staleThresholdHours: resolveSbhzmStaleHours(env),
+          })
           const elapsed = Date.now() - t0
           if (result.skipped) {
             console.log(

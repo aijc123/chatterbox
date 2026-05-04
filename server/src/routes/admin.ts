@@ -17,7 +17,7 @@ import type { AppEnv } from '../types'
 import { requireAdmin } from '../lib/auth'
 import { fetchMemesWithTags, isLikelyValidContent, type MemeRow, setMemeTags, upsertTagsByNames } from '../lib/db'
 import { contentHash, normalizeContent } from '../lib/hash'
-import { ADMIN_REFRESH_PAGES, pullSbhzmIntoMirror } from '../lib/upstream-sbhzm'
+import { ADMIN_REFRESH_PAGES, pullSbhzmIntoMirror, resolveSbhzmListUrl } from '../lib/upstream-sbhzm'
 
 export const adminRoutes = new Hono<AppEnv>()
 adminRoutes.use('*', requireAdmin)
@@ -33,6 +33,7 @@ adminRoutes.post('/refresh-sbhzm', async c => {
   const result = await pullSbhzmIntoMirror(c.env.DB, {
     pages: ADMIN_REFRESH_PAGES,
     actor: actor.label,
+    listUrl: resolveSbhzmListUrl(c.env),
   })
   return c.json({ ...result, elapsedMs: Date.now() - t0 })
 })
