@@ -30,13 +30,24 @@ bun run build
 # Preview production build
 bun run preview
 
-# Run all tests
-bun test
+# Run client/userscript tests (bun, isolated, scoped to tests/)
+bun run test:client
+
+# Run server / chatterbox-cloud tests (vitest + @cloudflare/vitest-pool-workers)
+bun run test:server
+
+# Full release gate (mirrors CI): biome ci + client tests + server tests + version + build + artifact + bundle budget
+bun run check
 
 # Focused checks
 bun run test:auto-blend
 bun run verify:auto-blend-ui
 ```
+
+Do NOT run bare `bun test` from the repo root. It (a) drops `--isolate`, so `mock.module(...)`
+calls leak across test files, and (b) un-scopes discovery so it tries to load `server/src/**/*.test.ts`
+under the bun runner, which fails on `import 'cloudflare:test'` (that module only exists inside the
+Cloudflare Workers test pool). Use `bun run test:client` or `bun run test:server` instead.
 
 The build output is written to `dist/`. The main userscript output is `dist/bilibili-live-wheel-auto-follow.user.js`.
 
