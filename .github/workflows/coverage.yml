@@ -25,7 +25,7 @@ jobs:
         run: bun test --coverage --coverage-reporter=lcov --isolate tests
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           use_oidc: true
           files: ./coverage/lcov.info
