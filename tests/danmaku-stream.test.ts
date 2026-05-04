@@ -374,7 +374,7 @@ describe('subscribeDanmaku — reference counting', () => {
     activeUnsubs.push(unsubB)
     await flushDom()
     container.append(makeDanmakuNode({ text: 'phase-2', uname: 'Y', uid: '1' }))
-    await flushDom(50)
+    await waitFor(() => callsB.includes('phase-2'))
     expect(callsA).not.toContain('phase-2')
     expect(callsB).toContain('phase-2')
   })

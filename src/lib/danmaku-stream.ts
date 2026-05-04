@@ -231,9 +231,10 @@ function tryAttach(): boolean {
     for (const m of mutations) {
       for (let i = 0; i < m.addedNodes.length; i++) {
         const node = m.addedNodes[i]
-        if (!(node instanceof HTMLElement)) continue
-        if (!isValidDanmakuNode(node)) continue
-        pendingNodes.add(node)
+        if (node.nodeType !== 1) continue
+        const element = node as HTMLElement
+        if (!isValidDanmakuNode(element)) continue
+        pendingNodes.add(element)
       }
     }
     if (pendingNodes.size > 0) scheduleFlush()
