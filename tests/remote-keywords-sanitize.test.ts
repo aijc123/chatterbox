@@ -53,6 +53,24 @@ describe('sanitizeKeywordsRecord', () => {
   test('drops empty keys', () => {
     expect(sanitizeKeywordsRecord({ '': 'no-empty-key' }, 100)).toEqual({})
   })
+
+  // Audit A11: a `" "` (whitespace-only) key passed `length > 0` and survived
+  // sanitization. `applyReplacements` would then `split(" ")` every outgoing
+  // danmaku and rewrite every space, corrupting one row at a time across the
+  // whole client. Lock the trim()-based check in.
+  test('drops whitespace-only keys (audit A11)', () => {
+    expect(sanitizeKeywordsRecord({ ' ': 'attack' }, 100)).toEqual({})
+    expect(sanitizeKeywordsRecord({ '\t\n  ': 'attack' }, 100)).toEqual({})
+    expect(sanitizeKeywordsRecord({ '   　  ': 'attack' }, 100)).toEqual({})
+    // Mixed: whitespace key dropped, real keys kept.
+    expect(sanitizeKeywordsRecord({ ' ': 'evil', real: 'safe' }, 100)).toEqual({ real: 'safe' })
+  })
+
+  test('keeps keys whose content has surrounding whitespace but a non-empty trimmed value', () => {
+    // We strip whitespace-only, not all-whitespace-containing — replacing
+    // " hello " with " hi " is a legitimate use case.
+    expect(sanitizeKeywordsRecord({ ' hello ': 'world' }, 100)).toEqual({ ' hello ': 'world' })
+  })
 })
 
 describe('sanitizeRemoteKeywords', () => {

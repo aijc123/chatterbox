@@ -1,4 +1,4 @@
-import { activeTab, autoBlendEnabled, sendMsg, sttRunning } from '../lib/store'
+import { activeTab, autoBlendEnabled, liveWsStatus, sendMsg, sttRunning } from '../lib/store'
 
 const TABS = [
   { id: 'fasong', label: '发送' },
@@ -9,14 +9,20 @@ const TABS = [
 
 export function Tabs() {
   const current = activeTab.value
+  // Show a degraded indicator only when WS was attempted (i.e. not 'off')
+  // AND is now in error/closed. 'off' means the user simply hasn't enabled
+  // anything that needs WS — not a degradation worth flagging.
+  const wsDegraded = liveWsStatus.value === 'error' || liveWsStatus.value === 'closed'
 
   return (
-    <div className='cb-tabs'>
+    <div className='cb-tabs' role='tablist' aria-label='弹幕助手分类'>
       {TABS.map(tab => (
         <button
           type='button'
           key={tab.id}
           className='cb-tab lc-min-w-0'
+          role='tab'
+          aria-selected={current === tab.id}
           data-active={current === tab.id}
           onClick={() => {
             activeTab.value = tab.id
@@ -25,9 +31,35 @@ export function Tabs() {
           {tab.label}
           {tab.id === 'fasong' && sendMsg.value ? ' · 车' : ''}
           {tab.id === 'fasong' && autoBlendEnabled.value ? ' · 跟' : ''}
+          {tab.id === 'fasong' && wsDegraded ? ' ⚠️' : ''}
           {tab.id === 'tongchuan' && sttRunning.value ? ' · 开' : ''}
         </button>
       ))}
+      {wsDegraded && (
+        <div
+          className='cb-ws-degraded-banner'
+          role='status'
+          aria-live='polite'
+          title='直播 WebSocket 断开，自动跟车与 Chatterbox Chat 已退化为 DOM 抓取模式（高峰期可能漏事件）'
+          style={{
+            gridColumn: '1 / -1',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '4px',
+            margin: '4px 0 0',
+            padding: '2px 6px',
+            borderRadius: '999px',
+            background: 'rgba(255, 149, 0, .14)',
+            color: '#a15c00',
+            fontSize: '11px',
+            fontWeight: 620,
+            lineHeight: 1.4,
+          }}
+        >
+          ⚠️ 直播 WS 已断开 · 已退回 DOM 抓取（高峰期可能漏事件）
+        </div>
+      )}
     </div>
   )
 }

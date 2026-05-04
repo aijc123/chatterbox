@@ -10,7 +10,13 @@ import {
   emitCustomChatWsStatus,
 } from './custom-chat-events'
 import { formatMilliyuanAmount, formatMilliyuanBadgeAmount } from './custom-chat-pricing'
-import { computeReconnectDelay, parseAuthUid, recentKey } from './live-ws-helpers'
+import {
+  computeReconnectDelay,
+  formatCloseDetail,
+  parseAuthUid,
+  recentKey,
+  shouldForceImmediateReconnect,
+} from './live-ws-helpers'
 import { appendLog } from './log'
 import { encodeWbi, ensureWbiKeys } from './wbi'
 
@@ -46,6 +52,12 @@ let addressIndex = 0
 let reconnectAttempt = 0
 let connectionSerial = 0
 let lastWsCloseDetail = ''
+// Set to true once the WS reaches the room-entered state (`live` event), and
+// flipped back to false when the connection closes. Used by the
+// visibilitychange recovery path to decide whether to force a reconnect when
+// the tab returns to the foreground.
+let connectionHealthy = false
+let visibilityRecoveryWired = false
 const recentDanmaku = new Map<string, number>()
 // Hard cap so a misbehaving feed can't grow this map forever between cleanups.
 const RECENT_DANMAKU_MAX = 500
@@ -57,11 +69,33 @@ function asRecord(value: unknown): UnknownRecord {
 }
 
 function asString(value: unknown, fallback = ''): string {
-  return typeof value === 'string' ? value : fallback
+  if (typeof value === 'string') return value
+  if (value !== undefined && value !== null) liveWsCoercionDiagnostics.stringFallbacks++
+  return fallback
 }
 
 function asNumber(value: unknown, fallback = 0): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  // `null` and `undefined` are valid "field absent" signals on B 站 payloads
+  // and don't indicate schema drift; we only count the genuinely surprising
+  // shapes (string-where-number, object-where-number, NaN/Infinity).
+  if (value !== undefined && value !== null) liveWsCoercionDiagnostics.numberFallbacks++
+  return fallback
+}
+
+/**
+ * Diagnostic counters incremented whenever `asNumber` / `asString` swap a
+ * surprisingly-shaped WS payload field for a fallback. Numbers staying at 0
+ * across a full session implies B 站's payload shape matches our types;
+ * non-zero values usually mean a schema change shipped upstream and one of
+ * the chat features is silently degrading. Inspect via
+ * `window.__chatterboxLiveWsCoercion` from DevTools when triaging issues
+ * about missing prices / blank usernames / wrong gift counts.
+ */
+export const liveWsCoercionDiagnostics = { numberFallbacks: 0, stringFallbacks: 0 }
+if (typeof window !== 'undefined') {
+  ;(window as unknown as { __chatterboxLiveWsCoercion?: typeof liveWsCoercionDiagnostics }).__chatterboxLiveWsCoercion =
+    liveWsCoercionDiagnostics
 }
 
 function nonEmptyFields(fields: Array<CustomChatField | null | undefined>): CustomChatField[] {
@@ -149,10 +183,8 @@ function getBuvid(): string | undefined {
   return getCookie('buvid3') ?? getCookie('buvid4') ?? getCookie('buvid_fp')
 }
 
-function closeDetail(event: CloseEvent): string {
-  const reason = event.reason ? `, reason=${event.reason}` : ''
-  return `code=${event.code}, clean=${event.wasClean}${reason}`
-}
+// Diagnostic close-event formatter lives in `live-ws-helpers.ts` so unit
+// tests can exercise it without loading this module's heavy import graph.
 
 interface DanmuInfo {
   key: string
@@ -440,7 +472,7 @@ async function connect(): Promise<void> {
       createWebSocket: url => {
         const ws = new WebSocket(url)
         ws.addEventListener('close', event => {
-          lastWsCloseDetail = `${url} ${closeDetail(event)}`
+          lastWsCloseDetail = `${url} ${formatCloseDetail(event)}`
         })
         ws.addEventListener('error', () => {
           lastWsCloseDetail = `${url} WebSocket error`
@@ -455,8 +487,10 @@ async function connect(): Promise<void> {
 
     live.addEventListener('live', () => {
       reconnectAttempt = 0
+      connectionHealthy = true
     })
     live.addEventListener('close', () => {
+      connectionHealthy = false
       if (!started || liveConnection !== live) return
       const suffix = lastWsCloseDetail ? ` (${lastWsCloseDetail})` : ''
       appendStartupFailure(live.live ? `connection closed${suffix}` : `closed before room entered${suffix}`)
@@ -474,10 +508,47 @@ async function connect(): Promise<void> {
   }
 }
 
+/**
+ * Mobile browsers and bfcache transitions throttle (or freeze) `setTimeout`
+ * for backgrounded tabs. A reconnect scheduled while hidden may fire many
+ * minutes after the user returns — long enough that they assume the chat
+ * died. When the page becomes visible again, if we should be connected but
+ * aren't, drop any stale pending reconnect and force a fresh attempt
+ * immediately.
+ *
+ * Wired once at module load. No-op when the script loads in a context
+ * without `document` (unit tests, Node).
+ */
+function ensureVisibilityRecoveryWired(): void {
+  if (visibilityRecoveryWired) return
+  if (typeof document === 'undefined') return
+  visibilityRecoveryWired = true
+  document.addEventListener('visibilitychange', () => {
+    if (
+      !shouldForceImmediateReconnect({
+        visibilityState: document.visibilityState,
+        started,
+        connectionHealthy,
+      })
+    ) {
+      return
+    }
+    // Stale backoff timer (which the OS may have throttled to never-firing)
+    // is replaced by an immediate reconnect on next tick.
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
+    reconnectAttempt = 0
+    void connect()
+  })
+}
+
 export function startLiveWsSource(): void {
   consumerCount += 1
   if (started) return
   started = true
+  ensureVisibilityRecoveryWired()
   emitCustomChatWsStatus('connecting')
   void connect()
 }
@@ -487,6 +558,7 @@ export function stopLiveWsSource(): void {
   if (consumerCount > 0) return
   started = false
   connectionSerial += 1
+  connectionHealthy = false
   emitCustomChatWsStatus('off')
   if (reconnectTimer) {
     clearTimeout(reconnectTimer)

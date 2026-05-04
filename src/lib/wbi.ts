@@ -5,6 +5,20 @@ import { md5 } from './md5'
 /** WBI keys captured by XHR hijack; set when /x/web-interface/nav response is received. */
 export let cachedWbiKeys: BilibiliWbiKeys | null = null
 
+/**
+ * Diagnostic counter incremented every time a `nav` XHR response cannot be
+ * parsed or doesn't contain WBI keys. A non-zero value with `cachedWbiKeys`
+ * still null usually means B 站 changed the nav payload shape and the
+ * extractor needs a fix. Inspect via `window.__chatterboxWbiParseFailures` in
+ * DevTools when a user reports "弹幕签名不工作".
+ */
+export const wbiDiagnostics = { parseFailures: 0, extractMisses: 0 }
+
+if (typeof window !== 'undefined') {
+  ;(window as unknown as { __chatterboxWbiParseFailures?: typeof wbiDiagnostics }).__chatterboxWbiParseFailures =
+    wbiDiagnostics
+}
+
 function setCachedWbiKeys(keys: BilibiliWbiKeys) {
   cachedWbiKeys = keys
 }
@@ -15,6 +29,14 @@ function extractWbiKeys(data: { data?: { wbi_img?: { img_url?: string; sub_url?:
   const img_key = imgUrl?.split('/').pop()?.split('.')[0] ?? ''
   const sub_key = subUrl?.split('/').pop()?.split('.')[0] ?? ''
   return img_key && sub_key ? { img_key, sub_key } : null
+}
+
+/** Test-only re-export of the private nav-payload extractor. */
+export const _extractWbiKeysForTests = extractWbiKeys
+
+/** Test-only reset of the cached WBI keys (fixture isolation). */
+export function _resetCachedWbiKeysForTests(): void {
+  cachedWbiKeys = null
 }
 
 ;(() => {
@@ -43,14 +65,26 @@ function extractWbiKeys(data: { data?: { wbi_img?: { img_url?: string; sub_url?:
     const url = (this as XMLHttpRequest & { _url?: string })._url
     if (url?.includes('/x/web-interface/nav')) {
       this.addEventListener('load', function () {
+        let data: { data?: { wbi_img?: { img_url?: string; sub_url?: string } } } | null = null
         try {
-          const data: {
-            data?: { wbi_img?: { img_url?: string; sub_url?: string } }
-          } = JSON.parse(this.responseText)
-          const keys = extractWbiKeys(data)
-          if (keys) setCachedWbiKeys(keys)
+          data = JSON.parse(this.responseText)
         } catch {
-          // Best-effort WBI key extraction; failures are silent.
+          // Malformed nav response. Bump diagnostic counter and clear any
+          // stale cache so callers fall back to the explicit fetch path in
+          // `ensureWbiKeys` instead of signing requests with a key that's no
+          // longer valid (B 站 has rotated WBI mixin tables before).
+          wbiDiagnostics.parseFailures++
+          cachedWbiKeys = null
+          return
+        }
+        const keys = data ? extractWbiKeys(data) : null
+        if (keys) {
+          setCachedWbiKeys(keys)
+        } else {
+          // Valid JSON but missing wbi_img — usually means B 站 changed the
+          // payload shape. Don't clobber a previously-good cache, but track
+          // the miss so issue reports surface it.
+          wbiDiagnostics.extractMisses++
         }
       })
     }
@@ -87,9 +121,19 @@ export async function ensureWbiKeys(): Promise<BilibiliWbiKeys | null> {
       credentials: 'include',
     })
     if (!resp.ok) return null
-    const data: { data?: { wbi_img?: { img_url?: string; sub_url?: string } } } = await resp.json()
-    const keys = extractWbiKeys(data)
-    if (keys) setCachedWbiKeys(keys)
+    let data: { data?: { wbi_img?: { img_url?: string; sub_url?: string } } } | null = null
+    try {
+      data = await resp.json()
+    } catch {
+      wbiDiagnostics.parseFailures++
+      return null
+    }
+    const keys = data ? extractWbiKeys(data) : null
+    if (keys) {
+      setCachedWbiKeys(keys)
+    } else {
+      wbiDiagnostics.extractMisses++
+    }
   } catch {
     // Best-effort fallback. Callers can decide how to proceed without keys.
   }
@@ -110,6 +154,9 @@ function getMixinKey(orig: string): string {
     .join('')
     .slice(0, 32)
 }
+
+/** Test-only re-export of the private mixin-key derivation. */
+export const _getMixinKeyForTests = getMixinKey
 
 /**
  * Adds wts and w_rid to request parameters (WBI signature).

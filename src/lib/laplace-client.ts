@@ -64,14 +64,33 @@ export async function fetchLaplaceMemes(roomId: number, sortBy: LaplaceMemeSortB
   // 用 .map / [...arr] / .concat 等不可变操作产生新数组。
 }
 
+// LAPLACE 没有批量接口,只能客户端做窗口内去重。按钮 UX 自身已有 1.5s 的"已复制"
+// 锁定,这里加 2s 兜底:再快的双击 / 同一 id 来自不同代码路径的重复 fire 不会触发
+// 第二次 POST。完整批处理需要 LAPLACE 改 endpoint,目前不在我们手里。
+const LAPLACE_COPY_DEDUP_MS = 2_000
+const recentLaplaceCopies = new Map<number, number>() // id → ts
+
 /**
- * 给 LAPLACE 源的某条梗回报一次复制。返回最新的 copyCount;失败返回 null
- * (对齐 cb-backend-client 的 reportCbMemeCopy 风格)。
+ * 给 LAPLACE 源的某条梗回报一次复制。返回最新的 copyCount;失败 / 重复短窗口
+ * 返回 null(对齐 cb-backend-client 的 reportCbMemeCopy 风格)。
  *
  * **不缓存** —— 写操作天然不该缓存,且后端会即时 +1 计数。
  */
 export async function reportLaplaceMemeCopy(memeId: number): Promise<number | null> {
   if (memeId <= 0) return null
+  const now = Date.now()
+  const last = recentLaplaceCopies.get(memeId)
+  if (last !== undefined && now - last < LAPLACE_COPY_DEDUP_MS) {
+    // 窗口内重复 → 静默丢弃,UI 不更新计数(避免发两次 POST 让 LAPLACE 视作刷量)。
+    return null
+  }
+  recentLaplaceCopies.set(memeId, now)
+  // 顺手 GC:Map 最大量级不会很大(短窗口),但仍然清理过期项保险。
+  if (recentLaplaceCopies.size > 64) {
+    for (const [id, ts] of recentLaplaceCopies) {
+      if (now - ts >= LAPLACE_COPY_DEDUP_MS) recentLaplaceCopies.delete(id)
+    }
+  }
   try {
     const resp = await fetch(`${BASE_URL.LAPLACE_MEME_COPY}/${memeId}`, { method: 'POST' })
     if (!resp.ok) return null
@@ -82,7 +101,8 @@ export async function reportLaplaceMemeCopy(memeId: number): Promise<number | nu
   }
 }
 
-/** 测试用:清空 LAPLACE 列表缓存。 */
+/** 测试用:清空 LAPLACE 列表缓存 + copy 去重窗口。 */
 export function _clearLaplaceCacheForTests(): void {
   listCache._clearForTests()
+  recentLaplaceCopies.clear()
 }

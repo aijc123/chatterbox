@@ -1,3 +1,5 @@
+import { sanitizeCustomChatCss } from './custom-chat-css-sanitize'
+
 const ROOT_ID = 'laplace-custom-chat'
 
 export const CUSTOM_CHAT_STYLE = `
@@ -1058,12 +1060,19 @@ export function ensureCustomChatStyles({
     nextUserStyleEl.id = userStyleId
     document.head.appendChild(nextUserStyleEl)
   }
+  // Sanitize before injection — strips `@import` (which can fetch arbitrary
+  // remote URLs and bypass the script's @connect allowlist), neutralizes
+  // hostile `url(javascript:…)` schemes, removes legacy IE `expression(…)`
+  // hooks, and caps the total length. A corrupted backup or a malicious
+  // theme preset cannot turn this user-supplied string into a network /
+  // execution channel.
+  const safeCss = sanitizeCustomChatCss(customCss).css
   // Avoid clobbering textContent unless the CSS string actually changed —
   // reassigning forces a full stylesheet recompute even when the value is
   // identical, and this runs from a Preact `effect` that fires whenever any
   // of its tracked signals tick.
-  if (nextUserStyleEl.textContent !== customCss) {
-    nextUserStyleEl.textContent = customCss
+  if (nextUserStyleEl.textContent !== safeCss) {
+    nextUserStyleEl.textContent = safeCss
   }
 
   return { styleEl: nextStyleEl, userStyleEl: nextUserStyleEl }

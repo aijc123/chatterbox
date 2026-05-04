@@ -45,3 +45,39 @@ export function computeReconnectDelay(attempt: number, random: () => number = Ma
   const jitter = Math.floor(random() * baseDelay * RECONNECT_JITTER_RATIO)
   return baseDelay + jitter
 }
+
+/** Subset of the DOM `CloseEvent` shape used by `formatCloseDetail`. */
+export interface CloseEventLike {
+  code: number
+  reason: string
+  wasClean: boolean
+}
+
+/**
+ * Formats a `CloseEvent` into a stable diagnostic string. Used in startup
+ * failure logs ("connection closed (code=1006, clean=false)"). Pulled into
+ * helpers so it can be tested without loading the full live-ws-source graph.
+ */
+export function formatCloseDetail(event: CloseEventLike): string {
+  const reason = event.reason ? `, reason=${event.reason}` : ''
+  return `code=${event.code}, clean=${event.wasClean}${reason}`
+}
+
+/**
+ * Returns true when the visibilitychange recovery path should fire — i.e.
+ * the page just became visible, the source is supposed to be running, and
+ * the WS isn't healthy. Mobile browsers and bfcache transitions can throttle
+ * `setTimeout` for backgrounded tabs, so a reconnect scheduled while hidden
+ * may not fire when the user returns; this guard tells the runtime to drop
+ * any stale backoff timer and reconnect immediately.
+ */
+export function shouldForceImmediateReconnect(input: {
+  visibilityState: 'visible' | 'hidden' | 'prerender' | string
+  started: boolean
+  connectionHealthy: boolean
+}): boolean {
+  if (input.visibilityState !== 'visible') return false
+  if (!input.started) return false
+  if (input.connectionHealthy) return false
+  return true
+}

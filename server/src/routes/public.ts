@@ -3,7 +3,8 @@
  *   GET  /memes              — 已批准列表(分页)
  *   GET  /memes/random       — 随机一条已批准
  *   POST /memes              — 提交贡献(进 pending 队列,等管理员审核)
- *   POST /memes/:id/copy     — 自建 meme 的复制计数(LAPLACE/SBHZM 各自有自己的 endpoint)
+ *   POST /memes/:id/copy     — 自建 meme 的复制计数(单个,旧客户端兼容)
+ *   POST /memes/copy/batch   — 批量复制计数(新客户端,N+1 → 1 round-trip)
  *
  * Phase B 阶段 GET /memes 只返回自建库;Phase C 才在这里聚合 LAPLACE/SBHZM。
  */
@@ -148,6 +149,11 @@ interface SubmitBody {
   username?: unknown
 }
 
+// `POST /memes` 也需要应用层限流,否则单一 attacker 能无限灌 pending 行,
+// 撑爆审核队列和 D1 storage。复用 bulk-mirror 用的 ip_hash + created_at 计数模式。
+// 30/小时是慎重值:一个真用户审核期间手动提交 30 条已经罕见。
+const SUBMIT_RATE_LIMIT_PER_HOUR = 30
+
 publicRoutes.post('/memes', async c => {
   let body: SubmitBody
   try {
@@ -168,6 +174,20 @@ publicRoutes.post('/memes', async c => {
   const ip = c.req.header('cf-connecting-ip') ?? c.req.header('x-real-ip') ?? 'unknown'
   const ipHashed = await hashIp(ip, c.env.IP_HASH_SALT ?? 'dev-salt')
   const ua = c.req.header('user-agent') ?? ''
+
+  // 限流:同 ip_hash 过去 1 小时的 submit(含 dedup) >= 上限 → 429,带 Retry-After。
+  // 用 contributions 表的 action='submit' 行做计数,跟 bulk-mirror 一样的存储模式,
+  // 不需要新增表。读一行 COUNT 比维护内存计数器更接近"分布式无状态"的 Workers 模型。
+  const since = new Date(Date.now() - 3600_000).toISOString()
+  const recentSubmit = await c.env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM contributions WHERE action = 'submit' AND ip_hash = ? AND created_at >= ?"
+  )
+    .bind(ipHashed, since)
+    .first<{ n: number }>()
+  if ((recentSubmit?.n ?? 0) >= SUBMIT_RATE_LIMIT_PER_HOUR) {
+    c.header('Retry-After', '3600')
+    return c.json({ error: 'rate_limited', detail: 'too many submissions in past hour' }, 429)
+  }
 
   if (existing) {
     await c.env.DB.prepare(
@@ -243,6 +263,90 @@ publicRoutes.post('/memes/:id/copy', async c => {
     .bind(id)
     .first<{ copy_count: number }>()
   return c.json({ copyCount: row?.copy_count ?? 0 })
+})
+
+// ---------------------------------------------------------------------------
+// POST /memes/copy/batch
+//
+// 客户端把 debounce 窗口内的多次"复制"调用聚合成一次请求。N 次单 POST → 1 次
+// 批量 POST。后端聚合 id → 累加次数,在一个 db.batch 里跑全部 UPDATE。
+//
+// 请求:`{ items: number[] }` —— meme id 列表;允许重复(同 id 重复 = 计数 +N)。
+// 响应:`{ updated, missing, results: [{ id, copyCount }] }`
+//   - updated:实际生效的 unique id 数(行存在且 status='approved')
+//   - missing:请求里出现但库里找不到 / 未批准的 id 个数
+//   - results:每个 updated id 的最新 copyCount(顺序不保证,客户端按 id 索引)
+//
+// 为什么不需要鉴权 / 审计:写计数器跟旧的 /memes/:id/copy 一样轻、一样幂等
+// (重复请求只是 +N,语义清晰),没引入新的攻击面 —— 单 endpoint 上能做的
+// 事这里也能做,反过来也成立。
+// ---------------------------------------------------------------------------
+
+const MAX_COPY_BATCH = 100
+
+publicRoutes.post('/memes/copy/batch', async c => {
+  let body: { items?: unknown }
+  try {
+    body = await c.req.json<{ items?: unknown }>()
+  } catch {
+    return c.json({ error: 'bad_request', detail: 'invalid JSON' }, 400)
+  }
+  if (!Array.isArray(body.items)) {
+    return c.json({ error: 'bad_request', detail: 'items must be an array of numbers' }, 422)
+  }
+  if (body.items.length === 0) {
+    return c.json({ updated: 0, missing: 0, results: [] })
+  }
+  if (body.items.length > MAX_COPY_BATCH) {
+    return c.json({ error: 'too_large', detail: `max ${MAX_COPY_BATCH} ids per call` }, 413)
+  }
+
+  // 聚合:同 id 多次 = 累加。无效 id(非正整数)直接丢弃,不抛错(客户端可能
+  // 在 SBHZM 合成的负 id 上不小心调用,我们容忍)。
+  const counts = new Map<number, number>()
+  for (const raw of body.items) {
+    const id = typeof raw === 'number' ? raw : Number(raw)
+    if (!Number.isFinite(id) || id <= 0 || !Number.isInteger(id)) continue
+    counts.set(id, (counts.get(id) ?? 0) + 1)
+  }
+  if (counts.size === 0) return c.json({ updated: 0, missing: 0, results: [] })
+
+  const now = new Date().toISOString()
+  // 每个 unique id 一条 UPDATE,db.batch 一次 round-trip 全发。
+  const updateStmts = [...counts.entries()].map(([id, delta]) =>
+    c.env.DB.prepare(
+      "UPDATE memes SET copy_count = copy_count + ?, last_copied_at = ?, updated_at = ? WHERE id = ? AND status = 'approved'"
+    ).bind(delta, now, now, id)
+  )
+  const updateResults = await c.env.DB.batch(updateStmts)
+
+  // changes=0 表示行不存在或不是 approved → missing。
+  const idsList = [...counts.keys()]
+  let updated = 0
+  let missing = 0
+  const updatedIds: number[] = []
+  for (let i = 0; i < idsList.length; i++) {
+    const r = updateResults[i]
+    if (r?.meta?.changes && r.meta.changes > 0) {
+      updated++
+      const id = idsList[i]
+      if (id !== undefined) updatedIds.push(id)
+    } else {
+      missing++
+    }
+  }
+
+  // 回查最新 copy_count。一次 SELECT IN(...) 拉所有 updated id。
+  let results: Array<{ id: number; copyCount: number }> = []
+  if (updatedIds.length > 0) {
+    const placeholders = updatedIds.map(() => '?').join(',')
+    const rows = await c.env.DB.prepare(`SELECT id, copy_count FROM memes WHERE id IN (${placeholders})`)
+      .bind(...updatedIds)
+      .all<{ id: number; copy_count: number }>()
+    results = (rows.results ?? []).map(r => ({ id: r.id, copyCount: r.copy_count }))
+  }
+
+  return c.json({ updated, missing, results })
 })
 
 publicRoutes.get('/tags', async c => {

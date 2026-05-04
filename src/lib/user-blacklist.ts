@@ -5,32 +5,13 @@
 
 import { appendLog } from './log'
 import { autoBlendUserBlacklist } from './store'
+import { extractUidFromDanmakuItem, extractUnameFromDanmakuItem } from './user-blacklist-parsers'
 
 const INJECTED_ATTR = 'data-lc-bl'
 
 let lastUid: string | null = null
 let lastUname: string | null = null
 let contextMenuHandler: ((e: Event) => void) | null = null
-
-function extractUidFromDanmakuItem(item: HTMLElement): string | null {
-  const direct = item.getAttribute('data-uid')
-  if (direct) return direct
-  const link = item.querySelector<HTMLAnchorElement>('a[href*="space.bilibili.com"], a[href*="uid="]')
-  const href = link?.href ?? ''
-  return href.match(/space\.bilibili\.com\/(\d+)/)?.[1] ?? href.match(/[?&]uid=(\d+)/)?.[1] ?? null
-}
-
-function extractUnameFromDanmakuItem(item: HTMLElement): string | null {
-  const selectors = ['[data-uname]', '.user-name', '.username', '.danmaku-item-user', '[class*="user-name"]']
-  for (const selector of selectors) {
-    const el = item.querySelector<HTMLElement>(selector)
-    const value = el?.getAttribute('data-uname') ?? el?.getAttribute('title') ?? el?.textContent
-    const clean = (value ?? '').replace(/\s+/g, ' ').trim()
-    if (clean && clean.length <= 32 && !/通过活动|装扮|粉丝牌|用户等级|头像|复制|举报|回复|关闭/.test(clean))
-      return clean
-  }
-  return null
-}
 
 function closeNativeContextMenu(): void {
   for (const li of document.querySelectorAll('li')) {

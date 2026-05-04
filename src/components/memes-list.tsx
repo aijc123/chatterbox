@@ -1,17 +1,18 @@
-import type { LaplaceInternal } from '@laplace.live/internal'
 import { useSignal } from '@preact/signals'
 import { useEffect, useLayoutEffect, useRef } from 'preact/hooks'
 
+import type { LaplaceMemeWithSource } from '../lib/sbhzm-client'
+
 import { ensureRoomId, getCsrfToken } from '../lib/api'
-import { fetchCbMergedMemes, mirrorToCbBackend, reportCbMemeCopy } from '../lib/cb-backend-client'
+import { reportCbMemeCopy } from '../lib/cb-backend-client'
+import { copyTextToClipboard } from '../lib/clipboard'
 import { formatLockedEmoticonReject, isLockedEmoticon } from '../lib/emoticon'
-import { fetchLaplaceMemes, reportLaplaceMemeCopy } from '../lib/laplace-client'
+import { reportLaplaceMemeCopy } from '../lib/laplace-client'
 import { appendLog, notifyUser } from '../lib/log'
 import { ignoreMemeCandidate } from '../lib/meme-contributor'
-import { filterBackendMemesForRoom } from '../lib/meme-room-filter'
-import { getMemeSourceForRoom, type MemeSource } from '../lib/meme-sources'
+import { fetchAllMemes, type MemeSortBy, sortMemes } from '../lib/meme-fetch'
+import { getMemeSourceForRoom } from '../lib/meme-sources'
 import { applyReplacements } from '../lib/replacement'
-import { fetchSbhzmMemes, type LaplaceMemeWithSource } from '../lib/sbhzm-client'
 import { maybeProbeSbhzmFreshness } from '../lib/sbhzm-freshness-probe'
 import { enqueueDanmaku, SendPriority } from '../lib/send-queue'
 import {
@@ -34,8 +35,6 @@ import { SbhzmSubmitRow } from './sbhzm-submit-row'
 /** 候选梗当前展开的提交目标:同时只能开一个,避免 UI 拥挤。 */
 type SubmittingTarget = { text: string; target: 'sbhzm' | 'cb' } | null
 
-type MemeSortBy = NonNullable<LaplaceInternal.HTTPS.Workers.MemeListQuery['sortBy']>
-
 const MEME_SORT_OPTIONS: Set<string> = new Set<MemeSortBy>(['lastCopiedAt', 'copyCount', 'createdAt'])
 const isMemeSortBy = (v: string): v is MemeSortBy => MEME_SORT_OPTIONS.has(v)
 
@@ -50,117 +49,6 @@ const TAG_COLORS: Record<string, string> = {
   pink: '#ec4899',
   cyan: '#06b6d4',
   green: '#22c55e',
-}
-
-function sortMemes(memes: LaplaceInternal.HTTPS.Workers.MemeWithUser[], sortBy: MemeSortBy): void {
-  memes.sort((a, b) => {
-    if (sortBy === 'lastCopiedAt') {
-      if (a.lastCopiedAt === null && b.lastCopiedAt === null) return 0
-      if (a.lastCopiedAt === null) return 1
-      if (b.lastCopiedAt === null) return -1
-      return b.lastCopiedAt.localeCompare(a.lastCopiedAt)
-    }
-    if (sortBy === 'copyCount') return b.copyCount - a.copyCount
-    return b.createdAt.localeCompare(a.createdAt)
-  })
-}
-
-/**
- * 拉取并合并所有可用梗源。
- *
- * 两种模式:
- *
- * 1) **cb 后端启用时(Phase C 主路径)**
- *    先调 cb 的 `/memes` —— 后端自己已经聚合了 LAPLACE+SBHZM+自建,带 `sources` 字段
- *    告诉我们哪个上游它没拉到。客户端只在 `sources.X = false` 时才直连那个上游做兜底。
- *    后端整体不可达(fatal=true)时整体降级到旧逻辑。
- *
- * 2) **cb 后端关闭(旧逻辑)**
- *    并行拉 LAPLACE + 房间专属 SBHZM(若有),互不影响。
- *
- * 返回数组里每条都带 `_source` 字段以便 UI 渲染来源 badge。
- */
-async function fetchAllMemes(
-  roomId: number,
-  sortBy: MemeSortBy,
-  source: MemeSource | null
-): Promise<LaplaceMemeWithSource[]> {
-  if (cbBackendEnabled.value) {
-    const cb = await fetchCbMergedMemes({ roomId, sortBy, perPage: 500 })
-    if (!cb.fatal) {
-      const cbItems = filterBackendMemesForRoom(cb.items, source !== null)
-      // 后端能用 —— 走主路径。LAPLACE/SBHZM 仅在后端没拉到时本地兜底。
-      // 兜底 fetch 成功后顺便 mirror 推回后端 —— 下次访问该数据就在自建库里了。
-      const fallbacks: Array<Promise<LaplaceMemeWithSource[]>> = []
-      if (!cb.sources.laplace) {
-        fallbacks.push(
-          fetchLaplaceMemes(roomId, sortBy)
-            .then(data => {
-              const tagged = data.map(m => ({ ...m, _source: 'laplace' as const }))
-              void mirrorToCbBackend(tagged, 'laplace') // fire-and-forget
-              return tagged
-            })
-            .catch(err => {
-              appendLog(`⚠️ LAPLACE 兜底加载失败:${err instanceof Error ? err.message : String(err)}`)
-              return []
-            })
-        )
-      }
-      if (source && !cb.sources.sbhzm) {
-        fallbacks.push(
-          fetchSbhzmMemes(source)
-            .then(data => {
-              void mirrorToCbBackend(data, 'sbhzm') // fire-and-forget
-              return data
-            })
-            .catch(err => {
-              appendLog(`⚠️ ${source.name} 兜底加载失败:${err instanceof Error ? err.message : String(err)}`)
-              return []
-            })
-        )
-      }
-      const fallbackArrs = await Promise.all(fallbacks)
-      const merged: LaplaceMemeWithSource[] = ([] as LaplaceMemeWithSource[]).concat(cbItems, ...fallbackArrs)
-      sortMemes(merged, sortBy)
-      return merged
-    }
-    // fatal:后端整体挂了,告知一次然后走旧逻辑。mirror 推送也跳过(后端不在)。
-    appendLog('⚠️ chatterbox-cloud 后端不可达,降级到本地直拉 LAPLACE/SBHZM')
-  }
-
-  // 旧逻辑(后端关闭或后端整体挂了)
-  // 即使后端关闭,只要 cbBackendEnabled.value=false 关闭时 mirror 函数会自动 noop,
-  // 这里不需要再判断;开启时会推一份给后端贡献数据。
-  const tasks: Array<Promise<LaplaceMemeWithSource[]>> = []
-  tasks.push(
-    fetchLaplaceMemes(roomId, sortBy)
-      .then(data => {
-        const tagged = data.map(m => ({ ...m, _source: 'laplace' as const }))
-        void mirrorToCbBackend(tagged, 'laplace')
-        return tagged
-      })
-      .catch(err => {
-        appendLog(`⚠️ LAPLACE 烂梗加载失败:${err instanceof Error ? err.message : String(err)}`)
-        return []
-      })
-  )
-  if (source) {
-    tasks.push(
-      fetchSbhzmMemes(source)
-        .then(data => {
-          void mirrorToCbBackend(data, 'sbhzm')
-          return data
-        })
-        .catch(err => {
-          appendLog(`⚠️ ${source.name} 加载失败:${err instanceof Error ? err.message : String(err)}`)
-          return []
-        })
-    )
-  }
-  const results = await Promise.all(tasks)
-  const merged: LaplaceMemeWithSource[] = ([] as LaplaceMemeWithSource[]).concat(...results)
-  sortMemes(merged, sortBy)
-  return merged
 }
 
 function SourceBadge({ source }: { source: 'laplace' | 'sbhzm' | 'cb' | undefined }) {
@@ -255,9 +143,8 @@ function MemeItem({
   }
 
   const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(meme.content)
-    } catch {
+    const ok = await copyTextToClipboard(meme.content)
+    if (!ok) {
       notifyUser('error', '复制烂梗失败，请手动复制', meme.content)
       return
     }
@@ -625,7 +512,7 @@ export function MemesList() {
                         onClick={() => {
                           const id = cachedRoomId.peek()
                           if (id === null) return
-                          void navigator.clipboard.writeText(text)
+                          void copyTextToClipboard(text)
                           const uid = cachedStreamerUid.value
                           window.open(
                             `https://laplace.live/memes${uid ? `?contribute=${uid}` : ''}`,

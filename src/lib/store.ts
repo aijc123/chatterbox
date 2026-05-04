@@ -1,6 +1,7 @@
 import { computed, effect, signal } from '@preact/signals'
 
 import { GM_getValue, GM_setValue } from '$'
+import { type CustomChatWsStatus, subscribeCustomChatWsStatus } from './custom-chat-events'
 import { appendLog } from './log'
 import { memeContributorCandidatesByRoom, memeContributorSeenTextsByRoom } from './store-meme'
 import { persistSendState, sendMsg } from './store-send'
@@ -18,6 +19,21 @@ export * from './store-ui'
 
 export const cachedRoomId = signal<number | null>(null)
 export const cachedStreamerUid = signal<number | null>(null)
+
+/**
+ * Reactive view of the live WebSocket connection state, mirrored from
+ * `subscribeCustomChatWsStatus`. Lets UI surfaces (tab bar, settings) show
+ * when the script has degraded to DOM-scrape mode without each component
+ * needing its own subscription.
+ *
+ * Values: `off` (WS not started — features that need it are disabled),
+ * `connecting`, `live` (healthy), `error` / `closed` (degraded — DOM
+ * fallback in effect).
+ */
+export const liveWsStatus = signal<CustomChatWsStatus>('off')
+subscribeCustomChatWsStatus(status => {
+  liveWsStatus.value = status
+})
 
 // 当前直播间的候选梗（按房间隔离的派生视图）
 export const memeContributorCandidates = computed<string[]>(() => {

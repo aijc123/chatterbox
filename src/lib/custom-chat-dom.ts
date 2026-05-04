@@ -159,7 +159,12 @@ let pendingRenderFlush = false
 let pendingRerender: { token: number; refreshFrozenSnapshot: boolean } | null = null
 let rerenderToken = 0
 let emoticonRefreshToken = 0
+// Registered listener cleanup. Older Safari (<15) and some Violentmonkey
+// sandboxes don't support `addEventListener({ signal })`, so we keep a manual
+// disposer list and only opportunistically use AbortSignal as a fast path
+// when we can prove it's wired up. See `addRootEventListener` for the probe.
 let rootEventController: AbortController | null = null
+let rootEventDisposers: Array<() => void> = []
 
 async function refreshCurrentRoomEmoticons(): Promise<void> {
   const token = ++emoticonRefreshToken
@@ -177,7 +182,47 @@ function eventToSendableMessage(ev: DanmakuEvent): string {
   return ev.uname ? `@${ev.uname} ${ev.text}` : ev.text
 }
 
-function getRootEventSignal(): AbortSignal {
+/**
+ * Cached probe result for `addEventListener({ signal })` support.
+ * Safari 15+, Firefox 124+, and Chrome 90+ accept `signal` in listener
+ * options; older versions silently ignore it (so listeners never detach when
+ * we abort). We feature-detect once on first call and cache the result.
+ */
+let signalListenerSupported: boolean | null = null
+function detectSignalListenerSupport(): boolean {
+  if (signalListenerSupported !== null) return signalListenerSupported
+  if (typeof AbortController === 'undefined') {
+    signalListenerSupported = false
+    return false
+  }
+  try {
+    let read = false
+    const probeOptions: AddEventListenerOptions = {}
+    Object.defineProperty(probeOptions, 'signal', {
+      get() {
+        read = true
+        return undefined
+      },
+    })
+    // Attach + immediately detach a no-op listener on a transient element so
+    // the page never sees this probe.
+    const probeTarget = typeof document !== 'undefined' ? document.createElement('div') : null
+    if (!probeTarget) {
+      signalListenerSupported = false
+      return false
+    }
+    probeTarget.addEventListener('test', () => {}, probeOptions)
+    probeTarget.removeEventListener('test', () => {}, probeOptions)
+    signalListenerSupported = read
+    return read
+  } catch {
+    signalListenerSupported = false
+    return false
+  }
+}
+
+function getRootEventSignal(): AbortSignal | undefined {
+  if (typeof AbortController === 'undefined') return undefined
   rootEventController ??= new AbortController()
   return rootEventController.signal
 }
@@ -185,6 +230,16 @@ function getRootEventSignal(): AbortSignal {
 function abortRootEventListeners(): void {
   rootEventController?.abort()
   rootEventController = null
+  // Always run manual disposers too — they cover environments where the
+  // signal-as-listener-option fast path was unavailable.
+  for (const dispose of rootEventDisposers) {
+    try {
+      dispose()
+    } catch {
+      // best-effort cleanup
+    }
+  }
+  rootEventDisposers = []
 }
 
 function addRootEventListener<K extends keyof GlobalEventHandlersEventMap>(
@@ -193,7 +248,16 @@ function addRootEventListener<K extends keyof GlobalEventHandlersEventMap>(
   listener: (event: GlobalEventHandlersEventMap[K]) => void,
   options?: AddEventListenerOptions
 ): void {
-  target.addEventListener(type, listener as EventListener, { ...options, signal: getRootEventSignal() })
+  const eventListener = listener as EventListener
+  if (detectSignalListenerSupport()) {
+    target.addEventListener(type, eventListener, { ...options, signal: getRootEventSignal() })
+    return
+  }
+  // Fallback path: browser/sandbox doesn't honor `signal` in listener options.
+  // Register manually and queue a disposer so abortRootEventListeners() can
+  // detach it. Same observable behavior, slightly more closure overhead.
+  target.addEventListener(type, eventListener, options)
+  rootEventDisposers.push(() => target.removeEventListener(type, eventListener, options))
 }
 
 function makeButton(

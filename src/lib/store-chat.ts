@@ -3,6 +3,7 @@ import { signal } from '@preact/signals'
 import type { BilibiliEmoticonPackage } from '../types'
 
 import { GM_getValue, GM_setValue } from '$'
+import { CUSTOM_CHAT_CSS_MAX_LENGTH } from './custom-chat-css-sanitize'
 import { gmSignal } from './gm-signal'
 
 const customChatDefaultMigrationKey = 'customChatDefaultPresetMigrated'
@@ -28,7 +29,13 @@ export const customChatShowGift = gmSignal('customChatShowGift', true)
 export const customChatShowSuperchat = gmSignal('customChatShowSuperchat', true)
 export const customChatShowEnter = gmSignal('customChatShowEnter', true)
 export const customChatShowNotice = gmSignal('customChatShowNotice', true)
-export const customChatCss = gmSignal('customChatCss', '')
+// Reject persisted values larger than the cap. A corrupted backup with
+// megabytes of CSS would otherwise sit forever in GM storage. Sanitization
+// (strip @import, hostile url(...), etc.) still happens at injection time
+// inside `ensureCustomChatStyles`, so this validator only enforces size.
+export const customChatCss = gmSignal<string>('customChatCss', '', {
+  validate: (val): val is string => typeof val === 'string' && val.length <= CUSTOM_CHAT_CSS_MAX_LENGTH,
+})
 export const customChatPerfDebug = gmSignal('customChatPerfDebug', false)
 
 export const cachedEmoticonPackages = signal<BilibiliEmoticonPackage[]>([])

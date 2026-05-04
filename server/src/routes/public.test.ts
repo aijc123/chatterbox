@@ -92,6 +92,44 @@ describe('POST /memes — submission + dedup', () => {
     })
     expect(r.status).toBe(400)
   })
+
+  test('rate limit: 30 prior submits in past hour from same ip → 429 + Retry-After', async () => {
+    // Same backfill trick as bulk-mirror: seed one real submit so we learn the ip_hash
+    // SELF.fetch produces, then duplicate the contributions row up to the limit.
+    // Audit Finding #5.
+    const seed = await SELF.fetch('http://example.com/memes', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ content: 'seed-row' }),
+    })
+    expect(seed.status).toBe(201)
+    const ipHashRow = await env.DB.prepare("SELECT ip_hash FROM contributions WHERE action = 'submit' LIMIT 1").first<{
+      ip_hash: string
+    }>()
+    const ipHash = ipHashRow?.ip_hash ?? ''
+    expect(ipHash).not.toBe('')
+    const now = new Date().toISOString()
+
+    // Pad to exactly 30 submit rows in the last hour. Seed counted as 1 → insert 29 more.
+    for (let i = 0; i < 29; i++) {
+      await env.DB.prepare(
+        `INSERT INTO contributions (action, actor, ip_hash, created_at) VALUES ('submit', 'public', ?, ?)`
+      )
+        .bind(ipHash, now)
+        .run()
+    }
+
+    // The 31st submit should trip the limit.
+    const blocked = await SELF.fetch('http://example.com/memes', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ content: 'blocked-row' }),
+    })
+    expect(blocked.status).toBe(429)
+    expect(blocked.headers.get('Retry-After')).toBe('3600')
+    const body = (await blocked.json()) as { error: string }
+    expect(body.error).toBe('rate_limited')
+  })
 })
 
 describe('POST /memes/bulk-mirror — input validation', () => {
@@ -279,5 +317,149 @@ describe('GET /memes — room-specific SBHZM visibility', () => {
     expect(body.total).toBe(2)
     expect(body.items.some(m => m.content === 'hzm-only' && m._source === 'sbhzm')).toBe(true)
     expect(body.sources.sbhzm).toBe(true)
+  })
+})
+
+describe('POST /memes/copy/batch — batched copy reports', () => {
+  const insertApproved = (content: string, hashSuffix: string) =>
+    env.DB.prepare(
+      `INSERT INTO memes (uid, content, status, content_hash, source_origin, copy_count, created_at, updated_at)
+       VALUES (0, ?, 'approved', ?, 'cb', 0, '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')`
+    )
+      .bind(content, `copy-batch-${hashSuffix}`)
+      .run()
+
+  test('aggregates duplicates: same id 3x → copy_count += 3 in one round-trip', async () => {
+    await insertApproved('aaa', 'a')
+    const idRow = await env.DB.prepare("SELECT id FROM memes WHERE content_hash = 'copy-batch-a'").first<{
+      id: number
+    }>()
+    expect(idRow?.id).toBeGreaterThan(0)
+    const id = idRow?.id as number
+
+    const r = await SELF.fetch('http://example.com/memes/copy/batch', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ items: [id, id, id] }),
+    })
+    expect(r.status).toBe(200)
+    const body = (await r.json()) as {
+      updated: number
+      missing: number
+      results: Array<{ id: number; copyCount: number }>
+    }
+    expect(body.updated).toBe(1)
+    expect(body.missing).toBe(0)
+    expect(body.results).toEqual([{ id, copyCount: 3 }])
+
+    const dbRow = await env.DB.prepare('SELECT copy_count, last_copied_at FROM memes WHERE id = ?')
+      .bind(id)
+      .first<{ copy_count: number; last_copied_at: string | null }>()
+    expect(dbRow?.copy_count).toBe(3)
+    expect(dbRow?.last_copied_at).toBeTruthy()
+  })
+
+  test('mixed: existing ids update, unknown ids land in missing', async () => {
+    await insertApproved('bbb', 'b')
+    const real = (
+      await env.DB.prepare("SELECT id FROM memes WHERE content_hash = 'copy-batch-b'").first<{ id: number }>()
+    )?.id as number
+
+    const r = await SELF.fetch('http://example.com/memes/copy/batch', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ items: [real, 999_999, real, 888_888] }),
+    })
+    const body = (await r.json()) as {
+      updated: number
+      missing: number
+      results: Array<{ id: number; copyCount: number }>
+    }
+    expect(body.updated).toBe(1)
+    expect(body.missing).toBe(2)
+    expect(body.results).toEqual([{ id: real, copyCount: 2 }])
+  })
+
+  test('skips pending/rejected memes (only approved counts)', async () => {
+    await env.DB.prepare(
+      `INSERT INTO memes (uid, content, status, content_hash, source_origin, copy_count, created_at, updated_at)
+       VALUES (0, 'pending-meme', 'pending', 'copy-batch-pending', 'cb', 0, '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')`
+    ).run()
+    const id = (
+      await env.DB.prepare("SELECT id FROM memes WHERE content_hash = 'copy-batch-pending'").first<{ id: number }>()
+    )?.id as number
+
+    const r = await SELF.fetch('http://example.com/memes/copy/batch', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ items: [id] }),
+    })
+    const body = (await r.json()) as { updated: number; missing: number }
+    expect(body.updated).toBe(0)
+    expect(body.missing).toBe(1)
+
+    const row = await env.DB.prepare('SELECT copy_count FROM memes WHERE id = ?')
+      .bind(id)
+      .first<{ copy_count: number }>()
+    expect(row?.copy_count).toBe(0)
+  })
+
+  test('empty items → 200 with zeroes (not an error)', async () => {
+    const r = await SELF.fetch('http://example.com/memes/copy/batch', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ items: [] }),
+    })
+    expect(r.status).toBe(200)
+    const body = (await r.json()) as { updated: number; missing: number; results: unknown[] }
+    expect(body.updated).toBe(0)
+    expect(body.missing).toBe(0)
+    expect(body.results).toEqual([])
+  })
+
+  test('non-array items → 422', async () => {
+    const r = await SELF.fetch('http://example.com/memes/copy/batch', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ items: 'not-an-array' }),
+    })
+    expect(r.status).toBe(422)
+  })
+
+  test('batch > MAX_COPY_BATCH (100) → 413', async () => {
+    const items = Array.from({ length: 101 }, (_, i) => i + 1)
+    const r = await SELF.fetch('http://example.com/memes/copy/batch', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ items }),
+    })
+    expect(r.status).toBe(413)
+  })
+
+  test('invalid id values (negative, zero, NaN, non-int) silently filtered', async () => {
+    await insertApproved('ccc', 'c')
+    const real = (
+      await env.DB.prepare("SELECT id FROM memes WHERE content_hash = 'copy-batch-c'").first<{ id: number }>()
+    )?.id as number
+
+    const r = await SELF.fetch('http://example.com/memes/copy/batch', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ items: [real, -1, 0, 1.5, 'abc', null] }),
+    })
+    expect(r.status).toBe(200)
+    const body = (await r.json()) as { updated: number; missing: number }
+    expect(body.updated).toBe(1)
+    // -1, 0, 1.5, 'abc', null are all filtered before the SQL UPDATE → not counted as missing.
+    expect(body.missing).toBe(0)
+  })
+
+  test('invalid JSON body → 400', async () => {
+    const r = await SELF.fetch('http://example.com/memes/copy/batch', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{not json',
+    })
+    expect(r.status).toBe(400)
   })
 })

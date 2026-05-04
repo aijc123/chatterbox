@@ -1,6 +1,7 @@
 import { showConfirm } from '../components/ui/alert-dialog'
 import { tryAiEvasion } from './ai-evasion'
 import { ensureRoomId, getCsrfToken } from './api'
+import { copyTextToClipboard } from './clipboard'
 import { formatLockedEmoticonReject, isEmoticonUnique, isLockedEmoticon } from './emoticon'
 import { classifyRiskEvent, syncGuardRoomRiskEvent } from './guard-room-sync'
 import { appendLog } from './log'
@@ -10,22 +11,12 @@ import { verifyBroadcast } from './send-verification'
 import { activeTab, aiEvasion, customChatEnabled, dialogOpen, fasongText, maxLength, msgSendInterval } from './store'
 import { processMessages } from './utils'
 
-export async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch {
-    const textarea = document.createElement('textarea')
-    textarea.value = text
-    textarea.style.position = 'fixed'
-    textarea.style.opacity = '0'
-    document.body.appendChild(textarea)
-    textarea.select()
-    const ok = document.execCommand('copy')
-    textarea.remove()
-    return ok
-  }
-}
+/**
+ * @deprecated Use `copyTextToClipboard` from `./clipboard` directly. This
+ * thin wrapper exists only to preserve the existing import surface for
+ * `danmaku-actions` consumers that already import `copyText`.
+ */
+export const copyText = copyTextToClipboard
 
 export async function stealDanmaku(msg: string): Promise<void> {
   const copied = await copyText(msg)

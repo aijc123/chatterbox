@@ -72,16 +72,50 @@ export interface FetchCbOptions {
 }
 
 /**
+ * 校验并归一化用户填到 settings 里的 backend URL override。
+ * 只放行:
+ *  - https://<任意 host>
+ *  - http://localhost / 127.0.0.1 / [::1](开发期 wrangler dev)
+ * 拒绝 javascript:/data:/file: 这类 scheme,以及 http:// 指向任意远端 host
+ * (一旦放行,用户提交的 username/roomId 会被直接 POST 到攻击者那里)。
+ *
+ * 失败返回 '',调用方负责回退到 BASE_URL.CB_BACKEND。和 guard-room-sync.ts 的
+ * `normalizeGuardRoomEndpoint()` 是同一套规则,放在这里独立维护是因为 import 反向
+ * 依赖会绕一圈。
+ */
+export function normalizeCbBackendUrl(input: string): string {
+  const trimmed = input.trim().replace(/\/+$/, '')
+  if (!trimmed) return ''
+  let parsed: URL
+  try {
+    parsed = new URL(trimmed)
+  } catch {
+    return ''
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return ''
+  if (parsed.protocol === 'http:') {
+    const host = parsed.hostname
+    const bare = host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host
+    const isLoopback = bare === 'localhost' || bare === '127.0.0.1' || bare === '::1'
+    if (!isLoopback) return ''
+  }
+  return trimmed
+}
+
+/**
  * 解析当前生效的后端 URL。
  *  - 优先 cbBackendUrlOverride GM-signal(开发期常填 `http://localhost:8787`)
+ *  - 但 override 必须先过 `normalizeCbBackendUrl` 校验。失败 → 回退到生产 URL
+ *    (而不是把 PII 提交到 attacker 控制的域名)。
  *  - 否则用 BASE_URL.CB_BACKEND(部署后的生产 *.workers.dev / 自定义域)
  *
  * 末尾会保证不带斜杠,方便 `${base}/memes` 拼接。
  */
 export function getCbBackendBaseUrl(): string {
-  const override = cbBackendUrlOverride.value.trim()
-  const url = override || BASE_URL.CB_BACKEND
-  return url.replace(/\/+$/, '')
+  const overrideRaw = cbBackendUrlOverride.value
+  const overrideOk = normalizeCbBackendUrl(overrideRaw)
+  if (overrideOk) return overrideOk
+  return BASE_URL.CB_BACKEND.replace(/\/+$/, '')
 }
 
 /**
@@ -312,25 +346,94 @@ export function _resetCbMirrorSessionForTests(): void {
   SESSION_PUSHED_HASHES.clear()
 }
 
-/**
- * 给 cb 源的梗回报一次复制(等价于 LAPLACE 的 meme-copy)。后端会原子地 +1 并
- * 更新 last_copied_at。失败返回 null(同 reportMemeCopy 风格)。
- */
-export async function reportCbMemeCopy(memeId: number): Promise<number | null> {
+// ---------------------------------------------------------------------------
+// 复制计数 —— debounce 批处理
+//
+// 旧行为:每次"复制"按钮一按就 POST /memes/:id/copy。N 次复制 → N 次 round-trip。
+// 新行为:把 COPY_DEBOUNCE_MS 窗口里的所有调用攒一起,统一发到 POST /memes/copy/batch。
+//   - 同 id 多次调用 = 累加(后端按 delta 一次性 += copy_count)
+//   - 每个调用方仍然拿到一个 Promise<number | null>,resolve 时是该 id 的最新 copyCount
+//   - 失败 / 后端返回里没找到该 id → resolve(null),callers 沿用旧的 null 处理路径
+// ---------------------------------------------------------------------------
+
+const COPY_DEBOUNCE_MS = 800
+
+interface PendingCopy {
+  id: number
+  resolve: (count: number | null) => void
+}
+
+let pendingCopies: PendingCopy[] = []
+let flushTimer: ReturnType<typeof setTimeout> | null = null
+
+async function flushCopies(): Promise<void> {
+  flushTimer = null
+  const batch = pendingCopies
+  pendingCopies = []
+  if (batch.length === 0) return
+
+  // 同 id 多次复制 → 一条 UPDATE 加 N(后端聚合);客户端只要把 id 列表平铺即可。
+  const items = batch.map(p => p.id)
   const base = getCbBackendBaseUrl()
-  if (!base || memeId <= 0) return null
+  if (!base) {
+    for (const p of batch) p.resolve(null)
+    return
+  }
   try {
-    const resp = await gmFetch(`${base}/memes/${memeId}/copy`, {
+    const resp = await gmFetch(`${base}/memes/copy/batch`, {
       method: 'POST',
-      headers: { Accept: 'application/json' },
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ items }),
       timeoutMs: 5_000,
     })
-    if (!resp.ok) return null
-    const json = resp.json<{ copyCount?: unknown }>()
-    return typeof json.copyCount === 'number' ? json.copyCount : null
+    if (!resp.ok) {
+      for (const p of batch) p.resolve(null)
+      return
+    }
+    const json = resp.json<{ results?: Array<{ id?: unknown; copyCount?: unknown }> }>()
+    const byId = new Map<number, number>()
+    if (Array.isArray(json.results)) {
+      for (const r of json.results) {
+        if (typeof r?.id === 'number' && typeof r.copyCount === 'number') {
+          byId.set(r.id, r.copyCount)
+        }
+      }
+    }
+    for (const p of batch) p.resolve(byId.get(p.id) ?? null)
   } catch {
-    return null
+    for (const p of batch) p.resolve(null)
   }
+}
+
+/**
+ * 给 cb 源的梗回报一次复制。debounce 窗口内的多次调用合并成一次 batch 请求。
+ * 同 id 重复调用累加(后端 += N)。
+ *
+ * Promise resolve 的值:该 id 的最新 copyCount;若行不存在 / 网络挂 / 后端返回里
+ * 没列出该 id,resolve(null)(同旧 reportCbMemeCopy 风格)。
+ */
+export async function reportCbMemeCopy(memeId: number): Promise<number | null> {
+  if (memeId <= 0) return null
+  const base = getCbBackendBaseUrl()
+  if (!base) return null
+  return new Promise<number | null>(resolve => {
+    pendingCopies.push({ id: memeId, resolve })
+    if (flushTimer === null) {
+      flushTimer = setTimeout(() => void flushCopies(), COPY_DEBOUNCE_MS)
+    }
+  })
+}
+
+/**
+ * 测试用:立即 flush 当前 pending batch,绕过 debounce 计时器。返回 flush 的 promise
+ * 让测试 `await` 完成。
+ */
+export async function _flushCbCopyBatchForTests(): Promise<void> {
+  if (flushTimer !== null) {
+    clearTimeout(flushTimer)
+    flushTimer = null
+  }
+  await flushCopies()
 }
 
 // ---------------------------------------------------------------------------

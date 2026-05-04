@@ -41,15 +41,21 @@ bun run build
 - 替换规则：支持云端、本地全局和当前房间规则。
 - 影子屏蔽候选：默认只给候选改写，不自动发送。
 - AI 规避：在明确开启自动重发和 AI 规避后，才会尝试改写并重发。
+- 智能辅助驾驶（LLM 改写）：可选填入 Anthropic / OpenAI 或 OpenAI 兼容的 base URL（DeepSeek、Moonshot、OpenRouter、Ollama、小米 mimo 等）的 API key，让脚本调用 LLM 帮你改写疑似被屏蔽的弹幕。默认关闭，必须自己填入 API key 才会被使用；prompt 里只会包含当前要改写的弹幕和必要上下文。
 - 同传和翻译：通过 Soniox 识别语音，并可发送识别或翻译结果。
-- 烂梗库：搜索、复制、发送常用梗，也能从直播间弹幕里挖掘候选。
+- 烂梗库：搜索、复制、发送常用梗，也能从直播间弹幕里挖掘候选；可选向 chatterbox-cloud 自建后端提交贡献。
 
 ## 权限说明
 
 - `@match *://live.bilibili.com/*`：只在 B 站直播间运行。
 - `@require https://unpkg.com/@soniox/speech-to-text-web...`：加载同传/语音识别所需的 Soniox 浏览器端客户端。
-- `@connect bilibili-guard-room.vercel.app`：允许可选的直播间保安室同步。
-- `@connect localhost`：用于本地开发和自托管测试。
+- `@connect`：脚本会请求脚本管理器允许它访问以下域，每一项都对应一个具体功能；脚本管理器在首次访问每个新域时仍会单独弹窗确认：
+  - `bilibili-guard-room.vercel.app`：可选的直播间保安室同步。
+  - `localhost`：本地开发和自托管后端测试。
+  - `sbhzm.cn`：烂梗库专属梗源（社区自建库）。
+  - `chatterbox-cloud.aijc-eric.workers.dev`：自建后端，聚合 LAPLACE+SBHZM+社区贡献的梗库；可在设置里改成自部署地址。
+  - `api.anthropic.com`、`api.openai.com`：智能辅助驾驶 LLM 默认 provider，仅在你填入 API key 并主动启用 AI 规避/改写时才会调用。
+  - `*`：兜底项，让你能填入 OpenAI 兼容的自定义 base URL（DeepSeek、Moonshot、OpenRouter、Ollama、小米 mimo 等）。脚本管理器在首次访问每个新域时仍会单独确认。
 - `GM_addStyle`：注入弹幕助手和 Chatterbox Chat 样式。
 - `GM_getValue`、`GM_setValue`、`GM_deleteValue`：在本地保存配置、模板、规则和缓存。
 - `GM_info`：读取脚本元信息。
@@ -71,6 +77,8 @@ bun run build
 - B 站接口和 WebSocket：读取直播间事件、发送弹幕、获取粉丝牌相关房间信息和房间状态。
 - Soniox：仅在你启用并使用语音识别时参与。
 - 直播间保安室：完全可选，只同步摘要或选定规则，不上传 cookie、csrf、localStorage 或完整接口响应。
+- 烂梗库梗源（`sbhzm.cn`、`chatterbox-cloud.aijc-eric.workers.dev`）：仅在打开烂梗库或社区贡献时拉取梗列表，可在设置里改成自部署地址或关闭。
+- LLM 智能辅助驾驶（`api.anthropic.com`、`api.openai.com`，以及你自填的 OpenAI 兼容 base URL）：仅在你填入 API key 并主动开启 AI 规避/改写时才会调用。
 - GitHub Pages、Greasy Fork、unpkg：用于官网、安装和依赖资源加载。
 
 反馈问题时不要公开 cookie、csrf token、账号密钥、localStorage dump、私人规则或私有同步地址。

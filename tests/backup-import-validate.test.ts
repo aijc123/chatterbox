@@ -97,4 +97,56 @@ describe('importSettings', () => {
     expect(importSettings('null').ok).toBe(false)
     expect(importSettings('"string"').ok).toBe(false)
   })
+
+  // Audit A12: pre-fix, malformed JSON returned a flat "无效的 JSON 格式".
+  // The user couldn't tell which line of a hand-edited backup was wrong.
+  // Post-fix, the parser's diagnostic is included verbatim so the settings
+  // panel can show "Unexpected token } at position 47".
+  test('error message for malformed JSON includes the parser diagnostic (audit A12)', () => {
+    const result = importSettings('{ "msgSendInterval": 5 ,,, }')
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('无效的 JSON 格式')
+    // The parser's own message is appended after a colon; the exact text
+    // varies by engine (Bun, Node, browsers) so we only require that
+    // *something* meaningful follows the prefix.
+    expect(result.error?.length).toBeGreaterThan('无效的 JSON 格式：'.length)
+  })
+
+  test('reports skipped keys (failed validation) so UI can surface them (audit A12)', () => {
+    const json = JSON.stringify({
+      __version: 1,
+      msgSendInterval: '5', // wrong type — skipped
+      randomColor: 'yes', // wrong type — skipped
+      MsgTemplates: ['ok'], // valid — applied
+    })
+    const result = importSettings(json)
+    expect(result.ok).toBe(true)
+    expect(result.count).toBe(1)
+    expect(result.skipped).toEqual(expect.arrayContaining(['msgSendInterval', 'randomColor']))
+    expect(result.skipped?.length).toBe(2)
+  })
+
+  test('reports unknown keys (not on EXPORT_KEYS allowlist)', () => {
+    const json = JSON.stringify({
+      __version: 1,
+      randomColor: true, // valid
+      anUnknownKey: 'whatever',
+      anotherStrayKey: 42,
+    })
+    const result = importSettings(json)
+    expect(result.ok).toBe(true)
+    expect(result.unknownKeys).toEqual(expect.arrayContaining(['anUnknownKey', 'anotherStrayKey']))
+    expect(result.unknownKeys?.length).toBe(2)
+  })
+
+  test('omits skipped/unknownKeys when none were rejected', () => {
+    const json = JSON.stringify({
+      __version: 1,
+      msgSendInterval: 7,
+    })
+    const result = importSettings(json)
+    expect(result.ok).toBe(true)
+    expect(result.skipped).toBeUndefined()
+    expect(result.unknownKeys).toBeUndefined()
+  })
 })

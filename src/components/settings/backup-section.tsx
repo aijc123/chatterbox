@@ -1,6 +1,7 @@
 import { useSignal } from '@preact/signals'
 
 import { exportSettings, importSettings } from '../../lib/backup'
+import { copyTextToClipboard } from '../../lib/clipboard'
 import { notifyUser } from '../../lib/log'
 
 export function BackupSection({ query = '' }: { query?: string }) {
@@ -24,10 +25,10 @@ export function BackupSection({ query = '' }: { query?: string }) {
 
   function handleCopyExport() {
     const json = exportSettings()
-    navigator.clipboard.writeText(json).then(
-      () => notifyUser('success', '配置已复制到剪贴板'),
-      () => notifyUser('error', '复制配置失败，请手动复制', '可改用「导出配置」下载文件')
-    )
+    void copyTextToClipboard(json).then(ok => {
+      if (ok) notifyUser('success', '配置已复制到剪贴板')
+      else notifyUser('error', '复制配置失败，请手动复制', '可改用「导出配置」下载文件')
+    })
   }
 
   function handleImport() {
@@ -37,8 +38,23 @@ export function BackupSection({ query = '' }: { query?: string }) {
       notifyUser('error', '配置导入失败', result.error)
       return
     }
-    importMsg.value = `✅ 已导入 ${result.count} 项，请刷新页面生效`
+    // Build a single message that names the rejected fields. Without this,
+    // a corrupted backup that drops 5 fields out of 60 imports cleanly with
+    // no signal — the user later wonders why their auto-blend cooldown
+    // reverted to default.
+    const skippedNote =
+      result.skipped && result.skipped.length > 0
+        ? `（${result.skipped.length} 项格式不匹配被跳过：${result.skipped.join('、')}）`
+        : ''
+    const unknownNote =
+      result.unknownKeys && result.unknownKeys.length > 0
+        ? `（${result.unknownKeys.length} 项未识别 key 被忽略：${result.unknownKeys.join('、')}）`
+        : ''
+    importMsg.value = `✅ 已导入 ${result.count} 项，请刷新页面生效${skippedNote}${unknownNote}`
     notifyUser('success', `配置导入成功（${result.count} 项），请刷新页面`)
+    if (result.skipped && result.skipped.length > 0) {
+      notifyUser('warning', '部分配置因格式不匹配被跳过', result.skipped.join('、'))
+    }
   }
 
   return (

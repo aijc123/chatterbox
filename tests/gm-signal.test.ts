@@ -170,4 +170,48 @@ describe('numericGmSignal', () => {
     store.set('num-ok-float', 0.5)
     expect(numericGmSignal('num-ok-float', 1, { min: 0.1, max: 60 }).value).toBe(0.5)
   })
+
+  describe('runtime-write clamping', () => {
+    test('out-of-range writes are clamped to min/max instead of being accepted', async () => {
+      const { numericGmSignal } = await import('../src/lib/gm-signal')
+      const s = numericGmSignal('rt-clamp', 5, { min: 1, max: 10 })
+      s.value = -7
+      expect(s.value).toBe(1)
+      s.value = 999
+      expect(s.value).toBe(10)
+      s.value = 4
+      expect(s.value).toBe(4) // in-range value passes through
+    })
+
+    test('non-finite writes (NaN, Infinity, non-numbers) fall back to defaultValue', async () => {
+      const { numericGmSignal } = await import('../src/lib/gm-signal')
+      const s = numericGmSignal('rt-nonfinite', 7, { min: 1, max: 10 })
+      s.value = Number.NaN
+      expect(s.value).toBe(7)
+      s.value = Number.POSITIVE_INFINITY
+      expect(s.value).toBe(7)
+      ;(s as { value: unknown }).value = 'oops'
+      expect(s.value).toBe(7)
+    })
+
+    test('integer:true rounds fractional writes after clamping', async () => {
+      const { numericGmSignal } = await import('../src/lib/gm-signal')
+      const s = numericGmSignal('rt-int', 5, { min: 1, max: 10, integer: true })
+      s.value = 3.4
+      expect(s.value).toBe(3)
+      s.value = 7.6
+      expect(s.value).toBe(8)
+      s.value = 99.9 // clamped to 10 first, already integer
+      expect(s.value).toBe(10)
+    })
+
+    test('clamped writes still persist (debounced) the clamped value, not the raw input', async () => {
+      const { numericGmSignal } = await import('../src/lib/gm-signal')
+      const key = 'rt-clamp-persist'
+      const s = numericGmSignal(key, 5, { min: 1, max: 10 })
+      s.value = 999
+      await new Promise(resolve => setTimeout(resolve, 200))
+      expect(getWritesForKey(key)).toEqual([{ key, value: 10 }])
+    })
+  })
 })

@@ -14,6 +14,35 @@ interface DetectionResult {
   categories?: string[]
 }
 
+// 上游 LAPLACE chat-audit 的响应对我们而言是不可信的(网络层之外):一旦上游被
+// 入侵或换形,`sensitiveWords` 完全可能不是 `string[]`。下游 `replaceSensitiveWords`
+// 用 `.split(word)` 调用,word 不是字符串就会 throw,把熔断器立刻推到 open。
+// 这里做最小校验 + 长度截断,把无效项过滤掉,异常 shape 不再级联到调用方。
+// 导出仅供测试,生产路径只在 detectSensitiveWords 内部用一次。
+export const SENSITIVE_WORD_MAX_LEN = 200
+export const SENSITIVE_WORDS_MAX_COUNT = 64
+export function sanitizeDetectionResult(raw: unknown): DetectionResult {
+  if (typeof raw !== 'object' || raw === null) return { hasSensitiveContent: false }
+  const r = raw as Record<string, unknown>
+  const out: DetectionResult = {}
+  if (typeof r.hasSensitiveContent === 'boolean') out.hasSensitiveContent = r.hasSensitiveContent
+  if (typeof r.severity === 'string') out.severity = r.severity.slice(0, 64)
+  if (Array.isArray(r.sensitiveWords)) {
+    const cleaned: string[] = []
+    for (const w of r.sensitiveWords) {
+      if (cleaned.length >= SENSITIVE_WORDS_MAX_COUNT) break
+      if (typeof w !== 'string') continue
+      if (w.length === 0 || w.length > SENSITIVE_WORD_MAX_LEN) continue
+      cleaned.push(w)
+    }
+    out.sensitiveWords = cleaned
+  }
+  if (Array.isArray(r.categories)) {
+    out.categories = r.categories.filter((c): c is string => typeof c === 'string').slice(0, 32)
+  }
+  return out
+}
+
 // ---------------------------------------------------------------------------
 // 简易熔断器 —— 防止上游 LAPLACE chat-audit 挂了之后每条消息都吃一次失败延迟,
 // 以及防止满屏 "AI检测服务出错" 日志洪水。
@@ -81,9 +110,10 @@ async function detectSensitiveWords(text: string): Promise<DetectionResult> {
       }),
     })
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-    const data: { completion?: DetectionResult } = await resp.json()
+    const data: unknown = await resp.json()
+    const completion = (data as { completion?: unknown } | null)?.completion
     onAuditSuccess()
-    return data.completion ?? { hasSensitiveContent: false }
+    return sanitizeDetectionResult(completion)
   } catch (err) {
     onAuditFailure(err instanceof Error ? err.message : String(err))
     return { hasSensitiveContent: false }

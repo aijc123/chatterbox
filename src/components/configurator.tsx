@@ -22,8 +22,10 @@ export function Configurator() {
   const panelClass = (active: boolean) => cn('cb-scroll', active ? 'lc-block' : 'lc-hidden')
 
   return (
-    <div
+    <section
       id='laplace-chatterbox-dialog'
+      aria-label='弹幕助手面板'
+      aria-hidden={!visible}
       className={cn(
         'lc-fixed lc-right-2 lc-bottom-[46px] lc-z-[2147483647]',
         'lc-w-[320px] lc-max-w-[calc(100vw_-_16px)]',
@@ -60,6 +62,6 @@ export function Configurator() {
       <div className='lc-px-[10px] lc-pb-[10px]'>
         <LogPanel />
       </div>
-    </div>
+    </section>
   )
 }

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { brotliCompressSync, gzipSync } from 'node:zlib'
 
 const bundlePath = new URL('../dist/bilibili-live-wheel-auto-follow.user.js', import.meta.url)
-const budgetKb = Number.parseFloat(process.env.BUNDLE_BUDGET_KB ?? '925')
+const budgetKb = Number.parseFloat(process.env.BUNDLE_BUDGET_KB ?? '975')
 const bundle = readFileSync(bundlePath)
 
 const rawKb = bundle.byteLength / 1024

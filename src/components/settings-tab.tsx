@@ -1,6 +1,6 @@
 import { useSignal } from '@preact/signals'
 
-import { maxLogLines } from '../lib/log'
+import { debugLogVisible, maxLogLines } from '../lib/log'
 import { EmoteIds } from './emote-ids'
 import { BackupSection } from './settings/backup-section'
 import { CbBackendSection } from './settings/cb-backend-section'
@@ -89,7 +89,7 @@ export function SettingsTab() {
       <BackupSection query={query} />
 
       <GroupHeading query={query}>系统</GroupHeading>
-      {(!query || '日志设置 日志 行数'.toLowerCase().includes(query)) && (
+      {(!query || '日志设置 日志 行数 调试 debug'.toLowerCase().includes(query)) && (
         <details className='cb-settings-accordion'>
           <summary>日志设置</summary>
           <div className='cb-section cb-stack' style={{ margin: '.5em 0', paddingBottom: '1em' }}>
@@ -115,6 +115,25 @@ export function SettingsTab() {
                 }}
               />
               <span style={{ color: '#999', fontSize: '0.9em' }}>(1-1000)</span>
+            </div>
+            <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.4em' }}>
+              <input
+                id='debugLogVisible'
+                type='checkbox'
+                checked={debugLogVisible.value}
+                onInput={e => {
+                  debugLogVisible.value = e.currentTarget.checked
+                }}
+              />
+              <label
+                htmlFor='debugLogVisible'
+                title='打开后内部诊断日志会带上 🔍 前缀，便于打包成完整日志反馈给维护者。正常使用不需要打开。'
+              >
+                调试模式（在日志中标注内部诊断行）
+              </label>
+            </span>
+            <div className='cb-note' style={{ color: '#666' }}>
+              收到「请发完整日志」类的反馈请求时打开此开关，再复制日志面板内容提交。
             </div>
           </div>
         </details>

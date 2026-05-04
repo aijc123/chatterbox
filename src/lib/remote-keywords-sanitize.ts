@@ -23,7 +23,11 @@ export function sanitizeKeywordsRecord(input: unknown, maxEntries: number): Reco
   for (const [from, to] of Object.entries(input as Record<string, unknown>)) {
     if (count >= maxEntries) break
     if (typeof from !== 'string' || typeof to !== 'string') continue
-    if (from.length === 0 || from.length > REMOTE_KEYWORDS_MAX_KEY_LEN) continue
+    // Reject empty AND whitespace-only keys. A `" "` key would otherwise
+    // pass `length > 0` and silently match every space in outgoing danmaku
+    // when fed into `applyReplacements` (a single bad CDN row could rewrite
+    // every message in the room).
+    if (from.trim().length === 0 || from.length > REMOTE_KEYWORDS_MAX_KEY_LEN) continue
     if (to.length > REMOTE_KEYWORDS_MAX_VALUE_LEN) continue
     out[from] = to
     count++

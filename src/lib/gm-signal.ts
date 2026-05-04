@@ -101,11 +101,20 @@ export type NumericGmSignalOptions = {
 }
 
 /**
- * Variant of {@link gmSignal} for numeric settings. Validates both the value
- * read from GM storage at startup and any value received via
- * {@link applyImportedSettings}. Rejects NaN, Infinity, non-numbers, and
- * out-of-bounds values, falling back to `defaultValue`.
+ * Variant of {@link gmSignal} for numeric settings. Three layers of defense:
  *
+ *   1. **Load-time** (validate hook): NaN, Infinity, non-numbers, and
+ *      out-of-bounds values from GM storage fall back to `defaultValue`.
+ *   2. **Import-time** (`isValidImportedValue`): same rejection for backups
+ *      passed to `applyImportedSettings`.
+ *   3. **Runtime writes** (instance-level value setter): a direct
+ *      `signal.value = X` from the UI or other code is clamped to the
+ *      configured range, rounded if `integer`, and falls back to
+ *      `defaultValue` for non-finite inputs. This prevents a malformed UI
+ *      input or programmatic write from violating the bounds documented at
+ *      the call site (e.g. `maxLogLines` slice math blowing up on `0`).
+ *
+ * Each clamp/coerce logs a `console.warn` so corruption is visible in dev.
  * Use this for any persisted numeric signal whose unchecked value would
  * destabilize a runtime loop (e.g. a negative interval, a `"abc"` from a
  * corrupt backup).
@@ -119,7 +128,45 @@ export function numericGmSignal(key: string, defaultValue: number, options?: Num
     if (integer && !Number.isInteger(val)) return false
     return val >= min && val <= max
   }
-  return gmSignal<number>(key, defaultValue, { validate })
+  const s = gmSignal<number>(key, defaultValue, { validate })
+
+  const desc = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(s), 'value')
+  if (desc?.get && desc.set) {
+    const innerGet = desc.get
+    const innerSet = desc.set
+    Object.defineProperty(s, 'value', {
+      configurable: true,
+      enumerable: desc.enumerable ?? true,
+      get(this: Signal<number>) {
+        return innerGet.call(this) as number
+      },
+      set(this: Signal<number>, next: unknown) {
+        let coerced: number
+        if (typeof next !== 'number' || !Number.isFinite(next)) {
+          console.warn(
+            `[gm-signal] ${key}: rejecting non-finite write (${String(next)}); using default ${defaultValue}`
+          )
+          coerced = defaultValue
+        } else {
+          coerced = next
+          if (coerced < min) {
+            console.warn(`[gm-signal] ${key}: clamping ${coerced} up to min ${min}`)
+            coerced = min
+          } else if (coerced > max) {
+            console.warn(`[gm-signal] ${key}: clamping ${coerced} down to max ${max}`)
+            coerced = max
+          }
+          if (integer && !Number.isInteger(coerced)) {
+            const rounded = Math.round(coerced)
+            console.warn(`[gm-signal] ${key}: rounding ${coerced} to integer ${rounded}`)
+            coerced = rounded
+          }
+        }
+        innerSet.call(this, coerced)
+      },
+    })
+  }
+  return s
 }
 
 /**

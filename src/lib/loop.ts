@@ -5,6 +5,7 @@ import { BASE_URL } from './const'
 import { formatLockedEmoticonReject, isEmoticonUnique, isLockedEmoticon } from './emoticon'
 import { classifyRiskEvent, syncGuardRoomRiskEvent } from './guard-room-sync'
 import { appendLog } from './log'
+import { computeJitteredSleepMs } from './loop-utils'
 import { applyReplacements, buildReplacementMap } from './replacement'
 import { cancelPendingAuto, enqueueDanmaku, SendPriority } from './send-queue'
 import { verifyBroadcast } from './send-verification'
@@ -187,8 +188,7 @@ export async function loop(): Promise<void> {
           if (isLockedEmoticon(message)) {
             const skipLabel = total > 1 ? `自动表情 [${i + 1}/${total}]` : '自动表情'
             appendLog(formatLockedEmoticonReject(message, skipLabel))
-            const resolvedRandomInterval = enableRandomInterval ? Math.floor(Math.random() * 500) : 0
-            const ok = await abortableSleep(interval * 1000 - resolvedRandomInterval, signal)
+            const ok = await abortableSleep(computeJitteredSleepMs(interval, enableRandomInterval), signal)
             if (!ok) {
               completed = false
               break
@@ -241,8 +241,7 @@ export async function loop(): Promise<void> {
             })
           }
 
-          const resolvedRandomInterval = enableRandomInterval ? Math.floor(Math.random() * 500) : 0
-          const ok = await abortableSleep(interval * 1000 - resolvedRandomInterval, signal)
+          const ok = await abortableSleep(computeJitteredSleepMs(interval, enableRandomInterval), signal)
           if (!ok) {
             completed = false
             break

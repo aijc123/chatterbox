@@ -1,5 +1,6 @@
 import { useSignal } from '@preact/signals'
 
+import { copyTextToClipboard } from '../lib/clipboard'
 import { getEmoticonLockMeta } from '../lib/emoticon'
 import { notifyUser } from '../lib/log'
 import { cachedEmoticonPackages } from '../lib/store'
@@ -17,9 +18,8 @@ export function EmoteIds() {
   }
 
   const handleCopy = async (unique: string) => {
-    try {
-      await navigator.clipboard.writeText(unique)
-    } catch {
+    const ok = await copyTextToClipboard(unique)
+    if (!ok) {
       notifyUser('error', '复制表情 ID 失败，请手动复制', unique)
       return
     }

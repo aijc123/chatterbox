@@ -1,7 +1,8 @@
 import { effect as signalEffect } from '@preact/signals'
 
 import { repeatDanmaku, stealDanmaku } from './danmaku-actions'
-import { type DanmakuEvent, subscribeDanmaku } from './danmaku-stream'
+import { eventToSendableMessage } from './danmaku-direct-helpers'
+import { subscribeDanmaku } from './danmaku-stream'
 import { appendLog } from './log'
 import { autoBlendUserBlacklist, danmakuDirectAlwaysShow, danmakuDirectConfirm, danmakuDirectMode } from './store'
 
@@ -54,11 +55,6 @@ html.lc-dm-direct-always .${MARKER} {
   pointer-events: auto;
 }
 `
-
-function eventToSendableMessage(ev: DanmakuEvent): string | null {
-  if (!ev.isReply) return ev.text
-  return ev.uname ? `@${ev.uname} ${ev.text}` : null
-}
 
 function injectButtons(node: HTMLElement, msg: string, uid: string | null, uname: string | null): void {
   if (node.querySelector(`.${MARKER}`)) return

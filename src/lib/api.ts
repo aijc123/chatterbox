@@ -3,7 +3,7 @@ import { effect } from '@preact/signals'
 import type { BilibiliGetEmoticonsResponse } from '../types'
 
 import { mapWithConcurrency } from './concurrency'
-import { BASE_URL, CHATTERBOX_SEND_MARKER } from './const'
+import { BASE_URL, CHATTERBOX_SEND_MARKER, ISSUES_URL } from './const'
 import { emitLocalDanmakuEcho } from './custom-chat-events'
 import { findEmoticon, isEmoticonUnique, isLockedEmoticon } from './emoticon'
 import { describeRestrictionDuration, type RestrictionSignal, scanRestrictionSignals } from './moderation'
@@ -83,9 +83,16 @@ function getLiveLocalEchoName(): string {
  */
 export async function getRoomId(url = window.location.href): Promise<number> {
   const shortUid = safeExtractRoomNumber(url)
-  if (!shortUid) throw new Error('无法从当前页面 URL 解析直播间号')
+  if (!shortUid) {
+    throw new Error(
+      `无法从当前页面 URL 解析直播间号（URL：${url.slice(0, 80)}）。` +
+        `请在 https://live.bilibili.com/<房间号> 这样的直播间页面打开本脚本。` +
+        `如果你已经在直播间页面但仍报错，可能是 B 站 URL 结构变了，欢迎反馈：${ISSUES_URL}`
+    )
+  }
 
   // Primary: room_init resolves legacy short-room-IDs to real IDs.
+  let primaryFailReason = ''
   try {
     const room = await fetch(`${BASE_URL.BILIBILI_ROOM_INIT}?id=${shortUid}`, {
       method: 'GET',
@@ -96,11 +103,13 @@ export async function getRoomId(url = window.location.href): Promise<number> {
       cachedStreamerUid.value = roomData.data.uid
       return roomData.data.room_id
     }
-  } catch {
-    // fall through to alternative
+    primaryFailReason = `room_init HTTP ${room.status}`
+  } catch (err) {
+    primaryFailReason = `room_init 网络错误：${err instanceof Error ? err.message : String(err)}`
   }
 
   // Fallback: try get_info with the slug as room_id (works for modern rooms).
+  let fallbackFailReason = ''
   try {
     const room = await fetch(`${BASE_URL.BILIBILI_ROOM_INIT_ALT}?room_id=${shortUid}`, {
       method: 'GET',
@@ -112,15 +121,26 @@ export async function getRoomId(url = window.location.href): Promise<number> {
         if (json.data.uid) cachedStreamerUid.value = json.data.uid
         return json.data.room_id
       }
+      fallbackFailReason = `get_info code=${json.code ?? '?'}`
+    } else {
+      fallbackFailReason = `get_info HTTP ${room.status}`
     }
-  } catch {
-    // fall through to last resort
+  } catch (err) {
+    fallbackFailReason = `get_info 网络错误：${err instanceof Error ? err.message : String(err)}`
   }
 
   // Last resort: for modern rooms the URL slug is already the real room ID.
-  const directId = Number(shortUid)
-  if (Number.isFinite(directId) && directId > 0) return directId
-  throw new Error('无法获取真实直播间 ID')
+  // Use the same hardened conversion as `toNumber` — reject NaN / Infinity /
+  // floats / values outside `MAX_SAFE_INTEGER`. Bilibili room IDs are short
+  // positive integers; anything else is corruption (or a pasted URL with a
+  // junk slug like `live.bilibili.com/9e99`).
+  const directId = toNumber(shortUid)
+  if (directId !== null && directId > 0) return directId
+  throw new Error(
+    `无法获取真实直播间 ID（URL slug：${shortUid}）。两个回退接口都失败了：${primaryFailReason}；${fallbackFailReason}。` +
+      `常见原因：B 站接口暂时风控或离线、网络异常、或 B 站修改了 API。` +
+      `刷新页面通常能解决；持续出现请反馈：${ISSUES_URL}`
+  )
 }
 
 // The URL slug (e.g. "12345") used to resolve the currently cached room ID.
@@ -228,10 +248,31 @@ export interface MedalRestrictionCheck {
   note?: string
 }
 
+/**
+ * Coerce an unknown JSON value (typically a B 站 API response field) into a
+ * safe positive integer or `null`.
+ *
+ * Defensive against:
+ *  - non-number / non-numeric-string inputs ⇒ `null`
+ *  - `NaN` / `Infinity` (also implied by Number.isFinite, kept explicit) ⇒ `null`
+ *  - non-integer floats (e.g. `1.5`, `1e3` written via JSON) ⇒ `null`
+ *  - values outside `Number.MAX_SAFE_INTEGER` ⇒ `null`. Bilibili UIDs and
+ *    room IDs are well below 2^53; anything larger is either upstream
+ *    corruption or an attempt to confuse downstream code that compares IDs
+ *    by value.
+ *  - negative numbers ⇒ `null`. Every caller already checks `>0`, but the
+ *    audit found the previous implementation accepted `Infinity` and only
+ *    rejected it after callers' `>0` checks — easy to forget on a new caller.
+ */
 function toNumber(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  if (typeof value === 'string' && /^\d+$/.test(value)) return Number(value)
-  return null
+  let n: number
+  if (typeof value === 'number') n = value
+  else if (typeof value === 'string' && /^\d+$/.test(value)) n = Number(value)
+  else return null
+
+  if (!Number.isFinite(n) || !Number.isInteger(n)) return null
+  if (n < 0 || n > Number.MAX_SAFE_INTEGER) return null
+  return n
 }
 
 function firstString(...values: unknown[]): string {

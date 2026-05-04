@@ -453,8 +453,12 @@
               <ul class="plain-list">
                 <li><code>@match *://live.bilibili.com/*</code>：只在 B 站直播间运行。</li>
                 <li><code>@require</code>：加载 Soniox 浏览器端语音识别客户端。</li>
-                <li><code>@connect bilibili-guard-room.vercel.app</code>：允许可选的直播间保安室同步。</li>
-                <li><code>@connect localhost</code>：用于本地开发和自托管测试。</li>
+                <li><code>@connect bilibili-guard-room.vercel.app</code>：可选的直播间保安室同步。</li>
+                <li><code>@connect localhost</code>：本地开发和自托管后端测试。</li>
+                <li><code>@connect sbhzm.cn</code>：烂梗库专属梗源（社区自建库）。</li>
+                <li><code>@connect chatterbox-cloud.aijc-eric.workers.dev</code>：本仓库 <code>server/</code> 自建后端，聚合 LAPLACE+SBHZM+社区贡献的梗库；可在设置里改成自部署地址。</li>
+                <li><code>@connect api.anthropic.com</code>、<code>@connect api.openai.com</code>：智能辅助驾驶 LLM 默认 provider，仅在你填入 API key 并启用 AI 规避/改写时调用。</li>
+                <li><code>@connect *</code>：兜底项，让你能填入 OpenAI 兼容的自定义 base URL（DeepSeek/Moonshot/OpenRouter/Ollama 等）。脚本管理器在首次访问每个新域时仍会单独弹窗确认。</li>
               </ul>
             </article>
             <article class="card">
@@ -485,7 +489,7 @@
             </article>
             <article class="card">
               <h3>可选服务</h3>
-              <p>Soniox 仅在启用同传/语音识别时使用；直播间保安室只在你开启同步时接收摘要或选定规则。</p>
+              <p>Soniox 仅在启用同传/语音识别时使用；直播间保安室只在你开启同步时接收摘要或选定规则；烂梗库梗源（sbhzm.cn / chatterbox-cloud）仅在打开烂梗库或社区贡献时拉取列表；LLM provider（api.anthropic.com / api.openai.com 或你自填的 OpenAI 兼容 base URL）仅在填入 API key 并启用 AI 规避/改写时才调用。</p>
             </article>
             <article class="card">
               <h3>托管资源</h3>

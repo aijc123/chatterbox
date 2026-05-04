@@ -5,7 +5,9 @@ import {
   buildUserscriptUrl,
   bumpVersion,
   compareSemver,
+  compileSmokeTest,
   extractCurrentReleaseBullets,
+  extractUserscriptBody,
   findMostRecentVersionedHeading,
   findVersionedHeadings,
   parseUserscriptMetadata,
@@ -206,5 +208,56 @@ console.log('hi')
 
   test('throws when block is missing', () => {
     expect(() => parseUserscriptMetadata('console.log("no metadata")')).toThrow()
+  })
+})
+
+describe('extractUserscriptBody (audit C5: artifact JS-parse smoke test)', () => {
+  test('returns content after the closing UserScript marker', () => {
+    const artifact = [
+      '// ==UserScript==',
+      '// @name Hello',
+      '// @version 1.0.0',
+      '// ==/UserScript==',
+      'console.log("hello")',
+      '',
+    ].join('\n')
+    const body = extractUserscriptBody(artifact)
+    expect(body).toContain('console.log("hello")')
+    expect(body).not.toContain('==UserScript==')
+  })
+
+  test('throws when the closing marker is missing (malformed artifact)', () => {
+    expect(() => extractUserscriptBody('// ==UserScript==\n// @name foo\nconsole.log(1)')).toThrow(/closing marker/)
+  })
+})
+
+describe('compileSmokeTest (audit C5: artifact JS-parse smoke test)', () => {
+  test('returns silently for valid JavaScript', () => {
+    expect(() => compileSmokeTest('var x = 1; const y = [1,2,3]; function foo(){}')).not.toThrow()
+    expect(() => compileSmokeTest('const f = async () => { for (let i=0;i<10;i++) await null }')).not.toThrow()
+    // Modern ES2022 features — must compile under Node's vm without flag.
+    expect(() => compileSmokeTest('class A { #priv = 1 }; const o = { ...{} }')).not.toThrow()
+  })
+
+  test('throws a clear error for malformed JS', () => {
+    expect(() => compileSmokeTest('const x = ;', 'test bundle')).toThrow(/test bundle fails to parse/)
+    expect(() => compileSmokeTest('function (){}', 'artifact')).toThrow(/fails to parse as JavaScript/)
+    expect(() => compileSmokeTest('let a = `unclosed template')).toThrow()
+  })
+
+  test('does NOT execute the source — global side effects from the body never fire', () => {
+    // If `compileFunction` were calling the function, this would throw a
+    // ReferenceError ("nonExistent is not defined"). Since it only parses,
+    // the test passes silently.
+    expect(() => compileSmokeTest('nonExistent.callThatWouldThrowAtRuntime()', 'inert-source')).not.toThrow()
+  })
+
+  test('uses the supplied label in the error message for triage', () => {
+    try {
+      compileSmokeTest('const = invalid', 'specific-label-here')
+      throw new Error('expected throw')
+    } catch (err) {
+      expect((err as Error).message).toContain('specific-label-here')
+    }
   })
 })

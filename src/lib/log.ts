@@ -2,11 +2,24 @@ import { signal } from '@preact/signals'
 
 import type { SendDanmakuResult } from './api'
 
-import { gmSignal } from './gm-signal'
+import { gmSignal, numericGmSignal } from './gm-signal'
 import { formatDanmakuError } from './utils'
 
-/** Maximum number of lines kept in the rolling log buffer. */
-export const maxLogLines = gmSignal('maxLogLines', 1000)
+/**
+ * Maximum number of lines kept in the rolling log buffer.
+ *
+ * Bounded so a corrupted backup or hand-edited GM storage cannot push the cap
+ * to 0 (always-empty log) or a negative/NaN value (`slice(N - max + 1)` blows
+ * up). Upper bound caps memory in long-running sessions.
+ */
+export const maxLogLines = numericGmSignal('maxLogLines', 1000, { min: 50, max: 100000, integer: true })
+
+/**
+ * When true, `appendLogQuiet` traces are surfaced in the visible log panel
+ * with a `🔍` prefix. Off by default; flip on to capture a verbose log dump
+ * for issue reports.
+ */
+export const debugLogVisible = gmSignal('debugLogVisible', false)
 
 /** Rolling log buffer surfaced by the LogPanel. */
 export const logLines = signal<string[]>([])
@@ -42,7 +55,6 @@ export function notifyUser(level: NotifyLevel, message: string, detail?: string)
   const fullMessage = detail ? `${message}：${detail}` : message
   const prefix = level === 'error' ? '❌' : level === 'warning' ? '⚠️' : level === 'success' ? '✅' : 'ℹ️'
   appendLog(`${prefix} ${fullMessage}`)
-  if (level === 'warning' || level === 'error') showUserNotice(fullMessage, level)
 }
 
 function formatTs(now: Date): string {
@@ -96,7 +108,12 @@ export function appendLog(arg: string | SendDanmakuResult, label?: string, displ
  * Appends a free-form log entry without triggering the auto-toast surfacing
  * regex. Used by callers that want to write a `⚠️` line but suppress the
  * Toast (e.g. duplicate shadow-ban warnings inside the auto-loop).
+ *
+ * When `debugLogVisible` is on, the line is annotated with a `🔍` prefix so
+ * users (and maintainers reading a shared log dump) can tell it apart from
+ * normal user-facing entries.
  */
 export function appendLogQuiet(message: string): void {
-  pushLine(`${formatTs(new Date())} ${message}`)
+  const prefix = debugLogVisible.value ? '🔍 ' : ''
+  pushLine(`${formatTs(new Date())} ${prefix}${message}`)
 }

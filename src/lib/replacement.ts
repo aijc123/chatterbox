@@ -58,7 +58,24 @@ effect(() => {
 })
 
 /**
+ * Hard upper bound on the post-replacement string length. Bilibili danmaku
+ * have a low character cap (≤ 30 in normal rooms, slightly higher with
+ * privileges), so this 4096-char ceiling is roughly 100× the longest message
+ * a user could realistically want — it only fires when overlapping rules
+ * (e.g. "a" → "aa") cause exponential growth, and is far below any size that
+ * would freeze the UI or exhaust GM storage.
+ */
+export const REPLACEMENT_MAX_OUTPUT_LENGTH = 4096
+
+/**
  * Applies all replacement rules to the given text using the cached map.
+ *
+ * Bails out early if the output exceeds {@link REPLACEMENT_MAX_OUTPUT_LENGTH}.
+ * Without this guard, a user-authored map containing pathological rules
+ * (`from` is a substring of its `to`, or two rules form a cycle) can amplify
+ * a short input into a multi-megabyte string in a few iterations, freezing
+ * the loop and the send queue. The caller still sees a string, just one
+ * truncated to the cap — `processMessages` will then chunk it normally.
  */
 export function applyReplacements(text: string): string {
   if (replacementMap.value === null) {
@@ -66,7 +83,11 @@ export function applyReplacements(text: string): string {
   }
   let result = text
   for (const [from, to] of (replacementMap.value ?? new Map<string, string>()).entries()) {
+    if (!from) continue
     result = result.split(from).join(to)
+    if (result.length > REPLACEMENT_MAX_OUTPUT_LENGTH) {
+      return result.slice(0, REPLACEMENT_MAX_OUTPUT_LENGTH)
+    }
   }
   return result
 }

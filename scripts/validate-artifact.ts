@@ -2,8 +2,10 @@ import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 import {
+  compileSmokeTest,
   distArtifactUrl,
   distMetaUrl,
+  extractUserscriptBody,
   parseUserscriptMetadata,
   projectRoot,
   readPackageJson,
@@ -81,6 +83,12 @@ async function main(): Promise<void> {
     )
   }
 
+  // Smoke test: the bundled JS body must at least parse. A malformed bundle
+  // would otherwise pass header validation but fail inside Tampermonkey when
+  // a real user installs it.
+  const body = extractUserscriptBody(content)
+  compileSmokeTest(body, 'Built userscript body')
+
   console.log(`✓ Artifact: ${artifactPath}`)
   console.log(`  size: ${(size / 1024).toFixed(2)} kB`)
   console.log(`  @version: ${versionField} (matches package.json)`)
@@ -88,6 +96,7 @@ async function main(): Promise<void> {
   console.log(`  @namespace: ${metadata.fields.get('namespace')?.[0]}`)
   console.log(`  @match: ${matches.length > 0 ? matches.join(', ') : '(via @include)'}`)
   console.log(`  meta.js: ${metaPath}`)
+  console.log('  body: parses as JavaScript (smoke test passed)')
 
   if (!skipBundleAnalysis) {
     console.log('Running bundle size budget check')

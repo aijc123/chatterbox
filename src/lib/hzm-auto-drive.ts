@@ -542,3 +542,23 @@ export function stopHzmAutoDrive(): void {
 export function _getRecentDanmuForTests(): DanmuRecord[] {
   return [...recentDanmu]
 }
+
+/**
+ * 测试用：直接跑一次 tick，跳过 setTimeout/jitter 调度。让单元测试能稳定断言
+ * 暂停关键词、限速、活跃度闸门等内部分支，而不需要等 `MIN_TICK_DELAY_MS` 的
+ * 真实定时器（每秒只能跑 1 步，CI 跑会非常慢）。
+ *
+ * 不会自动 schedule 下一 tick；调用方需要自行 stop 或继续手动调用。
+ */
+export async function _runOneTickForTests(): Promise<void> {
+  if (tickTimer) {
+    clearTimeout(tickTimer)
+    tickTimer = null
+  }
+  await tick()
+  // 阻止 finally 里 schedule 出来的 timer 干扰后续断言。
+  if (tickTimer) {
+    clearTimeout(tickTimer)
+    tickTimer = null
+  }
+}

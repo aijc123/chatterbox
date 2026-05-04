@@ -100,3 +100,9 @@ export const BASE_URL = {
 export const CHATTERBOX_SEND_PARAM = 'cb_send'
 export const CHATTERBOX_SEND_VALUE = '1'
 export const CHATTERBOX_SEND_MARKER = `${CHATTERBOX_SEND_PARAM}=${CHATTERBOX_SEND_VALUE}`
+
+/**
+ * GitHub issues URL surfaced in user-facing error messages so people can
+ * file actionable reports instead of a generic "doesn't work" thread.
+ */
+export const ISSUES_URL = 'https://github.com/aijc123/bilibili-live-wheel-auto-follow/issues'

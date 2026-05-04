@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url'
+import vm from 'node:vm'
 
 export type ReleaseKind = 'patch' | 'minor' | 'major'
 
@@ -182,4 +183,38 @@ export async function readPackageJson(): Promise<PackageJson> {
 
 export async function readReleaseNotes(): Promise<string> {
   return Bun.file(releaseNotesUrl).text()
+}
+
+/**
+ * Compile-only check: feed a JavaScript source string through Node's `vm`
+ * compiler. `compileFunction` parses + creates a Function object but does
+ * NOT execute it, so we can detect syntax errors (the artifact would crash
+ * inside Tampermonkey's sandbox) without running any of the user-supplied
+ * code against the local Node environment.
+ *
+ * Throws a descriptive Error on parse failure; returns void on success.
+ */
+export function compileSmokeTest(body: string, label = 'source'): void {
+  try {
+    vm.compileFunction(body, [], { parsingContext: vm.createContext({}) })
+  } catch (err) {
+    if (err instanceof SyntaxError) {
+      throw new Error(`${label} fails to parse as JavaScript: ${err.message}`)
+    }
+    throw err
+  }
+}
+
+/**
+ * Returns the JS body of a built userscript with the `// ==UserScript==
+ * ... // ==/UserScript==` metadata header removed. Throws when the closing
+ * marker is missing (which would imply a malformed artifact).
+ */
+export function extractUserscriptBody(content: string): string {
+  const closer = '// ==/UserScript=='
+  const headerEnd = content.indexOf(closer)
+  if (headerEnd === -1) {
+    throw new Error('Userscript metadata closing marker not found, cannot extract body for smoke test')
+  }
+  return content.slice(headerEnd + closer.length)
 }

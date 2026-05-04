@@ -44,6 +44,11 @@ const PANEL_STYLE = `
         transform: scale(0.96);
       }
 
+      #laplace-chatterbox-toggle:focus-visible {
+        outline: 2px solid #0a84ff !important;
+        outline-offset: 2px !important;
+      }
+
       #laplace-chatterbox-dialog {
         color: #1d1d1f !important;
         background: rgba(248, 248, 250, .86) !important;
@@ -109,7 +114,18 @@ const PANEL_STYLE = `
         user-select: none;
       }
 
+      /* Hide the default disclosure triangle on every engine.
+       * Webkit/Blink expose it via the legacy ::-webkit-details-marker
+       * pseudo, while Firefox treats <summary> as a list-item with a
+       * ::marker -- list-style: none is the only cross-engine kill switch.
+       */
+      #laplace-chatterbox-dialog summary {
+        list-style: none;
+      }
       #laplace-chatterbox-dialog summary::-webkit-details-marker {
+        display: none;
+      }
+      #laplace-chatterbox-dialog summary::marker {
         display: none;
       }
 
@@ -265,6 +281,13 @@ const PANEL_STYLE = `
         background: #fff !important;
         color: #1d1d1f !important;
         box-shadow: 0 1px 4px rgba(0, 0, 0, .08) !important;
+      }
+
+      #laplace-chatterbox-dialog button:focus-visible,
+      #laplace-chatterbox-dialog input[type="checkbox"]:focus-visible,
+      #laplace-chatterbox-dialog .cb-tab:focus-visible {
+        outline: 2px solid #0a84ff !important;
+        outline-offset: 2px !important;
       }
 
       #laplace-chatterbox-dialog .cb-primary {
@@ -600,6 +623,194 @@ const PANEL_STYLE = `
         #laplace-chatterbox-dialog .cb-rule-form,
         #laplace-chatterbox-dialog .cb-rule-room-form {
           grid-template-columns: 1fr;
+        }
+      }
+
+      /*
+       * Dark mode override. Bilibili Live rooms are typically very dark
+       * (the player background is near-black), so the default white-glass
+       * panel is jarring at night. Honor the OS preference and darken the
+       * surface, text, and component backgrounds. Color semantics (primary
+       * #007aff → #0a84ff, danger #ff3b30 → #ff453a, success #34c759 →
+       * #30d158) match Apple's iOS dark variant so accents read correctly.
+       */
+      @media (prefers-color-scheme: dark) {
+        #laplace-chatterbox-toggle {
+          background: rgba(20, 20, 22, .82) !important;
+          color: #f5f5f7 !important;
+          border-color: rgba(255, 255, 255, .14) !important;
+          box-shadow: 0 10px 28px rgba(0, 0, 0, .6), inset 0 1px rgba(255, 255, 255, .12) !important;
+        }
+
+        #laplace-chatterbox-dialog {
+          color: #f5f5f7 !important;
+          background: rgba(28, 28, 30, .9) !important;
+          border-color: rgba(255, 255, 255, .12) !important;
+          box-shadow: 0 22px 60px rgba(0, 0, 0, .72), 0 1px 0 rgba(255, 255, 255, .08) inset !important;
+        }
+
+        #laplace-chatterbox-dialog details {
+          border-color: rgba(255, 255, 255, .08) !important;
+          background: rgba(40, 40, 44, .68) !important;
+          box-shadow: 0 1px 0 rgba(255, 255, 255, .04) inset !important;
+        }
+
+        #laplace-chatterbox-dialog details[open] {
+          background: rgba(46, 46, 50, .82) !important;
+        }
+
+        #laplace-chatterbox-dialog summary {
+          color: #f5f5f7 !important;
+        }
+
+        #laplace-chatterbox-dialog summary::after {
+          border-right-color: #98989d;
+          border-bottom-color: #98989d;
+        }
+
+        #laplace-chatterbox-dialog button {
+          background: rgba(58, 58, 62, .9) !important;
+          color: #f5f5f7 !important;
+          border-color: rgba(255, 255, 255, .1) !important;
+          box-shadow: 0 1px 2px rgba(0, 0, 0, .3) !important;
+        }
+
+        #laplace-chatterbox-dialog button:hover {
+          background: rgba(72, 72, 76, .95) !important;
+          border-color: rgba(255, 255, 255, .18) !important;
+        }
+
+        #laplace-chatterbox-dialog input[type="text"],
+        #laplace-chatterbox-dialog input[type="password"],
+        #laplace-chatterbox-dialog input[type="number"],
+        #laplace-chatterbox-dialog input[type="search"],
+        #laplace-chatterbox-dialog select,
+        #laplace-chatterbox-dialog textarea {
+          background: rgba(46, 46, 50, .9) !important;
+          color: #f5f5f7 !important;
+          border-color: rgba(255, 255, 255, .12) !important;
+          box-shadow: inset 0 1px 2px rgba(0, 0, 0, .25) !important;
+        }
+
+        #laplace-chatterbox-dialog input:focus,
+        #laplace-chatterbox-dialog select:focus,
+        #laplace-chatterbox-dialog textarea:focus {
+          border-color: #0a84ff !important;
+          box-shadow: 0 0 0 3px rgba(10, 132, 255, .26), inset 0 1px 2px rgba(0, 0, 0, .25) !important;
+        }
+
+        #laplace-chatterbox-dialog input[type="checkbox"] {
+          background: #48484a !important;
+          box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .06) !important;
+        }
+
+        #laplace-chatterbox-dialog input[type="checkbox"]:checked {
+          background: #30d158 !important;
+        }
+
+        #laplace-chatterbox-dialog .cb-tabs {
+          background: rgba(28, 28, 30, .92) !important;
+          border-bottom-color: rgba(255, 255, 255, .08) !important;
+        }
+
+        #laplace-chatterbox-dialog .cb-tab {
+          color: #98989d !important;
+        }
+
+        #laplace-chatterbox-dialog .cb-tab[data-active="true"] {
+          background: rgba(72, 72, 76, .9) !important;
+          color: #f5f5f7 !important;
+          box-shadow: 0 1px 4px rgba(0, 0, 0, .35) !important;
+        }
+
+        #laplace-chatterbox-dialog .cb-primary {
+          background: #0a84ff !important;
+          color: #fff !important;
+          border-color: #0a84ff !important;
+        }
+
+        #laplace-chatterbox-dialog .cb-danger {
+          background: #ff453a !important;
+          color: #fff !important;
+          border-color: #ff453a !important;
+        }
+
+        #laplace-chatterbox-dialog .cb-soft,
+        #laplace-chatterbox-dialog .cb-note,
+        #laplace-chatterbox-dialog .cb-label {
+          color: #98989d !important;
+        }
+
+        #laplace-chatterbox-dialog .cb-panel {
+          background: rgba(40, 40, 44, .72) !important;
+          border-color: rgba(255, 255, 255, .08) !important;
+        }
+
+        #laplace-chatterbox-dialog .cb-section {
+          background: rgba(40, 40, 44, .58) !important;
+          border-color: rgba(255, 255, 255, .08) !important;
+          box-shadow: 0 1px 2px rgba(0, 0, 0, .25) !important;
+        }
+
+        #laplace-chatterbox-dialog .cb-heading {
+          color: #f5f5f7 !important;
+        }
+
+        #laplace-chatterbox-dialog .cb-empty {
+          color: #98989d !important;
+          background: rgba(118, 118, 128, .18);
+        }
+
+        #laplace-chatterbox-dialog .cb-result {
+          background: rgba(40, 40, 44, .72) !important;
+          border-color: rgba(255, 255, 255, .08) !important;
+        }
+
+        #laplace-chatterbox-dialog .cb-segment {
+          background: rgba(118, 118, 128, .26);
+        }
+
+        #laplace-chatterbox-dialog .cb-segment button[aria-pressed="true"] {
+          background: rgba(72, 72, 76, .95) !important;
+          color: #f5f5f7 !important;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, .4) !important;
+        }
+
+        #laplace-chatterbox-dialog .cb-rule-pair code {
+          background: rgba(118, 118, 128, .22);
+          color: #f5f5f7;
+        }
+
+        #laplace-chatterbox-dialog .cb-list-item {
+          background: rgba(40, 40, 44, .72);
+          border-color: rgba(255, 255, 255, .08);
+        }
+
+        #laplace-chatterbox-dialog .cb-setting-primary {
+          background: rgba(40, 40, 44, .58);
+          border-left-color: #0a84ff;
+          border-color: rgba(255, 255, 255, .08);
+        }
+
+        #laplace-chatterbox-dialog .cb-dependent-group {
+          background: rgba(40, 40, 44, .56);
+          border-color: rgba(255, 255, 255, .08);
+        }
+
+        #laplace-chatterbox-dialog .cb-module-state {
+          background: rgba(118, 118, 128, .22);
+          color: #98989d;
+          border-color: rgba(255, 255, 255, .06);
+        }
+
+        #laplace-chatterbox-dialog .cb-module-state[data-active="true"] {
+          background: rgba(48, 209, 88, .22);
+          color: #30d158;
+          border-color: rgba(48, 209, 88, .32);
+        }
+
+        #laplace-chatterbox-dialog a {
+          color: #0a84ff !important;
         }
       }
     `

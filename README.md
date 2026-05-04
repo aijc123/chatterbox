@@ -119,8 +119,13 @@ bun run build
 
 - `@match *://live.bilibili.com/*`：只在 B 站直播间页面运行。
 - `@require https://unpkg.com/@soniox/speech-to-text-web...`：加载 Soniox 浏览器端语音识别客户端，用于同传/语音识别功能。
-- `@connect bilibili-guard-room.vercel.app`：允许可选的“直播间保安室”同步接口。
-- `@connect localhost`：用于本地开发和自托管测试。
+- `@connect`：脚本会请求脚本管理器允许它访问以下域，每一项都对应一个具体功能；脚本管理器在首次访问每个新域时仍会单独弹窗确认：
+  - `bilibili-guard-room.vercel.app`：可选的“直播间保安室”同步接口。
+  - `localhost`：本地开发和自托管后端测试。
+  - `sbhzm.cn`：烂梗库专属梗源（社区自建库）。
+  - `chatterbox-cloud.aijc-eric.workers.dev`：本仓库 `server/` 自建后端，聚合 LAPLACE+SBHZM+社区贡献的梗库；可在设置里通过 `cbBackendUrlOverride` 指向自有部署。
+  - `api.anthropic.com`、`api.openai.com`：智能辅助驾驶（LLM 改写/AI 规避）默认 provider，仅在你填入 API key 并启用相关功能时调用。
+  - `*`：兜底项，让你能填入 OpenAI 兼容的自定义 base URL（DeepSeek、Moonshot、OpenRouter、Ollama、小米 mimo 等）。脚本管理器仍会在首次访问每个新域时单独弹窗确认，这是这些自定义 LLM 调用的最后一道闸门。
 - `GM_addStyle`：向页面注入弹幕助手和 Chatterbox Chat 的隔离样式。
 - `GM_getValue`、`GM_setValue`、`GM_deleteValue`：在脚本管理器本地存储设置、模板、替换规则、观察记录和上次巡检结果。
 - `GM_info`：读取脚本版本等元信息。
@@ -143,6 +148,8 @@ bun run build
 - B 站接口和 WebSocket：用于读取直播间事件、发送弹幕、获取当前账号相关粉丝牌房间信息、判断房间状态。这些请求使用你浏览器当前的 B 站登录会话。
 - Soniox：仅在启用并使用同传/语音识别时涉及音频识别能力。
 - 直播间保安室：完全可选。开启后只同步巡检摘要或选定规则，不应上传 cookie、csrf、localStorage 或完整 B 站接口响应。
+- 烂梗库梗源（`sbhzm.cn` 社区库 / `chatterbox-cloud.aijc-eric.workers.dev` 自建聚合后端）：仅在打开烂梗库或社区贡献时拉取梗列表；可在设置里改成自部署地址或关闭该功能。
+- LLM 智能辅助驾驶（`api.anthropic.com`、`api.openai.com`，以及任何你自填的 OpenAI 兼容 base URL）：仅在你填入 API key 并主动开启 AI 规避/改写时才会调用，prompt 内容只包含当前要改写的弹幕和必要上下文。
 - GitHub Pages / Greasy Fork：用于托管官网、发布产物和安装页面。
 - unpkg：用于加载 Soniox 浏览器端客户端。
 
@@ -159,6 +166,15 @@ bun run build
 - 同传/语音识别不可用：检查浏览器麦克风权限、网络是否能访问 unpkg 和 Soniox 相关资源。
 - 影子屏蔽候选没有自动发出：这是默认“只给候选”模式的正常行为。需要自动重发时，要明确开启“自动重发”模式和 AI 规避。
 
+## 支持的浏览器和脚本管理器
+
+构建产物以 `ES2022` 为目标（见 `tsconfig.app.json`），需要支持 `Promise.any`、私有类字段、可选链、空值合并等特性。下列组合是项目主线测试覆盖的范围：
+
+- **桌面 Chrome/Edge ≥ 105** + Tampermonkey ≥ 4.18 / Violentmonkey ≥ 2.18：基线，所有功能可用。
+- **桌面 Firefox ≥ 110** + Violentmonkey ≥ 2.18：可用，部分 `-webkit-*` 视觉效果会优雅降级（如背景模糊）。
+- **桌面 Safari ≥ 15.1** + Tampermonkey：可用，但 B 站对 Safari 的支持本身有限，建议优先 Chrome/Firefox。
+- **桌面 Chrome/Edge < 105**、**Firefox < 110**、**Safari < 15.1**、**任何 IE**、**移动端浏览器**：未测试，可能能跑也可能直接抛错。脚本里多处依赖 `AbortSignal` 监听器、`MutationObserver`、现代 CSS（`color-mix`、`backdrop-filter`），都需要相对新的引擎。
+
 ## 已知限制
 
 - B 站页面结构、接口、风控策略和 WebSocket 数据格式可能随时变化。
@@ -167,7 +183,7 @@ bun run build
 - 影子屏蔽检测是启发式判断，不能百分百区分网络延迟、房间行为和真实屏蔽。
 - 替换规则和 AI 规避不能保证每条弹幕都能通过审核。
 - 同传准确率受麦克风质量、浏览器支持和 Soniox 服务可用性影响。
-- 主要测试路径是桌面浏览器加 Tampermonkey/Violentmonkey，移动端和小众脚本管理器不保证体验一致。
+- 主要测试路径是桌面浏览器加 Tampermonkey/Violentmonkey，移动端和小众脚本管理器不保证体验一致。脚本会在检测到移动端 UA 时自动收起入口按钮并在控制台留一行警告，但不会拦截手动启用。
 
 ## 如何反馈 bug
 

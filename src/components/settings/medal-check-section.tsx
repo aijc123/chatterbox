@@ -3,6 +3,7 @@ import { useEffect } from 'preact/hooks'
 
 import { GM_deleteValue, GM_getValue } from '$'
 import { checkMedalRoomRestriction, fetchMedalRooms, getDedeUid, type MedalRestrictionCheck } from '../../lib/api'
+import { copyTextToClipboard } from '../../lib/clipboard'
 import { VERSION } from '../../lib/const'
 import { gmSignal } from '../../lib/gm-signal'
 import {
@@ -365,15 +366,15 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
       medalCheckCopyStatus.value = '还没有巡检结果'
       return
     }
-    try {
-      await navigator.clipboard.writeText(
-        formatMedalCheckReport(results, medalCheckStatus.value, medalCheckFilter.value, uidLabelForReport())
-      )
+    const ok = await copyTextToClipboard(
+      formatMedalCheckReport(results, medalCheckStatus.value, medalCheckFilter.value, uidLabelForReport())
+    )
+    if (ok) {
       medalCheckCopyStatus.value = `已复制${medalFilterLabel(medalCheckFilter.value)}结果`
       setTimeout(() => {
         medalCheckCopyStatus.value = ''
       }, 1800)
-    } catch {
+    } else {
       medalCheckCopyStatus.value = '复制失败，请检查浏览器剪贴板权限，或改用「下载报告」'
     }
   }

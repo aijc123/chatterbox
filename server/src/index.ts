@@ -23,14 +23,22 @@ import { publicRoutes } from './routes/public'
 
 const app = new Hono<AppEnv>()
 
-app.use(
-  '*',
-  cors({
-    origin: '*',
-    allowMethods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
-    allowHeaders: ['Content-Type', 'Authorization'],
-  })
-)
+// 公开 endpoint(`/memes` 等)需要被 Bilibili 页面里的 userscript 跨域调用,
+// 所以保留 wildcard CORS。但 `/admin/*` 故意不挂 CORS:管理 UI 是同源的(由
+// `app.get('/admin', ...)` 直接吐 HTML),浏览器原生 same-origin 就能用 fetch,
+// 不需要任何 `Access-Control-Allow-Origin`。这样即便 admin 的 Bearer token 真泄了,
+// 也不能从 attacker.example 直接调用 admin API —— 浏览器会被 CORS 拦下来。
+const publicCors = cors({
+  origin: '*',
+  allowMethods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
+  allowHeaders: ['Content-Type', 'Authorization'],
+})
+app.use('*', async (c, next) => {
+  const path = new URL(c.req.url).pathname
+  // /admin 自身和 /admin/* 都跳过 CORS,其他 path 走 wildcard。
+  if (path === '/admin' || path.startsWith('/admin/')) return next()
+  return publicCors(c, next)
+})
 
 app.get('/health', async c => {
   // Phase D:不再 fetch LAPLACE 上游。upstreams.laplace=true 表示 mirror 库里
@@ -98,15 +106,30 @@ export default {
     ctx.waitUntil(
       (async () => {
         const t0 = Date.now()
-        const result = await pullSbhzmIfStale(env.DB)
-        const elapsed = Date.now() - t0
-        if (result.skipped) {
-          console.log(
-            `[cron sbhzm] skipped reason=${result.reason} actor=${result.recentActivity?.actor} elapsed=${elapsed}ms`
-          )
-        } else {
-          const p = result.pull
-          console.log(`[cron sbhzm] ran ok=${p?.ok} fetched=${p?.fetched} inserted=${p?.inserted} elapsed=${elapsed}ms`)
+        // 包一层 try/catch:cron 内部任一抛错(D1 throttle、上游 fetch 异常、解析失败)
+        // 都得显式打印,否则会被 Workers runtime 静默吞掉,只在 dashboard 的 invocation
+        // logs 里留个红条,我们看不到根因。
+        try {
+          const result = await pullSbhzmIfStale(env.DB)
+          const elapsed = Date.now() - t0
+          if (result.skipped) {
+            console.log(
+              `[cron sbhzm] skipped reason=${result.reason} actor=${result.recentActivity?.actor} elapsed=${elapsed}ms`
+            )
+          } else {
+            const p = result.pull
+            const ok = p?.ok === true
+            const level = ok ? 'log' : 'error'
+            console[level](
+              `[cron sbhzm] ran ok=${ok} fetched=${p?.fetched ?? 0} inserted=${p?.inserted ?? 0} elapsed=${elapsed}ms`
+            )
+          }
+        } catch (err) {
+          const elapsed = Date.now() - t0
+          console.error('[cron sbhzm] threw', {
+            elapsed,
+            err: err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err),
+          })
         }
       })()
     )
