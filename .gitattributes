@@ -1,0 +1,19 @@
+# Force LF on checkout for all text files so biome's formatter (which
+# expects LF) passes consistently across Windows / macOS / Linux clones,
+# regardless of the contributor's core.autocrlf setting.
+* text=auto eol=lf
+
+# Binary assets — never apply line-ending or text normalization.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.zip binary
+*.gz binary
+*.pdf binary
