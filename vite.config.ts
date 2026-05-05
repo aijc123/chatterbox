@@ -29,6 +29,10 @@ export default defineConfig({
           // chatterbox-cloud 自建后端（聚合 LAPLACE+SBHZM+社区贡献，硬审核）
           // 默认部署在 *.workers.dev；本地开发时 cbBackendUrlOverride 走上面的 localhost。
           'chatterbox-cloud.aijc-eric.workers.dev',
+          // live-meme-radar 传感器后端（跨房间 meme 聚类 + trending rank）。
+          // Week 8 起 auto-blend 通过 /radar/cluster-rank 软门查询；Week 9-10 起
+          // 可选地把本房间聚合 sample POST 到 /radar/report。两条路径默认 false。
+          'live-meme-radar.aijc-eric.workers.dev',
           // 智能辅助驾驶 LLM 默认 provider
           'api.anthropic.com',
           'api.openai.com',

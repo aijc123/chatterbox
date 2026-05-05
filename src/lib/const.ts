@@ -80,6 +80,15 @@ export const BASE_URL = {
    */
   CB_BACKEND: 'https://chatterbox-cloud.aijc-eric.workers.dev',
 
+  /**
+   * live-meme-radar 后端基础 URL(独立的"meme 雷达"传感器项目)。
+   * 公开端点:GET /radar/clusters/today、/cluster-rank、/amplifiers/today。
+   * 部署在自家 Cloudflare Worker;本地开发期通过 radarBackendUrlOverride
+   * GM-signal 指到 `http://localhost:8788` 等。读取走
+   * `getRadarBackendBaseUrl()`(radar-client.ts)。
+   */
+  RADAR_BACKEND: 'https://live-meme-radar.aijc-eric.workers.dev',
+
   /** Anthropic Messages API. POST. Used by 智能辅助驾驶 LLM mode. */
   ANTHROPIC_MESSAGES: 'https://api.anthropic.com/v1/messages',
   /** OpenAI chat completions. POST. Also reused for OpenAI-compatible providers via custom base URL. */

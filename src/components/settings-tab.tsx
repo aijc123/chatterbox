@@ -8,6 +8,7 @@ import { CustomChatSection } from './settings/custom-chat-section'
 import { DanmakuDirectSection } from './settings/danmaku-direct-section'
 import { LayoutSection } from './settings/layout-section'
 import { MedalCheckSection } from './settings/medal-check-section'
+import { RadarSection } from './settings/radar-section'
 import {
   CloudReplacementSection,
   LocalGlobalReplacementSection,
@@ -86,6 +87,7 @@ export function SettingsTab() {
       <GroupHeading query={query}>工具</GroupHeading>
       <MedalCheckSection query={query} />
       <CbBackendSection query={query} />
+      <RadarSection query={query} />
       <BackupSection query={query} />
 
       <GroupHeading query={query}>系统</GroupHeading>
