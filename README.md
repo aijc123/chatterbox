@@ -2,6 +2,15 @@
 
 [![CI](https://github.com/aijc123/bilibili-live-wheel-auto-follow/actions/workflows/ci.yml/badge.svg)](https://github.com/aijc123/bilibili-live-wheel-auto-follow/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/aijc123/bilibili-live-wheel-auto-follow/branch/master/graph/badge.svg)](https://codecov.io/gh/aijc123/bilibili-live-wheel-auto-follow)
+[![DeepSource](https://app.deepsource.com/gh/aijc123/bilibili-live-wheel-auto-follow.svg/?label=active+issues&show_trend=true)](https://app.deepsource.com/gh/aijc123/bilibili-live-wheel-auto-follow/)
+[![Greasy Fork installs](https://img.shields.io/greasyfork/dt/574939?label=installs&color=brightgreen)](https://greasyfork.org/zh-CN/scripts/574939)
+[![Greasy Fork version](https://img.shields.io/greasyfork/v/574939?color=blue)](https://greasyfork.org/zh-CN/scripts/574939)
+[![Bundle size](https://img.shields.io/github/size/aijc123/bilibili-live-wheel-auto-follow/dist/bilibili-live-wheel-auto-follow.user.js?label=userscript%20size)](https://github.com/aijc123/bilibili-live-wheel-auto-follow/blob/master/dist/bilibili-live-wheel-auto-follow.user.js)
+[![Last commit](https://img.shields.io/github/last-commit/aijc123/bilibili-live-wheel-auto-follow)](https://github.com/aijc123/bilibili-live-wheel-auto-follow/commits/master)
+[![License: AGPL-3.0](https://img.shields.io/github/license/aijc123/bilibili-live-wheel-auto-follow)](LICENSE)
+[![Built with TypeScript](https://img.shields.io/badge/built_with-TypeScript-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Vite](https://img.shields.io/badge/Vite-646cff?logo=vite&logoColor=white)](https://vitejs.dev/)
+[![Bun](https://img.shields.io/badge/Bun-fbf0df?logo=bun&logoColor=black)](https://bun.sh/)
 
 一个给 B 站/哔哩哔哩直播间使用的弹幕助手 userscript。它从 [LAPLACE Chatterbox](https://github.com/laplace-live/chatterbox) fork 而来，保留并扩展了独轮车、同传、烂梗库、弹幕替换、AI 规避等能力，同时加入自动跟车、粉丝牌禁言巡检和可接管右侧评论区的 Chatterbox Chat。
 
