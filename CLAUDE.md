@@ -7,11 +7,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This repository builds a Bilibili Live userscript named `B站独轮车 + 自动跟车`. It is a fork of LAPLACE Chatterbox, packaged for Greasy Fork/Tampermonkey/Violentmonkey, and focuses on live-room danmaku workflows:
 
 - auto-send loops (`独轮车`)
-- repeated-danmaku auto-follow (`自动跟车`)
-- Chatterbox Chat, a custom right-side live chat replacement
-- fan-medal room mute/restriction inspection
+- repeated-danmaku auto-follow (`自动跟车`) with broadcast verification
+- Smart Auto-Drive (`智能辅助驾驶`) — heuristic + optional LLM meme picker that runs alongside auto-follow
+- Chatterbox Chat, a custom right-side live chat replacement (WS source + DOM fallback, dark mode aware)
+- fan-medal room mute/restriction inspection, with optional Guard Room sync and live-desk handoff
 - normal danmaku sending, +1/steal actions, replacement rules, AI evasion
-- Soniox speech-to-text and meme list utilities
+- Shadow-ban subsystem: send-broadcast verification, candidate rewrites, persistent observations, optional rule learning
+- Multi-source meme library: LAPLACE + SBHZM + chatterbox-cloud aggregator + per-room community sources
+- Soniox speech-to-text
+- LLM provider matrix: Anthropic, OpenAI, and any OpenAI-compatible base URL (DeepSeek/Moonshot/OpenRouter/Ollama/...) used by AI evasion and Smart Auto-Drive
 
 Most UI text is Chinese. Keep Markdown, HTML, and TypeScript files encoded as UTF-8.
 
@@ -65,33 +69,120 @@ The build output is written to `dist/`. The main userscript output is `dist/bili
 
 ### Key Modules
 
-- `src/lib/store.ts` re-exports domain store modules and keeps only small cross-domain runtime glue. Add new persisted signals to the closest `store-*.ts` domain file instead of growing `store.ts`.
-- `src/lib/emoticon.ts` owns emoticon lookup, locked-emoticon detection, and rejection log text. Do not reintroduce emoticon helpers into `store.ts`.
-- `src/lib/loop.ts` handles auto-send loop behavior.
-- `src/lib/auto-blend.ts`, `auto-blend-presets.ts`, `auto-blend-status.ts`, and `auto-blend-trend.ts` implement auto-follow detection, presets, status labels, and trend scoring.
-- `src/lib/send-queue.ts` serializes send attempts and helps avoid overlapping danmaku sends.
-- `src/lib/user-blacklist.ts` injects the auto-follow blacklist toggle into Bilibili's danmaku menu. Auto-follow must ignore blacklisted UIDs.
-- `src/lib/danmaku-direct.ts` implements steal/+1 buttons beside chat messages.
+Modules are grouped by subsystem. When adding a new file, drop it next to its peers and update this list.
+
+#### State (`store-*.ts`, `gm-signal.ts`)
+
+- `src/lib/store.ts` re-exports domain store modules and keeps only small cross-domain runtime glue. Add new persisted signals to the closest `store-*.ts` domain file (`store-auto-blend`, `store-chat`, `store-guard-room`, `store-hzm`, `store-meme`, `store-replacement`, `store-send`, `store-shadow-learn`, `store-stt`, `store-ui`) instead of growing `store.ts`.
+- `src/lib/gm-signal.ts` binds `@preact/signals` to GM_getValue/setValue with type guards and clamping. All persisted state should go through it; do not move userscript settings into browser `localStorage`.
+
+#### Auto-follow (`auto-blend-*.ts`)
+
+- `src/lib/auto-blend.ts` is the auto-follow runtime: subscribes to `danmaku-stream`, runs windowed repetition + distinct-uid gates, applies cooldown and trend gating, and routes the chosen send through `verifyBroadcast` for shadow-ban handling.
+- `src/lib/auto-blend-presets.ts` + `auto-blend-preset-config.ts` define `稳一点 / 正常 / 热闹` and the "Custom" preset that snapshots current values.
+- `src/lib/auto-blend-status.ts` formats the status line shown in the auto-blend panel.
+- `src/lib/auto-blend-trend.ts` implements trend / changepoint scoring for "this meme is heating up".
+- `src/lib/auto-blend-blacklist.ts` is the in-memory UID blacklist used by the trend filter.
+- `src/lib/auto-blend-toggle.ts` orchestrates start/stop side effects so the React/Preact tree only flips a signal.
+- `src/lib/auto-blend-events.ts` is the internal event/log bridge. Prefer emitting events here over adding direct `appendLog()` calls inside `auto-blend.ts`.
+
+#### Auto-send loop (`loop.ts`)
+
+- `src/lib/loop.ts` handles auto-send loop behavior (the original 独轮车).
+- `src/lib/loop-utils.ts` holds pure helpers (interval jitter, line splitting, color/character randomization) so `loop.ts` stays orchestration-only.
+
+#### Smart Auto-Drive (`hzm-*`, `llm-driver.ts`)
+
+- `src/lib/hzm-auto-drive.ts` is the meme-driver runtime: subscribes to `danmaku-stream`, runs activity-gate + pause-keyword + per-minute rate limit, picks a meme (heuristic by default; LLM every N ticks when `hzmDriveMode === 'llm'`), and enqueues via `send-queue` with `SendPriority.AUTO`. Coexists with `auto-blend` and `loop` through the shared queue.
+- `src/lib/hzm-drive-status.ts` formats the status text shown in the HZM panel.
+- `src/lib/llm-driver.ts` is the lazy-imported LLM client (Anthropic / OpenAI / OpenAI-compatible). Routed through `gm-fetch` to avoid CORS. Hard-caps the candidate count it ships in the prompt.
+- `src/lib/store-hzm.ts` holds all HZM state (mode, dryRun, interval, rate limit, pause keywords, LLM key/model/baseURL, per-room selected/blacklist tags, recent sends, daily counters).
+
+#### Send pipeline (`send-queue.ts`, `send-verification.ts`, `danmaku-*`, `ai-evasion.ts`, `replacement.ts`, `shadow-*`)
+
+- `src/lib/send-queue.ts` serializes all send attempts into a single FIFO with priorities, preventing overlapping danmaku sends across loop / auto-blend / HZM / manual paths.
+- `src/lib/send-verification.ts` exposes `waitForSentEcho` and `verifyBroadcast`: API success + WS/DOM echo wait. All four send paths route through this so a `code: 0` shadow-ban gets a `⚠️` log entry instead of being treated as success.
+- `src/lib/danmaku-actions.ts` owns `sendManualDanmaku` and friends used by the panel and `+1`/steal buttons.
+- `src/lib/danmaku-direct.ts` injects the inline `+1` / steal / copy buttons next to chat messages; `danmaku-direct-helpers.ts` holds pure helpers.
+- `src/lib/replacement.ts` builds remote/local replacement maps. Remote keywords go through `remote-keywords-fetch.ts` + `remote-keywords-sanitize.ts` (size cap, length validation, type guards).
+- `src/lib/ai-evasion.ts` checks and rewrites blocked danmaku via the configured LLM provider when AI evasion is enabled.
+- `src/lib/shadow-suggestion.ts` produces heuristic rewrite candidates (`invisible` / `kou` / `space`) without calling any model.
+- `src/lib/shadow-learn.ts` is the persistence side: when enabled, it promotes AI-evaded sensitive words into `localRoomRules` and mirrors them to Guard Room. `recordShadowBanObservation` accumulates observations into a capped persistent list. Both are no-ops when their respective gm-toggles are off — gating lives here, not at every callsite.
+- `src/lib/store-shadow-learn.ts` owns the toggles (`autoLearnShadowRules`, `shadowBanMode: 'suggest' | 'auto-resend'`) and the observation list.
+
+#### Meme library (`meme-*`, `*-client.ts`)
+
+- `src/lib/meme-fetch.ts` is the main meme aggregator: fans out to LAPLACE + SBHZM + chatterbox-cloud + room-specific sources, per-source failure tolerance, unified sort by `sortBy`. Tests inject deps via `_setMemeFetchDepsForTests` (the same DI hook pattern as `gm-fetch`).
+- `src/lib/meme-sources.ts` is the room-keyed source registry. Built-in (e.g. 灰泽满直播间) ships with the code; user entries via the `userMemeSources` GM key override the built-in for the same roomId.
+- `src/lib/meme-room-filter.ts` filters backend-aggregated memes per room (e.g. SBHZM-exclusive memes only show in the SBHZM room).
+- `src/lib/meme-content-key.ts` produces the cross-source dedup key (so the same meme from LAPLACE and chatterbox-cloud collapses into one).
+- `src/lib/meme-contributor.ts` mines candidate memes from live danmaku for the contribution panel.
+- `src/lib/laplace-client.ts` calls LAPLACE (`workers.vrp.moe`) over native fetch (CORS works) with a 30s `FetchCache`.
+- `src/lib/sbhzm-client.ts` calls `sbhzm.cn` over `gm-fetch` (no CORS); pages and dedups, normalizes to LAPLACE shape with synthesized negative ids to avoid collisions, 30 min in-memory cache.
+- `src/lib/sbhzm-freshness-probe.ts` checks SBHZM upstream freshness for the chatterbox-cloud cron mirror.
+- `src/lib/cb-backend-client.ts` is the chatterbox-cloud client. Routed through `gm-fetch` for parity with `sbhzm-client` and to make local dev (`localhost:8787`) work without CORS.
+
+#### Chatterbox Chat (`custom-chat-*`, `emote-*`)
+
 - `src/lib/custom-chat.ts`, `custom-chat-dom.ts`, `custom-chat-events.ts`, `custom-chat-render.ts`, and `custom-chat-search.ts` implement Chatterbox Chat.
 - `custom-chat-style.ts`, `custom-chat-virtualizer.ts`, `custom-chat-native-adapter.ts`, and `custom-chat-interaction.ts` hold extracted Custom Chat infrastructure. Keep future CSS, virtualization math, native DOM filtering, and button/a11y primitives there.
 - `custom-chat-dom.ts` uses one shared RAF dispatcher for render/rerender work and debounces native DOM fallback scans. Keep new high-frequency UI work on that scheduler instead of adding standalone RAF loops.
-- `src/lib/live-ws-source.ts` connects directly to Bilibili Live WebSocket events, with DOM fallback through the custom chat modules.
-- `src/lib/api.ts` wraps Bilibili live APIs, including danmaku sending, room info, fan-medal rooms, and restriction checks.
-- `src/lib/guard-room-sync.ts` supports optional sync of fan-medal inspection summaries to the external Guard Room project.
-- `src/lib/replacement.ts` builds remote/local replacement maps.
-- `src/lib/ai-evasion.ts` checks and rewrites blocked danmaku when AI evasion is enabled.
+- `src/lib/custom-chat-css-sanitize.ts` sanitizes user-supplied custom CSS (drops `@import`, hostile `url(...)` schemes, `expression(`, `behavior:`, caps total length to 256 KB) before it touches the stylesheet.
+- `src/lib/custom-chat-presets.ts` holds named CSS presets (currently `MILK_GREEN_IMESSAGE_CSS`).
+- `src/lib/custom-chat-pricing.ts`, `custom-chat-emoticons.ts` cover gift/SC pricing display and emoticon rendering.
+- `src/components/emote-picker.tsx`, `emote-picker-mount.tsx`, `emote-picker-position.ts` are the portal-rendered emoji picker (lazy-loaded, no `backdrop-filter` clipping).
+- See [docs/custom-chat-dom-refactor-plan.md](docs/custom-chat-dom-refactor-plan.md) for the in-progress decomposition of `custom-chat-dom.ts`.
+
+#### Live event ingestion (`live-ws-source.ts`, `danmaku-stream.ts`, `fetch-*.ts`, `gm-fetch.ts`)
+
+- `src/lib/live-ws-source.ts` connects directly to Bilibili Live WebSocket events. On close/error it sets `liveWsStatus.value = 'closed' | 'error'`, surfacing the WS-degraded banner and `⚠️` chip on the 发送 tab. Re-arms automatically on `visibilitychange` to recover from bfcache / mobile background freezes.
+- `src/lib/danmaku-stream.ts` is a single shared `MutationObserver` over `.chat-items` with reference-counted lifecycle. Both `danmaku-direct` and `auto-blend` / HZM subscribe here so we don't run multiple observers on the same DOM node.
+- `src/lib/fetch-hijack.ts` intercepts relevant XHR/Response prototypes early (with sentinels to avoid double-wrapping).
+- `src/lib/gm-fetch.ts` wraps `GM_xmlhttpRequest` so cross-origin calls (LLM providers, `sbhzm.cn`, chatterbox-cloud, Guard Room) work without CORS. Tests inject a fake via `_setGmXhrForTests` — do not `mock.module('./gm-fetch')`, that pattern leaks across files in bun.
+- `src/lib/fetch-cache.ts` is a generic TTL cache + in-flight dedup helper, used by `laplace-client`, `cb-backend-client`, etc. Failures don't enter the cache.
+
+#### Bilibili API (`api.ts`, `wbi.ts`, `emoticon.ts`, `user-blacklist*.ts`)
+
+- `src/lib/api.ts` wraps Bilibili live APIs: danmaku sending, room info, fan-medal rooms, restriction checks, anchor lookup. Uses `concurrency.mapWithConcurrency` to fan out without flooding endpoints.
 - `src/lib/wbi.ts` handles Bilibili WBI signing.
-- `src/lib/fetch-hijack.ts` intercepts relevant requests early.
-- `src/lib/auto-blend-events.ts` is the internal event/log bridge for auto-follow. Prefer emitting events there over adding direct `appendLog()` calls inside `auto-blend.ts`.
-- `src/lib/log.ts` owns `appendLog()` plus `notifyUser(level, message, detail?)`. User-facing failures should use `notifyUser` instead of `alert()`.
-- `src/lib/app-lifecycle.ts` keeps App-level side effects (panel styles, Custom Chat room rearm, optimized layout style) out of the Preact shell.
+- `src/lib/emoticon.ts` owns emoticon lookup, locked-emoticon detection, and rejection log text. Do not reintroduce emoticon helpers into `store.ts`.
+- `src/lib/user-blacklist.ts` injects the auto-follow blacklist toggle into Bilibili's danmaku menu; `user-blacklist-parsers.ts` holds the pure parsers. Auto-follow / HZM must ignore blacklisted UIDs.
+- `src/lib/moderation.ts` recursively scans risk-control / moderation fields with cycle protection.
+
+#### Guard Room (`guard-room-*`, `live-desk-sync.ts`)
+
+- `src/lib/guard-room-sync.ts` is the low-level sync client (POSTs summaries / shadow rules / live-desk heartbeats; HTTPS-only except loopback).
+- `src/lib/guard-room-agent.ts` is the agent runtime: applies a Guard Room control profile (auto-blend preset, dry-run, heartbeat cadence, hot thresholds), syncs the watchlist of medal/follow rooms.
+- `src/lib/guard-room-handoff.ts` reads `?guard_room_source=guard-room&guard_room_mode=...&guard_room_autostart=1` query params on page load to take over the live page (e.g. start auto-blend in dry-run).
+- `src/lib/guard-room-live-desk-state.ts` holds live-desk runtime signals (session id, heartbeat, current risk level, watchlist).
+- `src/lib/live-desk-sync.ts` runs the heartbeat loop based on custom-chat events.
+
+#### Cross-cutting (`log.ts`, `app-lifecycle.ts`, `concurrency.ts`, `clipboard.ts`, `platform.ts`, `version-update.ts`, `backup.ts`)
+
+- `src/lib/log.ts` owns `appendLog()` plus `notifyUser(level, message, detail?)` and the debug-log toggle. User-facing failures must use `notifyUser` instead of `alert()`.
+- `src/lib/app-lifecycle.ts` keeps App-level side effects (panel styles, Custom Chat room rearm, optimized layout style, dark-mode listener) out of the Preact shell.
+- `src/lib/concurrency.ts` exposes `mapWithConcurrency` (used by `api.ts`).
+- `src/lib/clipboard.ts` is the cross-browser clipboard helper (Clipboard API → hidden textarea + `execCommand` fallback for HTTP / Firefox+Violentmonkey / older engines).
+- `src/lib/platform.ts` detects mobile UA and emits a single console warning (it does not block the script).
+- `src/lib/version-update.ts` decides whether to show the "🆕 已更新" badge on the About tab.
+- `src/lib/backup.ts` powers the backup export/import section: per-field type validation, version-cap rejection, JSON parser error surfacing, drop-list of unrecognized keys.
+
+#### UI primitives (`components/ui/`, `components/settings/`)
+
+- `src/components/ui/` holds shared primitives (`button`, `checkbox`, `input`, `textarea`, `label`, `native-select`, `accordion`, `alert-dialog`). Use these instead of bare HTML when adding new settings.
+- `src/components/settings/` is the per-section split (custom-chat, danmaku-direct, layout, replacement, shadow-observation, medal-check, cb-backend, backup). Each section accepts a `query` prop for the keyword search filter; `visible` is computed from a search-friendly string.
+- `src/components/error-boundary.tsx` wraps the app shell so a render error doesn't take down the whole panel.
 
 ### UI Notes
 
-- Main tabs are `发送`, `同传`, `设置`, and `关于`.
-- Auto-send and auto-follow controls live inside the send tab.
-- Fan-medal inspection, replacement rules, Chatterbox Chat settings, +1 mode, layout options, and log limits live in the settings tab.
-- Chatterbox Chat themes include iMessage Dark, iMessage Light, Compact Bubble, plus the milk-green iMessage CSS preset in `src/lib/custom-chat-presets.ts`.
+- Main tabs are `发送`, `同传`, `设置`, and `关于`. The `发送` tab label decorates with `· 车` when the auto-send loop is running, `· 跟` when auto-follow is enabled, and `⚠️` when the live WS is closed/errored. The `同传` label adds `· 开` when STT is running.
+- The `发送` tab stacks: `AutoSendControls` (独轮车) → `AutoBlendControls` (自动跟车) → `HzmDrivePanelMount` (智能辅助驾驶) → `MemesList` (烂梗库) → `NormalSendTab` (普通发送 / +1 / 复制 / 影子屏蔽候选).
+- Settings tab sections (each takes the keyword search query and computes its own visibility): Custom Chat, +1 直接动作, 布局, 云端 / 本地全局 / 当前房间 替换规则, 影子屏蔽观察, 粉丝牌巡检, chatterbox-cloud 后端, 备份/恢复.
+- `Onboarding` shows on the first panel open and offers a one-click 新手配置.
+- `ShadowBypassChip` renders the candidate-rewrite chips next to the input in `NormalSendTab` when a shadow-ban is suspected — by default it suggests, never sends.
+- Chatterbox Chat themes are `iMessage Dark` (`laplace`), `iMessage Light` (`light`), and `Compact Bubble` (`compact`); plus the milk-green iMessage CSS preset in `src/lib/custom-chat-presets.ts` that the user can apply into the custom-CSS textarea. The connection-status dot is green when the WS is healthy, animated orange while connecting, solid orange on fallback / warning.
+- Dark mode: when the user's OS prefers dark, the panel, settings, tabs, and inputs flip to an iOS-style dark palette. Honor `prefers-color-scheme` instead of hard-coding light values when adding new visual surfaces.
+- Accessibility: tabs use `role="tablist"` / `aria-selected`; controls have `:focus-visible` rings; the panel closes on `Esc` (but lets default behavior through when an input is focused).
 - Keep the floating panel compact: it is meant to sit inside Bilibili Live's right-side area.
 - Panel styling now uses a mix of legacy `cb-*` classes and UnoCSS `lc-*` utilities. UnoCSS is configured with a prefix and no global reset; never add unprefixed utility classes that could leak into Bilibili's page.
 
@@ -123,14 +214,17 @@ The build output is written to `dist/`. The main userscript output is `dist/bili
 
 ## External Services
 
-The script may call these services depending on enabled features:
+The script may call these services depending on enabled features. The `@connect` allowlist is generated by `vite-plugin-monkey` from `vite.config.ts`; keep that file as the source of truth.
 
 - `api.live.bilibili.com` for live-room APIs and danmaku sending.
-- `edge-workers.laplace.cn` for AI evasion checks.
-- `workers.vrp.moe` for remote replacement rules and meme lists.
+- `edge-workers.laplace.cn` for AI evasion checks (LAPLACE-hosted).
+- `workers.vrp.moe` for remote replacement rules and the LAPLACE meme list.
+- `sbhzm.cn` — community meme source for the 灰泽满直播间 (and whatever other rooms register through `meme-sources.ts`).
 - `chatterbox-cloud.aijc-eric.workers.dev` (this repo's `server/`) — self-hosted meme aggregator that mirrors LAPLACE/SBHZM and accepts community contributions. Hardcoded default in `src/lib/const.ts` (`BASE_URL.CB_BACKEND`); overridable per-user via the `cbBackendUrlOverride` GM signal. Client wrapper lives in `src/lib/cb-backend-client.ts`.
+- `api.anthropic.com` and `api.openai.com` — default LLM providers for AI evasion and Smart Auto-Drive.
+- Any OpenAI-compatible base URL the user fills in (DeepSeek, Moonshot, OpenRouter, Ollama, 小米 mimo, ...). The `vite.config.ts` `connect` list ends with `'*'` so Tampermonkey doesn't silently reject these — the per-domain confirmation prompt is the user's last gate.
 - `api.soniox.com` and `unpkg.com` for Soniox speech-to-text.
-- A user-configured Guard Room endpoint for optional fan-medal inspection summary sync.
+- A user-configured Guard Room endpoint for optional fan-medal inspection summary sync, shadow-rule sharing, and live-desk heartbeat. HTTPS-only except `localhost` for dev.
 
 ## Self-hosted Backend (`server/`)
 
