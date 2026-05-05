@@ -124,7 +124,7 @@ export function HzmDrivePanel({ source }: { source: MemeSource }) {
         if (t.name) set.add(t.name)
       }
     }
-    return [...set].sort()
+    return [...set].sort((a, b) => a.localeCompare(b))
   })()
 
   // 测试连接状态
@@ -319,7 +319,7 @@ export function HzmDrivePanel({ source }: { source: MemeSource }) {
               style={{ width: '40px' }}
               value={hzmDriveIntervalSec.value}
               onInput={e => {
-                const v = parseInt(e.currentTarget.value, 10)
+                const v = Number.parseInt(e.currentTarget.value, 10)
                 if (Number.isFinite(v) && v > 0) hzmDriveIntervalSec.value = v
               }}
               title='基础间隔（秒），实际会再加 0.7~1.5× 的随机抖动。建议 5–15。'
@@ -332,7 +332,7 @@ export function HzmDrivePanel({ source }: { source: MemeSource }) {
               style={{ width: '40px' }}
               value={hzmRateLimitPerMin.value}
               onInput={e => {
-                const v = parseInt(e.currentTarget.value, 10)
+                const v = Number.parseInt(e.currentTarget.value, 10)
                 if (Number.isFinite(v) && v > 0) hzmRateLimitPerMin.value = v
               }}
               title='硬限速。同时开文字独轮车会叠加发送量，建议保持 ≤6 单独使用。'
@@ -348,7 +348,7 @@ export function HzmDrivePanel({ source }: { source: MemeSource }) {
                   style={{ width: '36px' }}
                   value={hzmLlmRatio.value}
                   onInput={e => {
-                    const v = parseInt(e.currentTarget.value, 10)
+                    const v = Number.parseInt(e.currentTarget.value, 10)
                     if (Number.isFinite(v) && v >= 1) hzmLlmRatio.value = v
                   }}
                   title='1=每次都用 LLM；3=每 3 次用 1 次（其它走启发式，省 API 费）'
@@ -369,7 +369,7 @@ export function HzmDrivePanel({ source }: { source: MemeSource }) {
               style={{ width: '46px' }}
               value={hzmActivityWindowSec.value}
               onInput={e => {
-                const v = parseInt(e.currentTarget.value, 10)
+                const v = Number.parseInt(e.currentTarget.value, 10)
                 if (Number.isFinite(v) && v >= 10) hzmActivityWindowSec.value = v
               }}
               title='活跃度窗口（秒）。建议 30–90。'
@@ -382,7 +382,7 @@ export function HzmDrivePanel({ source }: { source: MemeSource }) {
               style={{ width: '40px' }}
               value={hzmActivityMinDanmu.value}
               onInput={e => {
-                const v = parseInt(e.currentTarget.value, 10)
+                const v = Number.parseInt(e.currentTarget.value, 10)
                 if (Number.isFinite(v) && v >= 1) hzmActivityMinDanmu.value = v
               }}
               title='窗口内最少弹幕条数。'
@@ -395,7 +395,7 @@ export function HzmDrivePanel({ source }: { source: MemeSource }) {
               style={{ width: '36px' }}
               value={hzmActivityMinDistinctUsers.value}
               onInput={e => {
-                const v = parseInt(e.currentTarget.value, 10)
+                const v = Number.parseInt(e.currentTarget.value, 10)
                 if (Number.isFinite(v) && v >= 1) hzmActivityMinDistinctUsers.value = v
               }}
               title='窗口内最少不同人数。防一人独刷被当作活跃。'

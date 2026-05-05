@@ -108,7 +108,7 @@ export function SettingsTab() {
                 style={{ width: '80px' }}
                 value={maxLogLines.value}
                 onChange={e => {
-                  let v = parseInt(e.currentTarget.value, 10)
+                  let v = Number.parseInt(e.currentTarget.value, 10)
                   if (Number.isNaN(v) || v < 1) v = 1
                   else if (v > 1000) v = 1000
                   maxLogLines.value = v

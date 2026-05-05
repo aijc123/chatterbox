@@ -58,7 +58,7 @@ function NumberInput({
         style={{ width }}
         value={value}
         onInput={e => {
-          let v = parseInt(e.currentTarget.value, 10)
+          let v = Number.parseInt(e.currentTarget.value, 10)
           if (Number.isNaN(v) || v < min) v = min
           if (max !== undefined && v > max) v = max
           onChange(v)

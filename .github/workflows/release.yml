@@ -32,7 +32,7 @@ jobs:
           # against the previous one for the server-deploy reminder below.
           fetch-depth: 0
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
 
       - run: bun install --frozen-lockfile
 

@@ -344,7 +344,7 @@ export function SttTab() {
             style={{ width: '40px' }}
             value={sonioxMaxLength.value}
             onInput={e => {
-              const v = parseInt(e.currentTarget.value, 10) || 1
+              const v = Number.parseInt(e.currentTarget.value, 10) || 1
               sonioxMaxLength.value = Math.max(1, v)
             }}
           />

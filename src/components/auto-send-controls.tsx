@@ -79,7 +79,7 @@ export function AutoSendControls() {
             style={{ width: '16ch' }}
             value={String(idx)}
             onChange={e => {
-              activeTemplateIndex.value = parseInt(e.currentTarget.value, 10)
+              activeTemplateIndex.value = Number.parseInt(e.currentTarget.value, 10)
             }}
           >
             {templates.map((t, i) => (
@@ -116,7 +116,7 @@ export function AutoSendControls() {
               style={{ width: '40px' }}
               value={msgSendInterval.value}
               onInput={e => {
-                const v = parseInt(e.currentTarget.value, 10)
+                const v = Number.parseInt(e.currentTarget.value, 10)
                 msgSendInterval.value = v >= 0 ? v : 0
               }}
             />
@@ -134,7 +134,7 @@ export function AutoSendControls() {
               style={{ width: '30px' }}
               value={maxLength.value}
               onInput={e => {
-                const v = parseInt(e.currentTarget.value, 10)
+                const v = Number.parseInt(e.currentTarget.value, 10)
                 maxLength.value = v >= 1 ? v : 1
               }}
             />
