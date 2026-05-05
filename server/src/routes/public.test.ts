@@ -189,6 +189,92 @@ describe('POST /memes/bulk-mirror — input validation', () => {
     expect(rows.results?.[0]?.source_origin).toBe('laplace')
   })
 
+  test('tags in mirror payload upsert into tags + meme_tags (and backfill existing rows)', async () => {
+    // 1) 先插一条没 tag 的"历史行"。模拟 1944 条已有数据。
+    await env.DB.prepare(
+      `INSERT INTO memes (uid, content, status, content_hash, source_origin, created_at, updated_at)
+       VALUES (0, 'pre-existing meme', 'approved', ?, 'sbhzm', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')`
+    )
+      .bind(await (await import('../lib/hash')).contentHash('pre-existing meme'))
+      .run()
+
+    // 2) Mirror 同一内容,这次带 tags —— 应该 attach 到那条已有行。
+    const r = await SELF.fetch('http://example.com/memes/bulk-mirror', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        source: 'sbhzm',
+        items: [
+          { content: 'pre-existing meme', tags: [{ name: '搞笑', color: 'red', emoji: '😂' }] },
+          { content: 'fresh-row', tags: [{ name: '搞笑' }, { name: '问候' }] },
+        ],
+      }),
+    })
+    expect(r.status).toBe(200)
+    const body = (await r.json()) as { inserted: number; tagsLinked: number; total: number }
+    expect(body.inserted).toBe(1) // 只有 fresh-row 是新插
+    expect(body.tagsLinked).toBe(3) // pre-existing×1 + fresh-row×2
+    expect(body.total).toBe(2)
+
+    // 3) tags 表有 2 个去重后的 name,color/emoji 来自首次写入。
+    const tags = await env.DB.prepare('SELECT name, color, emoji FROM tags ORDER BY name').all<{
+      name: string
+      color: string | null
+      emoji: string | null
+    }>()
+    expect(tags.results?.length).toBe(2)
+    const xiaogao = tags.results?.find(t => t.name === '搞笑')
+    expect(xiaogao?.color).toBe('red')
+    expect(xiaogao?.emoji).toBe('😂')
+
+    // 4) meme_tags 总条数 = 3(pre 1 条 + fresh 2 条)。
+    const linkCount = await env.DB.prepare('SELECT COUNT(*) AS n FROM meme_tags').first<{ n: number }>()
+    expect(linkCount?.n).toBe(3)
+  })
+
+  test('tag count cap: more than 8 tags per item are silently truncated', async () => {
+    const tags = Array.from({ length: 12 }, (_, i) => ({ name: `t-${i}` }))
+    const r = await SELF.fetch('http://example.com/memes/bulk-mirror', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ source: 'laplace', items: [{ content: 'cap-test', tags }] }),
+    })
+    expect(r.status).toBe(200)
+    const body = (await r.json()) as { tagsLinked: number }
+    expect(body.tagsLinked).toBe(8)
+    const linkCount = await env.DB.prepare('SELECT COUNT(*) AS n FROM meme_tags').first<{ n: number }>()
+    expect(linkCount?.n).toBe(8)
+  })
+
+  test('malformed tag entries (non-object, missing name, oversize) are silently skipped', async () => {
+    const r = await SELF.fetch('http://example.com/memes/bulk-mirror', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        source: 'laplace',
+        items: [
+          {
+            content: 'mixed-tags',
+            tags: [
+              null,
+              123,
+              { color: 'no-name' },
+              { name: '   ' },
+              { name: 'good-one' },
+              { name: 'a'.repeat(500) }, // overlong → trim to 40
+            ],
+          },
+        ],
+      }),
+    })
+    expect(r.status).toBe(200)
+    const tags = await env.DB.prepare('SELECT name FROM tags ORDER BY name').all<{ name: string }>()
+    const names = tags.results?.map(t => t.name) ?? []
+    expect(names).toContain('good-one')
+    expect(names.some(n => n.length > 40)).toBe(false)
+    expect(names).not.toContain('') // no empty tag survived
+  })
+
   test('rate limit: 60 prior mirror calls in past hour → 429', async () => {
     // Backfill 60 contributions rows with the SAME ip_hash that the request
     // will produce. The route hashes 'unknown' (no cf-connecting-ip header in

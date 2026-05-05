@@ -104,7 +104,7 @@ describe('extractEmoticonImage', () => {
     expect(result?.width).toBeUndefined()
     expect(result?.height).toBeUndefined()
 
-    meta[13] = { url: 'https://example.test/x.png', width: '162', height: NaN }
+    meta[13] = { url: 'https://example.test/x.png', width: '162', height: Number.NaN }
     const result2 = extractEmoticonImage(info(meta), 'x')
     expect(result2?.width).toBeUndefined()
     expect(result2?.height).toBeUndefined()

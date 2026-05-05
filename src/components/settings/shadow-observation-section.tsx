@@ -134,7 +134,7 @@ export function ShadowObservationSection({ query = '' }: { query?: string }) {
             }}
           />
           <label
-            for='autoLearnShadowRules'
+            htmlFor='autoLearnShadowRules'
             title='仅在「自动重发」模式下生效：AI 改写成功后把（敏感词→改写后）写入当前房间的本地替换规则。'
           >
             自动学习屏蔽词（仅自动重发模式生效，写入本地房间规则）

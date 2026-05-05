@@ -13,7 +13,15 @@ import { Hono } from 'hono'
 
 import type { AppEnv, CbMeme, CbMemeListResponse } from '../types'
 
-import { fetchMemesWithTags, findMemeByHash, isLikelyValidContent, type MemeRow } from '../lib/db'
+import {
+  attachTagsByHash,
+  fetchMemesWithTags,
+  findMemeByHash,
+  isLikelyValidContent,
+  type MemeRow,
+  type TagMeta,
+  upsertTagsWithMeta,
+} from '../lib/db'
 import { contentHash, hashIp, normalizeContent } from '../lib/hash'
 import { mergeMemes, parseSortBy, sortMemes } from '../lib/merge'
 import { parsePositiveRoomId, shouldIncludeSbhzmSource } from '../lib/room-sources'
@@ -396,6 +404,49 @@ interface MirrorItem {
   updatedAt?: unknown
   username?: unknown
   avatar?: unknown
+  /**
+   * Phase E:跟内容一起带过来的 tag 列表。形态对齐 LaplaceInternal TagWithCount /
+   * sbhzm-client.normalizeTag —— `{name, color?, emoji?, icon?, description?, ...}`。
+   * 客户端 mirrorToCbBackend 把上游的 tags 字段透传过来,服务端在这里 upsert 进
+   * tags + meme_tags 两张表,顺便回填既有 1944 条没 tag 的旧数据。
+   *
+   * 安全:tag 名 / color / emoji 都是从 LAPLACE/SBHZM 拉来的(用户脚本无法本地伪造,
+   * 因为同时被 content_hash dedup 卡住);即便伪造,UPDATE 不会发生(INSERT OR IGNORE),
+   * 攻击面只能是"塞噪音 tag",管理员可后续清理。
+   */
+  tags?: unknown
+}
+
+/**
+ * 从 MirrorItem.tags 这种 unknown 里提一份 TagMeta[](最多 MAX_TAGS_PER_ITEM 条,
+ * 名字 trim + 长度 1..40,color/emoji 长度兜底)。任何不合规的元素静默丢。
+ *
+ * 上限 8 个 tag/条:LAPLACE 实际很少超过 3,SBHZM 几乎都是 1~2,8 留余量但挡住
+ * 恶意 mirror 塞 100 个 tag 把 meme_tags 表撑爆的攻击向量。
+ */
+const MAX_TAGS_PER_ITEM = 8
+function extractTagMetas(raw: unknown): TagMeta[] {
+  if (!Array.isArray(raw)) return []
+  const out: TagMeta[] = []
+  for (const t of raw) {
+    if (out.length >= MAX_TAGS_PER_ITEM) break
+    if (!t) continue
+    let name = ''
+    let color: string | null = null
+    let emoji: string | null = null
+    if (typeof t === 'string') {
+      name = t
+    } else if (typeof t === 'object') {
+      const obj = t as { name?: unknown; color?: unknown; emoji?: unknown }
+      if (typeof obj.name === 'string') name = obj.name
+      if (typeof obj.color === 'string') color = obj.color.slice(0, 32) || null
+      if (typeof obj.emoji === 'string') emoji = obj.emoji.slice(0, 16) || null
+    }
+    name = name.trim().slice(0, 40)
+    if (!name) continue
+    out.push({ name, color, emoji })
+  }
+  return out
 }
 
 publicRoutes.post('/memes/bulk-mirror', async c => {
@@ -432,6 +483,11 @@ publicRoutes.post('/memes/bulk-mirror', async c => {
   // 计算 hash + 准备语句(并行 hash,串行准备)。invalid 项跳过。
   const reviewedAt = new Date().toISOString()
   const stmts: D1PreparedStatement[] = []
+  // 跨条收集 tag 信息:upsert 一次到 tags 表,然后用 content_hash → tagId 关联到
+  // meme_tags。即便 meme 这次 INSERT OR IGNORE 命中既有行(skipped),tag 也会
+  // attach 上去——这是回填 1944 条历史数据 tag 的关键路径。
+  const allTagMetas: TagMeta[] = []
+  const tagLinks: Array<{ contentHash: string; tagNames: string[] }> = []
   let queued = 0
   let invalid = 0
   for (const raw of items) {
@@ -453,6 +509,12 @@ publicRoutes.post('/memes/bulk-mirror', async c => {
     const username = typeof raw.username === 'string' ? raw.username.slice(0, 64) : null
     const avatar = typeof raw.avatar === 'string' ? raw.avatar.slice(0, 500) : null
     const uid = typeof raw.uid === 'number' ? raw.uid : 0
+
+    const tagMetas = extractTagMetas(raw.tags)
+    if (tagMetas.length > 0) {
+      allTagMetas.push(...tagMetas)
+      tagLinks.push({ contentHash: hash, tagNames: tagMetas.map(t => t.name) })
+    }
 
     stmts.push(
       c.env.DB.prepare(
@@ -485,6 +547,19 @@ publicRoutes.post('/memes/bulk-mirror', async c => {
       if (r.meta?.changes && r.meta.changes > 0) inserted++
     }
   }
+
+  // tag 处理:必须在 memes 那批 batch 之后,因为 attachTagsByHash 用 content_hash
+  // 子查询去 memes 表拿 id;memes 这次没插也得是已经存在的(才能 attach 到旧行)。
+  let tagsLinked = 0
+  if (tagLinks.length > 0) {
+    const nameToId = await upsertTagsWithMeta(c.env.DB, allTagMetas)
+    const links = tagLinks.map(l => ({
+      contentHash: l.contentHash,
+      tagIds: l.tagNames.map(n => nameToId.get(n)).filter((id): id is number => typeof id === 'number'),
+    }))
+    tagsLinked = await attachTagsByHash(c.env.DB, links)
+  }
+
   const skipped = queued - inserted
   const ua = c.req.header('user-agent') ?? ''
 
@@ -492,8 +567,8 @@ publicRoutes.post('/memes/bulk-mirror', async c => {
   await c.env.DB.prepare(
     `INSERT INTO contributions (action, actor, ip_hash, user_agent, payload_json) VALUES ('mirror', 'public', ?, ?, ?)`
   )
-    .bind(ipHashed, ua, JSON.stringify({ source, total: items.length, queued, inserted, skipped, invalid }))
+    .bind(ipHashed, ua, JSON.stringify({ source, total: items.length, queued, inserted, skipped, invalid, tagsLinked }))
     .run()
 
-  return c.json({ inserted, skipped, invalid, total: items.length })
+  return c.json({ inserted, skipped, invalid, tagsLinked, total: items.length })
 })

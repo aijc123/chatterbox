@@ -22,7 +22,13 @@ beforeEach(clearAll)
 afterEach(clearAll)
 
 function fakeFetchOk(
-  items: Array<{ id: number; content: string; copy_count?: number; created_at?: string }>
+  items: Array<{
+    id: number
+    content: string
+    copy_count?: number
+    created_at?: string
+    tags?: Array<string | { name: string; emoji?: string }>
+  }>
 ): typeof fetch {
   return (async () => {
     return new Response(JSON.stringify({ items, total: items.length }), {
@@ -63,6 +69,40 @@ describe('pullSbhzmIntoMirror — direct writes to memes table', () => {
     expect(rows.results?.[0]?.status).toBe('approved')
     expect(rows.results?.[0]?.content).toBe('sbhzm-one')
     expect(rows.results?.[0]?.copy_count).toBe(5)
+  })
+
+  test('upstream tags upsert into tags + meme_tags, including backfill onto pre-existing rows', async () => {
+    // Pre-existing row without tags (simulates the 1944 already-mirrored memes).
+    const { contentHash } = await import('./hash')
+    await env.DB.prepare(
+      `INSERT INTO memes (uid, content, status, content_hash, source_origin, created_at, updated_at)
+       VALUES (0, 'shared-content', 'approved', ?, 'sbhzm', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')`
+    )
+      .bind(await contentHash('shared-content'))
+      .run()
+
+    const result = await pullSbhzmIntoMirror(env.DB, {
+      fetchImpl: fakeFetchOk([
+        { id: 1, content: 'shared-content', tags: [{ name: '问候', emoji: '👋' }] },
+        { id: 2, content: 'fresh-row', tags: ['搞笑', { name: '问候' }] },
+      ]),
+      pages: 1,
+    })
+    expect(result.ok).toBe(true)
+    expect(result.inserted).toBe(1) // shared-content already exists
+    expect(result.tagsLinked).toBe(3) // 1 backfill + 2 fresh
+
+    const tagCount = await env.DB.prepare('SELECT COUNT(*) AS n FROM tags').first<{ n: number }>()
+    expect(tagCount?.n).toBe(2) // 问候, 搞笑 (deduped)
+    const linkCount = await env.DB.prepare('SELECT COUNT(*) AS n FROM meme_tags').first<{ n: number }>()
+    expect(linkCount?.n).toBe(3)
+
+    // Backfill check: pre-existing 'shared-content' row now has the 问候 tag.
+    const backfilled = await env.DB.prepare(
+      `SELECT t.name FROM meme_tags mt JOIN tags t ON t.id = mt.tag_id JOIN memes m ON m.id = mt.meme_id
+       WHERE m.content = 'shared-content'`
+    ).all<{ name: string }>()
+    expect(backfilled.results?.map(r => r.name)).toEqual(['问候'])
   })
 
   test('does NOT write to upstream_sbhzm_cache anymore', async () => {
@@ -231,6 +271,17 @@ describe('gcOldSbhzmCache', () => {
   test('empty table → 0 deleted, no error', async () => {
     const result = await gcOldSbhzmCache(env.DB, 7)
     expect(result.deleted).toBe(0)
+  })
+
+  test('default retainDays is 1: 2-day-old row is purged with no explicit arg', async () => {
+    // 这个 case 把 7→1 的 default 改动锁死。如果以后有人手滑把默认改回 7,
+    // 2 天前的行就不该被 GC,这里立刻红。
+    await insertCacheRow(JSON.stringify([]), 2)
+    await insertCacheRow(JSON.stringify([]), 0.5) // 12 小时前,应该保留
+    const result = await gcOldSbhzmCache(env.DB)
+    expect(result.deleted).toBe(1)
+    const remaining = await env.DB.prepare('SELECT COUNT(*) AS n FROM upstream_sbhzm_cache').first<{ n: number }>()
+    expect(remaining?.n).toBe(1)
   })
 
   test('pullSbhzmIfStale runs GC each invocation', async () => {

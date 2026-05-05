@@ -457,7 +457,10 @@ export function AutoBlendControls() {
                 autoBlendDryRun.value = e.currentTarget.checked
               }}
             />
-            <label for='autoBlendDryRun' title='开启后只在日志里显示会发送什么，不会真的发出。关闭后会真实发送弹幕。'>
+            <label
+              htmlFor='autoBlendDryRun'
+              title='开启后只在日志里显示会发送什么，不会真的发出。关闭后会真实发送弹幕。'
+            >
               试运行（只观察，不发送）
             </label>
             {!autoBlendDryRun.value && (
@@ -477,7 +480,7 @@ export function AutoBlendControls() {
                 autoBlendRequireDistinctUsers.value = e.currentTarget.checked
               }}
             />
-            <label for='autoBlendRequireDistinctUsers'>多人都在刷才跟</label>
+            <label htmlFor='autoBlendRequireDistinctUsers'>多人都在刷才跟</label>
             {autoBlendRequireDistinctUsers.value && (
               <>
                 <span>至少</span>
@@ -505,7 +508,7 @@ export function AutoBlendControls() {
                 autoBlendUseReplacements.value = e.currentTarget.checked
               }}
             />
-            <label for='autoBlendUseReplacements'>套用替换规则</label>
+            <label htmlFor='autoBlendUseReplacements'>套用替换规则</label>
           </span>
 
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
@@ -518,7 +521,7 @@ export function AutoBlendControls() {
                 autoBlendIncludeReply.value = e.currentTarget.checked
               }}
             />
-            <label for='autoBlendIncludeReply'>也跟 @ 回复</label>
+            <label htmlFor='autoBlendIncludeReply'>也跟 @ 回复</label>
           </span>
 
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
@@ -531,7 +534,7 @@ export function AutoBlendControls() {
                 autoBlendSendAllTrending.value = e.currentTarget.checked
               }}
             />
-            <label for='autoBlendSendAllTrending' title='命中后连发同一波里多句达标弹幕，更激进。'>
+            <label htmlFor='autoBlendSendAllTrending' title='命中后连发同一波里多句达标弹幕，更激进。'>
               一波刷屏全跟
             </label>
             <span style={{ color: '#a15c00' }} title='更激进：命中一波后会连发多条达标弹幕，更容易被风控。'>

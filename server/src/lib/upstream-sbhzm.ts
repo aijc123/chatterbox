@@ -12,7 +12,8 @@
  *     contributions 表:若过去 12 小时有任何 actor != 'cron' 的 mirror 记录,
  *     就跳过(说明用户活跃,前端正在干活)。否则才低频拉首 N 页直接写
  *     memes 表 —— 跟 bulk-mirror 走同一路径,不再写 upstream_sbhzm_cache。
- *  3. **upstream_sbhzm_cache 表被退役** —— 不再写新行,旧行由 GC 在 7 天后清掉;
+ *  3. **upstream_sbhzm_cache 表被退役** —— 不再写新行,旧行由 GC 在 1 天后清掉
+ *     (readSbhzmFromCache 本就只接受 <24h 的行,更长保留是死重);
  *     `readSbhzmFromCache` 留作冷启动期(memes 表里 SBHZM 数据少)的兜底读路径,
  *     但权重越来越低。
  *
@@ -25,6 +26,7 @@
 
 import type { AppBindings, CbMeme, CbTag } from '../types'
 
+import { attachTagsByHash, type TagMeta, upsertTagsWithMeta } from './db'
 import { contentHash } from './hash'
 
 const DEFAULT_SBHZM_LIST = 'https://sbhzm.cn/api/public/memes'
@@ -33,7 +35,10 @@ const DEFAULT_MIRROR_PAGES = 10
 const ADMIN_FORCE_PAGES = 50
 const DEFAULT_STALE_THRESHOLD_HOURS = 12
 const CACHE_FRESH_HOURS = 24 // 老 cache 表的旧逻辑保留:>24h 旧 → ok=false
-const CACHE_GC_RETAIN_DAYS = 7
+// readSbhzmFromCache 已经 reject >24h 的行,保留 1 天就足够覆盖任何读路径,更长是死重。
+// 写路径在 Phase D.1 退役了,正常情况下不会有新行,这里只是防御性收紧——
+// 万一未来有人重新启用写,旧行也会被快速回收,避免 Phase D.1 之前那种 78 行/62MB 的尸堆。
+const CACHE_GC_RETAIN_DAYS = 1
 
 /**
  * 解析 SBHZM 上游 URL —— 优先取 wrangler env var,否则默认值。env var 不在
@@ -228,6 +233,8 @@ export interface PullMirrorResult {
   inserted: number
   skipped: number
   pages: number
+  /** 实际 attach 到 meme_tags 的关系条数(包含回填到既有行的)。 */
+  tagsLinked: number
 }
 
 /**
@@ -249,15 +256,24 @@ export async function pullSbhzmIntoMirror(db: D1Database, options: PullMirrorOpt
       .prepare(`INSERT INTO contributions (action, actor, payload_json) VALUES ('mirror', ?, ?)`)
       .bind(actor, JSON.stringify({ source: 'sbhzm', ok: fetchOk, fetched: 0, inserted: 0, pages: maxPages }))
       .run()
-    return { ok: false, fetched: 0, inserted: 0, skipped: 0, pages: maxPages }
+    return { ok: false, fetched: 0, inserted: 0, skipped: 0, pages: maxPages, tagsLinked: 0 }
   }
 
   const reviewedAt = new Date().toISOString()
   const stmts: D1PreparedStatement[] = []
+  // 跨 meme 收集 tag(同 bulk-mirror 路径):upsert 进 tags 表后,通过 content_hash
+  // attach 到 meme_tags,既覆盖新插行也回填已有行的 tag(对 1944 条历史数据关键)。
+  const allTagMetas: TagMeta[] = []
+  const tagLinks: Array<{ contentHash: string; tagNames: string[] }> = []
   for (const meme of normalized) {
     const hash = await contentHash(meme.content)
     const externalIdRaw = -meme.id // normalizeSbhzmMeme 把上游 id 取负;还原成正数
     const externalId = externalIdRaw > 0 && externalIdRaw < 1_000_000 ? externalIdRaw : null
+    if (meme.tags.length > 0) {
+      const metas: TagMeta[] = meme.tags.map(t => ({ name: t.name, color: t.color, emoji: t.emoji }))
+      allTagMetas.push(...metas)
+      tagLinks.push({ contentHash: hash, tagNames: metas.map(t => t.name) })
+    }
     stmts.push(
       db
         .prepare(
@@ -288,15 +304,33 @@ export async function pullSbhzmIntoMirror(db: D1Database, options: PullMirrorOpt
   }
   const skipped = normalized.length - inserted
 
+  let tagsLinked = 0
+  if (tagLinks.length > 0) {
+    const nameToId = await upsertTagsWithMeta(db, allTagMetas)
+    const links = tagLinks.map(l => ({
+      contentHash: l.contentHash,
+      tagIds: l.tagNames.map(n => nameToId.get(n)).filter((id): id is number => typeof id === 'number'),
+    }))
+    tagsLinked = await attachTagsByHash(db, links)
+  }
+
   await db
     .prepare(`INSERT INTO contributions (action, actor, payload_json) VALUES ('mirror', ?, ?)`)
     .bind(
       actor,
-      JSON.stringify({ source: 'sbhzm', ok: true, fetched: normalized.length, inserted, skipped, pages: maxPages })
+      JSON.stringify({
+        source: 'sbhzm',
+        ok: true,
+        fetched: normalized.length,
+        inserted,
+        skipped,
+        pages: maxPages,
+        tagsLinked,
+      })
     )
     .run()
 
-  return { ok: true, fetched: normalized.length, inserted, skipped, pages: maxPages }
+  return { ok: true, fetched: normalized.length, inserted, skipped, pages: maxPages, tagsLinked }
 }
 
 export interface PullIfStaleOptions {
@@ -320,7 +354,7 @@ export interface PullIfStaleResult {
  * **非 cron 自身**的 mirror 活动,则跳过本次拉取(用户活跃,前端正在贡献,
  * 后端不必出手)。否则调 pullSbhzmIntoMirror 拉首 10 页兜底。
  *
- * 同时清理 7 天前的旧 upstream_sbhzm_cache 行(每次 cron 顺便 GC)。
+ * 同时清理 1 天前的旧 upstream_sbhzm_cache 行(每次 cron 顺便 GC)。
  */
 export async function pullSbhzmIfStale(db: D1Database, options: PullIfStaleOptions = {}): Promise<PullIfStaleResult> {
   const hours = options.staleThresholdHours ?? DEFAULT_STALE_THRESHOLD_HOURS
@@ -360,7 +394,7 @@ export async function pullSbhzmIfStale(db: D1Database, options: PullIfStaleOptio
   }
 }
 
-/** 删除 retainDays 天前的 upstream_sbhzm_cache 行;返回删除数。 */
+/** 删除 retainDays 天前的 upstream_sbhzm_cache 行;返回删除数。默认 1 天。 */
 export async function gcOldSbhzmCache(db: D1Database, retainDays = CACHE_GC_RETAIN_DAYS): Promise<{ deleted: number }> {
   const cutoff = new Date(Date.now() - retainDays * 24 * 3600_000).toISOString()
   const result = await db.prepare('DELETE FROM upstream_sbhzm_cache WHERE fetched_at < ?').bind(cutoff).run()

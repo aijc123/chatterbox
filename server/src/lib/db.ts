@@ -143,6 +143,81 @@ export async function upsertTagsByNames(db: D1Database, names: string[]): Promis
 }
 
 /**
+ * 同 `upsertTagsByNames`,但额外携带 color / emoji 元信息。仅在首次 INSERT 时写入,
+ * 已有行的 color/emoji 不被覆盖(first-seen wins;mirror 路径上 SBHZM 是 hash 出
+ * 来的颜色,LAPLACE 才是真色,同名时谁先到谁定色——这是可接受的妥协,避免每次
+ * mirror 都把 LAPLACE 的真色被 SBHZM hash 色覆写来回抖)。
+ *
+ * 输入数组里同名 tag 多次出现,以第一次为准。
+ */
+export interface TagMeta {
+  name: string
+  color?: string | null
+  emoji?: string | null
+}
+export async function upsertTagsWithMeta(db: D1Database, tags: TagMeta[]): Promise<Map<string, number>> {
+  const seen = new Map<string, TagMeta>()
+  for (const t of tags) {
+    const name = t.name?.trim()
+    if (!name) continue
+    if (!seen.has(name)) seen.set(name, { name, color: t.color ?? null, emoji: t.emoji ?? null })
+  }
+  if (seen.size === 0) return new Map()
+  const inserts = [...seen.values()].map(t =>
+    db.prepare('INSERT OR IGNORE INTO tags (name, color, emoji) VALUES (?, ?, ?)').bind(t.name, t.color, t.emoji)
+  )
+  await db.batch(inserts)
+  const names = [...seen.keys()]
+  const placeholders = names.map(() => '?').join(',')
+  const rows = await db
+    .prepare(`SELECT id, name FROM tags WHERE name IN (${placeholders})`)
+    .bind(...names)
+    .all<{ id: number; name: string }>()
+  const out = new Map<string, number>()
+  for (const r of rows.results ?? []) out.set(r.name, r.id)
+  return out
+}
+
+/**
+ * 给一批 (content_hash, tagId[]) 关系批量写 meme_tags(INSERT OR IGNORE)。
+ *
+ * 通过 content_hash 而不是 meme_id 是为了和 bulk-mirror/pullSbhzmIntoMirror 协同:
+ * 这两条路径在 INSERT OR IGNORE INTO memes 之后,无论是新插还是命中既有行,
+ * meme.id 都通过 content_hash 反查唯一确定;调用方因此只需要传 hash + tag id。
+ *
+ * 子查询 `(SELECT id FROM memes WHERE content_hash = ?)` 利用 idx_memes_content_hash
+ * UNIQUE 索引,O(log n) 查找;若 hash 找不到行(罕见,只可能是 meme 插入失败),
+ * INSERT OR IGNORE 自然 no-op,不会破坏一致性。
+ *
+ * 返回实际成功 link 的条数(D1 meta.changes 总和)。
+ */
+export async function attachTagsByHash(
+  db: D1Database,
+  links: Array<{ contentHash: string; tagIds: number[] }>
+): Promise<number> {
+  const stmts: D1PreparedStatement[] = []
+  for (const { contentHash: hash, tagIds } of links) {
+    for (const tagId of tagIds) {
+      stmts.push(
+        db
+          .prepare(
+            `INSERT OR IGNORE INTO meme_tags (meme_id, tag_id)
+             SELECT id, ? FROM memes WHERE content_hash = ?`
+          )
+          .bind(tagId, hash)
+      )
+    }
+  }
+  if (stmts.length === 0) return 0
+  const results = await db.batch(stmts)
+  let linked = 0
+  for (const r of results) {
+    if (r.meta?.changes && r.meta.changes > 0) linked++
+  }
+  return linked
+}
+
+/**
  * 防同质刷库:相同 normalize 后的 content 视为重复,直接复用既有 row。
  * 返回 `{ row, created }`:created=false 表示拿到了 already-existing。
  */

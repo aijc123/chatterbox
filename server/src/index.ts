@@ -94,7 +94,7 @@ app.onError((err, c) => {
  *  - 先查 contributions 表,若过去 12h 有用户级 SBHZM mirror → 跳过(用户在线,
  *    前端正在贡献,后端不必出手)
  *  - 否则才低频拉首 10 页 INSERT OR IGNORE 进 memes 表
- *  - 每次顺便 GC 7 天前的旧 upstream_sbhzm_cache 行
+ *  - 每次顺便 GC 1 天前的旧 upstream_sbhzm_cache 行
  *
  * `wrangler dev --local` 不会自动跑 cron;手动触发用:
  *   curl 'http://localhost:8787/__scheduled?cron=0+*%2F6+*+*+*'

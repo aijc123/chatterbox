@@ -74,7 +74,7 @@ export function NormalSendTab() {
               }}
             />
             <label
-              for='aiEvasion'
+              htmlFor='aiEvasion'
               title='发送失败时，弹幕文本会发到 edge-workers.laplace.cn 进行敏感词检测和改写，再尝试重新发送。详见 关于 → 隐私说明。'
             >
               AI规避（发送失败时自动检测敏感词并重试）

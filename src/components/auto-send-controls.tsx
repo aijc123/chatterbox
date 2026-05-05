@@ -152,7 +152,7 @@ export function AutoSendControls() {
                 randomColor.value = e.currentTarget.checked
               }}
             />
-            <label for='randomColor'>随机颜色</label>
+            <label htmlFor='randomColor'>随机颜色</label>
           </span>
           <span className='cb-row'>
             <input
@@ -163,7 +163,7 @@ export function AutoSendControls() {
                 randomInterval.value = e.currentTarget.checked
               }}
             />
-            <label for='randomInterval'>间隔增加随机性</label>
+            <label htmlFor='randomInterval'>间隔增加随机性</label>
           </span>
           <span className='cb-row'>
             <input
@@ -174,7 +174,7 @@ export function AutoSendControls() {
                 randomChar.value = e.currentTarget.checked
               }}
             />
-            <label for='randomChar'>随机字符</label>
+            <label htmlFor='randomChar'>随机字符</label>
           </span>
           <span className='cb-row'>
             <input
@@ -188,7 +188,7 @@ export function AutoSendControls() {
                 persistSendState.value = { ...persistSendState.value, [String(roomId)]: e.currentTarget.checked }
               }}
             />
-            <label for='persistSendState'>保持当前直播间独轮车开关状态</label>
+            <label htmlFor='persistSendState'>保持当前直播间独轮车开关状态</label>
           </span>
         </div>
       </div>

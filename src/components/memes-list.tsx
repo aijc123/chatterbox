@@ -481,7 +481,7 @@ export function MemesList() {
                 enableMemeContribution.value = e.currentTarget.checked
               }}
             />
-            <label for='enableMemeContribution' style={{ fontSize: '12px' }}>
+            <label htmlFor='enableMemeContribution' style={{ fontSize: '12px' }}>
               自动挖掘待贡献梗
             </label>
           </div>

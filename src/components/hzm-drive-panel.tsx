@@ -261,7 +261,7 @@ export function HzmDrivePanel({ source }: { source: MemeSource }) {
               hzmDryRun.value = e.currentTarget.checked
             }}
           />
-          <label for='hzmDryRun' title='开启后只在日志显示候选，不真发到弹幕——新手强烈建议先开'>
+          <label htmlFor='hzmDryRun' title='开启后只在日志显示候选，不真发到弹幕——新手强烈建议先开'>
             试运行（只观察，不发送）
           </label>
           {!hzmDryRun.value && (
@@ -551,7 +551,7 @@ export function HzmDrivePanel({ source }: { source: MemeSource }) {
                   }}
                 />
                 <label
-                  for='hzmLlmApiKeyPersist'
+                  htmlFor='hzmLlmApiKeyPersist'
                   title='不勾：key 仅留在内存，刷新页面就清空，GM 存储里的旧值也立即抹掉'
                 >
                   保存到 GM 存储（关闭后仅本次会话有效）
