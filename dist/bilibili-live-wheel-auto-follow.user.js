@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.11.3
+// @version      2.11.4
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -59,7 +59,7 @@
 System.addImportMap({ imports: {"@soniox/speech-to-text-web":"user:@soniox/speech-to-text-web"} });
 System.set("user:@soniox/speech-to-text-web", (()=>{const _=SonioxSpeechToTextWeb;('default' in _)||(_.default=_);return _})());
 
-System.register("./__entry.js", ['./__monkey.entry-BI-Lq-FN.js'], (function (exports, module) {
+System.register("./__entry.js", ['./__monkey.entry-FRqYcI48.js'], (function (exports, module) {
 	'use strict';
 	return {
 		setters: [null],
@@ -71,7 +71,7 @@ System.register("./__entry.js", ['./__monkey.entry-BI-Lq-FN.js'], (function (exp
 	};
 }));
 
-System.register("./__monkey.entry-BI-Lq-FN.js", ['@soniox/speech-to-text-web'], (function (exports, module) {
+System.register("./__monkey.entry-FRqYcI48.js", ['@soniox/speech-to-text-web'], (function (exports, module) {
   'use strict';
   var SonioxClient;
   return {
@@ -1721,6 +1721,7 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
       const autoBlendWindowSec = numericGmSignal("autoBlendWindowSec", 20, { min: 1, max: 600 });
       const autoBlendThreshold = numericGmSignal("autoBlendThreshold", 4, { min: 1, max: 100, integer: true });
       const autoBlendCooldownSec = numericGmSignal("autoBlendCooldownSec", 35, { min: 1, max: 3600 });
+      gmSignal("autoBlendCooldownAuto", false);
       const autoBlendRoutineIntervalSec = numericGmSignal("autoBlendRoutineIntervalSec", 60, { min: 5, max: 3600 });
       const autoBlendBurstSettleMs = numericGmSignal("autoBlendBurstSettleMs", 1500, { min: 100, max: 6e4 });
       const autoBlendRateLimitWindowMin = numericGmSignal("autoBlendRateLimitWindowMin", 10, { min: 1, max: 1440 });
@@ -2116,8 +2117,7 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
         if (/Failed to fetch/i.test(error)) return true;
         if (/^HTTP\s/i.test(error)) return true;
         if (/无响应$/.test(error)) return true;
-        if (/NetworkError|TypeError|AbortError/i.test(error)) return true;
-        return false;
+        return /NetworkError|TypeError|AbortError/i.test(error);
       }
       function isMutedError(error) {
         if (!error) return false;
@@ -3330,8 +3330,7 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
         if (count === 2) return true;
         if (node.classList.contains("chat-colorful-bubble") && node.classList.contains("has-bubble") && count === 4)
           return true;
-        if (node.classList.contains("has-bubble") && count === 3) return true;
-        return false;
+        return node.classList.contains("has-bubble") && count === 3;
       }
       function cleanInlineText(value) {
         return (value ?? "").replace(/\s+/g, " ").trim();
@@ -3339,8 +3338,7 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
       function isBadNameCandidate(value, text = "") {
         if (!value || value === text || value.length > 36) return true;
         if (/通过活动|查看我的装扮|获得|装扮|荣耀|粉丝牌|用户等级|头像|复制|举报|回复|关闭/.test(value)) return true;
-        if (/^[\d\s:：/.-]+$/.test(value)) return true;
-        return false;
+        return /^[\d\s:：/.-]+$/.test(value);
       }
       function firstUsefulText(el) {
         if (!el) return null;
@@ -5377,8 +5375,7 @@ ws;
       function shouldForceImmediateReconnect(input) {
         if (input.visibilityState !== "visible") return false;
         if (!input.started) return false;
-        if (input.connectionHealthy) return false;
-        return true;
+        return !input.connectionHealthy;
       }
       let _liveWsFactoryOverride = null;
       function getSpmPrefix$1() {
@@ -6152,8 +6149,7 @@ candidates: input.candidates ?? prev.candidates
       function matchesDomEchoEvent(event, target, uid, selfUid) {
         if (event.text.trim() !== target) return false;
         if (uid && event.uid && event.uid !== uid) return false;
-        if (selfUid && event.uid === selfUid) return false;
-        return true;
+        return !(selfUid && event.uid === selfUid);
       }
       let domSubscribed = false;
       function ensureDomTracking() {
@@ -7904,8 +7900,7 @@ _clearForTests() {
         if (len < 4 || len > 30) return false;
         if (/^\d+$/.test(text)) return false;
         if ([...text].every((c2) => c2 === text[0])) return false;
-        if (/^[\p{P}\p{S}\s]+$/u.test(text)) return false;
-        return true;
+        return !/^[\p{P}\p{S}\s]+$/u.test(text);
       }
       function recordMemeCandidate(text, roomId) {
         if (!enableMemeContribution.value) return;
@@ -8629,8 +8624,7 @@ _clearForTests() {
         if (!clean) return true;
         if (/^(头像|匿名|复制|举报|回复|关闭|更多|展开|收起|弹幕|礼物|SC|进场|通知|暂停|清屏|状态|显示)$/.test(clean))
           return true;
-        if (/^搜索\s*user:/.test(clean)) return true;
-        return false;
+        return /^搜索\s*user:/.test(clean);
       }
       function resolveAvatarUrl(uid) {
         return uid ? `${BASE_URL.BILIBILI_AVATAR}/${uid}?size=96` : void 0;
@@ -11130,9 +11124,7 @@ u$2(
         if (shouldSuppressCustomChatEvent(event)) return false;
         const text = compactText(event.text);
         if (isNoiseEventText(text)) return false;
-        if (event.source === "dom" && displayName(event) === "匿名" && !event.uid && !event.avatarUrl && text.length <= 2)
-          return false;
-        return true;
+        return !(event.source === "dom" && displayName(event) === "匿名" && !event.uid && !event.avatarUrl && text.length <= 2);
       }
       function shouldShowUserLevelBadge(message) {
         return message.kind === "danmaku";
@@ -14339,8 +14331,7 @@ u$2("label", { htmlFor: "persistSendState", children: "保持当前直播间独�
         return opts.memes.filter((m2) => {
           if (!m2.content) return false;
           if (recent.has(m2.content)) return false;
-          if (m2.tags.some((t2) => blacklist.has(t2.name))) return false;
-          return true;
+          return !m2.tags.some((t2) => blacklist.has(t2.name));
         });
       }
       function pickByHeuristic(opts) {
@@ -14405,7 +14396,7 @@ u$2("label", { htmlFor: "persistSendState", children: "保持当前直播间独�
         bumpDailyLlmCalls(roomId);
         try {
           const chooser = opts?.chooser ?? (await __vitePreload(async () => {
-            const { chooseMemeWithLLM } = await module.import('./llm-driver-CiOrRdxS-DA5WVfaZ.js');
+            const { chooseMemeWithLLM } = await module.import('./llm-driver-BbhwX8a7-d5nls1GH.js');
             return { chooseMemeWithLLM };
           }, true ? void 0 : void 0)).chooseMemeWithLLM;
           const chosenContent = await chooser({
@@ -14662,7 +14653,7 @@ u$2("label", { htmlFor: "persistSendState", children: "保持当前直播间独�
           testError.value = "";
           try {
             const { testLLMConnection } = await __vitePreload(async () => {
-              const { testLLMConnection: testLLMConnection2 } = await module.import('./llm-driver-CiOrRdxS-DA5WVfaZ.js');
+              const { testLLMConnection: testLLMConnection2 } = await module.import('./llm-driver-BbhwX8a7-d5nls1GH.js');
               return { testLLMConnection: testLLMConnection2 };
             }, true ? void 0 : void 0);
             const r2 = await testLLMConnection({
@@ -16948,7 +16939,7 @@ opacity: meta.isLocked && !isCopied ? 0.5 : 1
           __exportedAt: ( new Date()).toISOString()
         };
         for (const key of EXPORT_KEYS) {
-          const val = _GM_getValue(key, void 0);
+          const val = _GM_getValue(key);
           if (val !== void 0) data[key] = val;
         }
         return JSON.stringify(data, null, 2);
@@ -17785,9 +17776,9 @@ u$2("label", { htmlFor: "unlockForbidLive", children: "拉黑直播间解锁（�
       (() => {
         const uid = getDedeUid();
         if (!uid) return;
-        const legacyResults = _GM_getValue("medalCheckResults", void 0);
-        const legacyStatus = _GM_getValue("medalCheckStatus", void 0);
-        const legacyFilter = _GM_getValue("medalCheckFilter", void 0);
+        const legacyResults = _GM_getValue("medalCheckResults");
+        const legacyStatus = _GM_getValue("medalCheckStatus");
+        const legacyFilter = _GM_getValue("medalCheckFilter");
         let migrated = false;
         if (Array.isArray(legacyResults) && legacyResults.length > 0 && !medalCheckResultsByUid.value[uid]) {
           medalCheckResultsByUid.value = { ...medalCheckResultsByUid.value, [uid]: legacyResults };
@@ -20555,7 +20546,7 @@ u$2(AlertDialog, {})
   };
 }));
 
-System.register("./llm-driver-CiOrRdxS-DA5WVfaZ.js", ['./__monkey.entry-BI-Lq-FN.js', '@soniox/speech-to-text-web'], (function (exports, module) {
+System.register("./llm-driver-BbhwX8a7-d5nls1GH.js", ['./__monkey.entry-FRqYcI48.js', '@soniox/speech-to-text-web'], (function (exports, module) {
   'use strict';
   var appendLog, gmFetch, BASE_URL;
   return {

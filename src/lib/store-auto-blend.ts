@@ -10,6 +10,10 @@ import { gmSignal, numericGmSignal } from './gm-signal'
 export const autoBlendWindowSec = numericGmSignal('autoBlendWindowSec', 20, { min: 1, max: 600 })
 export const autoBlendThreshold = numericGmSignal('autoBlendThreshold', 4, { min: 1, max: 100, integer: true })
 export const autoBlendCooldownSec = numericGmSignal('autoBlendCooldownSec', 35, { min: 1, max: 3600 })
+// 自动冷却：开启后按当前房间弹幕速率(CPM)动态算冷却。冷场拉长到上限,
+// 高峰压到下限——避免一刀切的固定冷却在两种极端下都不合适。开启时上面的
+// autoBlendCooldownSec 数值被忽略。从 upstream chatterbox 76cc1ba 移植。
+export const autoBlendCooldownAuto = gmSignal('autoBlendCooldownAuto', false)
 export const autoBlendRoutineIntervalSec = numericGmSignal('autoBlendRoutineIntervalSec', 60, { min: 5, max: 3600 })
 export const autoBlendBurstSettleMs = numericGmSignal('autoBlendBurstSettleMs', 1500, { min: 100, max: 60000 })
 export const autoBlendRateLimitWindowMin = numericGmSignal('autoBlendRateLimitWindowMin', 10, { min: 1, max: 1440 })
@@ -30,6 +34,10 @@ export const autoBlendAvoidRisky = gmSignal('autoBlendAvoidRisky', true)
 export const autoBlendBlockedWords = gmSignal('autoBlendBlockedWords', '抽奖\n加群\n私信\n房管\n举报')
 export const autoBlendIncludeReply = gmSignal('autoBlendIncludeReply', false)
 export const autoBlendUseReplacements = gmSignal('autoBlendUseReplacements', true)
+// 不重复上次自动发送：开启后,与上一次自动跟车发出去的弹幕完全相同的新弹幕
+// 不再计入候选,避免冷却结束后被同一句话立刻再次刷上去。仅作用于一次
+// startAutoBlend 周期(stop 时清空)。从 upstream chatterbox 32b9b84 移植。
+export const autoBlendAvoidRepeat = gmSignal('autoBlendAvoidRepeat', false)
 export const autoBlendRequireDistinctUsers = gmSignal('autoBlendRequireDistinctUsers', true)
 export const autoBlendMinDistinctUsers = numericGmSignal('autoBlendMinDistinctUsers', 3, {
   min: 1,
