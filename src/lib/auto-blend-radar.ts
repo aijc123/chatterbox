@@ -30,8 +30,7 @@ export async function consultRadarBoost(triggeredText: string): Promise<void> {
   try {
     const rank = await queryClusterRank(triggeredText)
     if (rank?.isTrending) {
-      const rankLabel =
-        rank.currentRankToday !== null ? `今日第 ${rank.currentRankToday} 位` : 'trending'
+      const rankLabel = rank.currentRankToday !== null ? `今日第 ${rank.currentRankToday} 位` : 'trending'
       logAutoBlend(
         `自动跟车：📡 radar 确认跨房间热度（簇 #${rank.clusterId}，${rankLabel}）：${shortAutoBlendText(triggeredText)}`
       )

@@ -8,13 +8,13 @@ import {
 } from './api'
 import { isAutoBlendBlacklistedUid } from './auto-blend-blacklist'
 import { logAutoBlend, logAutoBlendSendResult } from './auto-blend-events'
+import { consultRadarBoost } from './auto-blend-radar'
 import {
   formatAutoBlendCandidate,
   formatAutoBlendSenderInfo,
   formatAutoBlendStatus,
   shortAutoBlendText,
 } from './auto-blend-status'
-import { consultRadarBoost } from './auto-blend-radar'
 import { detectTrend, type TrendEvent } from './auto-blend-trend'
 import { subscribeCustomChatEvents } from './custom-chat-events'
 import { subscribeDanmaku } from './danmaku-stream'

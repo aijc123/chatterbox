@@ -24,8 +24,8 @@ export function RadarSection({ query = '' }: { query?: string }) {
           Meme 雷达（live-meme-radar）
         </div>
         <div className='cb-note' style={{ color: '#666', fontSize: '0.85em', marginBottom: '.5em' }}>
-          独立的"meme 传感器"项目，聚类几十个直播间的弹幕成跨房间 meme。该开关默认关闭，
-          启用前 userscript 行为完全等同旧版。完整说明见{' '}
+          独立的"meme 传感器"项目，聚类几十个直播间的弹幕成跨房间 meme。该开关默认关闭， 启用前 userscript
+          行为完全等同旧版。完整说明见{' '}
           <a href='https://live-meme-radar.pages.dev' target='_blank' rel='noreferrer'>
             live-meme-radar.pages.dev
           </a>
