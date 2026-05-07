@@ -47,3 +47,65 @@ export function formatAutoBlendCandidate(candidates: AutoBlendCandidate[]): stri
   if (!best) return '暂无'
   return `${shortAutoBlendText(best.text)}（${formatAutoBlendSenderInfo(best.uniqueUsers, best.totalCount)}）`
 }
+
+export interface AutoBlendCandidateProgress {
+  text: string | null
+  shortText: string | null
+  totalCount: number
+  threshold: number
+  uniqueUsers: number
+  minUsers: number
+  requireDistinctUsers: boolean
+  /** 0–1 inclusive; how close the leading candidate is to triggering. */
+  fillRatio: number
+}
+
+/**
+ * Pick the leading candidate and report how close it is to triggering.
+ * Used by the panel's "正在刷" progress display so users see "3/4 条" instead
+ * of just "暂无". Pure: same inputs → same output, easy to test.
+ *
+ * `fillRatio` is min(countRatio, userRatio) when distinct-users gating is on,
+ * otherwise just countRatio. This matches the AND semantics of meetsThreshold —
+ * both conditions must pass, so the bar reflects the *bottleneck* condition.
+ */
+export function formatAutoBlendCandidateProgress(
+  candidates: AutoBlendCandidate[],
+  threshold: number,
+  requireDistinctUsers: boolean,
+  minUsers: number
+): AutoBlendCandidateProgress {
+  let best: AutoBlendCandidate | null = null
+  for (const candidate of candidates) {
+    if (candidate.totalCount < 2) continue
+    if (!best || candidate.totalCount > best.totalCount) best = candidate
+  }
+
+  if (!best) {
+    return {
+      text: null,
+      shortText: null,
+      totalCount: 0,
+      threshold,
+      uniqueUsers: 0,
+      minUsers,
+      requireDistinctUsers,
+      fillRatio: 0,
+    }
+  }
+
+  const countRatio = threshold > 0 ? Math.min(1, best.totalCount / threshold) : 0
+  const userRatio = requireDistinctUsers && minUsers > 0 ? Math.min(1, best.uniqueUsers / minUsers) : 1
+  const fillRatio = Math.min(countRatio, userRatio)
+
+  return {
+    text: best.text,
+    shortText: shortAutoBlendText(best.text),
+    totalCount: best.totalCount,
+    threshold,
+    uniqueUsers: best.uniqueUsers,
+    minUsers,
+    requireDistinctUsers,
+    fillRatio,
+  }
+}

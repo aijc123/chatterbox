@@ -22,6 +22,7 @@ mock.module('../src/lib/api', () => ({ ...realApi }))
 
 const {
   computeAutoCooldownSec,
+  getAutoBlendRepeatGapMs,
   getCurrentCpm,
   getEffectiveCooldownMs,
   _pushCpmTimestampForTests,
@@ -29,7 +30,7 @@ const {
   _resetAutoBlendStateForTests,
 } = await import('../src/lib/auto-blend')
 
-const { autoBlendCooldownAuto, autoBlendCooldownSec } = await import('../src/lib/store')
+const { autoBlendCooldownAuto, autoBlendCooldownSec, msgSendInterval } = await import('../src/lib/store')
 
 // Mirror constants from src/lib/auto-blend.ts (private to that module).
 // K=300 is documented in tests below via inline comments at each assertion.
@@ -171,5 +172,59 @@ describe('getEffectiveCooldownMs', () => {
 
     autoBlendCooldownAuto.value = false
     expect(getEffectiveCooldownMs(now)).toBe(25_000)
+  })
+})
+
+describe('getAutoBlendRepeatGapMs', () => {
+  beforeEach(() => {
+    resetGmStore()
+    _resetAutoBlendStateForTests()
+  })
+
+  afterEach(() => {
+    _resetAutoBlendStateForTests()
+    autoBlendCooldownAuto.value = false
+    autoBlendCooldownSec.value = 35
+    msgSendInterval.value = 1.5
+  })
+
+  test('uses manual cooldown when auto mode is off', () => {
+    autoBlendCooldownAuto.value = false
+    autoBlendCooldownSec.value = 12
+    msgSendInterval.value = 1.5
+    // max(12s, 1.5s, 1.01s) = 12s
+    expect(getAutoBlendRepeatGapMs(1_000_000)).toBe(12_000)
+  })
+
+  test('uses adaptive cooldown when auto mode is on, ignoring manual seconds', () => {
+    autoBlendCooldownAuto.value = true
+    autoBlendCooldownSec.value = 999 // should be ignored
+    msgSendInterval.value = 1
+    const now = 1_000_000
+    for (let i = 0; i < 5; i++) _pushCpmTimestampForTests(now - 5_000 + i * 1000)
+    // 5/5s × 60 = 60 cpm → 5s adaptive cooldown
+    // max(5000, 1000, 1010) = 5000
+    expect(getAutoBlendRepeatGapMs(now)).toBe(5_000)
+  })
+
+  test('msgSendInterval acts as floor when cooldown is small', () => {
+    autoBlendCooldownAuto.value = false
+    autoBlendCooldownSec.value = 1 // 1000ms
+    msgSendInterval.value = 3 // 3000ms
+    expect(getAutoBlendRepeatGapMs(1_000_000)).toBe(3_000)
+  })
+
+  test('1010ms hard floor applies when both inputs are smaller', () => {
+    autoBlendCooldownAuto.value = false
+    autoBlendCooldownSec.value = 0.5 // 500ms — but numericGmSignal min=1 will clamp; force via direct write OK in test
+    msgSendInterval.value = 0.5 // 500ms
+    expect(getAutoBlendRepeatGapMs(1_000_000)).toBeGreaterThanOrEqual(1010)
+  })
+
+  test('adaptive mode falls back to ceiling on silent rooms', () => {
+    autoBlendCooldownAuto.value = true
+    msgSendInterval.value = 1.5
+    // CPM=0 → ceiling 60s, max(60000, 1500, 1010) = 60000
+    expect(getAutoBlendRepeatGapMs(1_000_000)).toBe(60_000)
   })
 })

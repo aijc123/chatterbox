@@ -1,6 +1,9 @@
-import { signal } from '@preact/signals'
+import { computed, signal } from '@preact/signals'
+
+import type { AutoBlendCandidateProgress } from './auto-blend-status'
 
 import { GM_getValue, GM_setValue } from '$'
+import { AUTO_BLEND_PRESETS, type AutoBlendPreset } from './auto-blend-preset-config'
 import { gmSignal, numericGmSignal } from './gm-signal'
 
 // 自动跟车 (auto-blend internally): send when any message hits N repeats within W seconds,
@@ -23,6 +26,12 @@ export const autoBlendRateLimitStopThreshold = numericGmSignal('autoBlendRateLim
   integer: true,
 })
 export const autoBlendPreset = gmSignal<'safe' | 'normal' | 'hot' | 'custom'>('autoBlendPreset', 'normal')
+// Last preset that was actually applied via applyAutoBlendPreset(). When the
+// user later tweaks a number and the preset flips to 'custom', this remembers
+// the baseline so the UI can show "基于正常档 +X% 激进" + a one-click reset.
+// Default 'normal' covers the case where someone modifies before ever clicking
+// a preset button (initial preset is also 'normal').
+export const lastAppliedPresetBaseline = gmSignal<AutoBlendPreset>('lastAppliedPresetBaseline', 'normal')
 export const autoBlendAdvancedOpen = gmSignal('autoBlendAdvancedOpen', false)
 const autoBlendDryRunMigrationKey = 'autoBlendDryRunVisibleDefaultMigrated'
 if (!GM_getValue(autoBlendDryRunMigrationKey, false)) {
@@ -55,3 +64,35 @@ export const autoBlendEnabled = signal(false)
 export const autoBlendStatusText = signal('已关闭')
 export const autoBlendCandidateText = signal('暂无')
 export const autoBlendLastActionText = signal('暂无')
+// Structured snapshot of the leading candidate's progress towards the trigger
+// thresholds. Drives the progress bar in the panel; null = no candidate yet.
+export const autoBlendCandidateProgress = signal<AutoBlendCandidateProgress | null>(null)
+
+export interface AutoBlendDrift {
+  baselinePreset: AutoBlendPreset | null
+  driftPercent: number
+}
+
+// 把当前数值与基线档比，得到一个有符号的"激进度偏移"。正值=比基线更激进
+// (更短窗口/更低阈值/更短冷却/更少人数都算激进)，负值=更保守。权重把
+// threshold 与 cooldown 提到 2，因为这两个对触发节奏的体感影响最大。
+export const autoBlendDriftFromPreset = computed<AutoBlendDrift>(() => {
+  const preset = autoBlendPreset.value
+  if (preset !== 'custom') return { baselinePreset: preset, driftPercent: 0 }
+
+  const baseline = AUTO_BLEND_PRESETS[lastAppliedPresetBaseline.value]
+  // 各字段方向：threshold/cooldownSec/minDistinctUsers 越低越激进，windowSec
+  // 越长越激进（窗口越长越容易凑齐 N 条）。统一成 +ve = aggressive。
+  const offsets: Array<[number, number]> = [
+    [(autoBlendWindowSec.value - baseline.windowSec) / baseline.windowSec, 1],
+    [(baseline.threshold - autoBlendThreshold.value) / baseline.threshold, 2],
+    [(baseline.cooldownSec - autoBlendCooldownSec.value) / baseline.cooldownSec, 2],
+    [(baseline.minDistinctUsers - autoBlendMinDistinctUsers.value) / baseline.minDistinctUsers, 1],
+  ]
+  const totalWeight = offsets.reduce((s, [, w]) => s + w, 0)
+  const weighted = offsets.reduce((s, [v, w]) => s + v * w, 0) / totalWeight
+  return {
+    baselinePreset: lastAppliedPresetBaseline.value,
+    driftPercent: Math.round(weighted * 100),
+  }
+})

@@ -1,7 +1,7 @@
-import { forceScrollDanmaku, optimizeLayout, unlockForbidLive } from '../../lib/store'
+import { forceScrollDanmaku, optimizeLayout, unlockForbidLive, unlockSpaceBlock } from '../../lib/store'
 
 export function LayoutSection({ query = '' }: { query?: string }) {
-  const visible = !query || '直播间布局 优化布局 滚动 拉黑 解锁'.toLowerCase().includes(query)
+  const visible = !query || '直播间布局 优化布局 滚动 拉黑 解锁 空间'.toLowerCase().includes(query)
   if (!visible) return null
 
   return (
@@ -52,6 +52,17 @@ export function LayoutSection({ query = '' }: { query?: string }) {
               }}
             />
             <label htmlFor='unlockForbidLive'>拉黑直播间解锁（刷新生效，仅布局解锁）</label>
+          </span>
+          <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
+            <input
+              id='unlockSpaceBlock'
+              type='checkbox'
+              checked={unlockSpaceBlock.value}
+              onInput={e => {
+                unlockSpaceBlock.value = e.currentTarget.checked
+              }}
+            />
+            <label htmlFor='unlockSpaceBlock'>空间拉黑解锁（刷新生效，仅布局解锁）</label>
           </span>
         </div>
       </div>

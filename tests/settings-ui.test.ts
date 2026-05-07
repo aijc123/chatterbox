@@ -18,6 +18,7 @@ const {
   forceScrollDanmaku,
   optimizeLayout,
   unlockForbidLive,
+  unlockSpaceBlock,
 } = await import('../src/lib/store')
 
 type TreeNode = VNode<Record<string, unknown>> | string | number | boolean | null | undefined
@@ -56,6 +57,7 @@ describe('settings UI components', () => {
     optimizeLayout.value = false
     forceScrollDanmaku.value = false
     unlockForbidLive.value = false
+    unlockSpaceBlock.value = false
     danmakuDirectMode.value = false
     danmakuDirectConfirm.value = true
     danmakuDirectAlwaysShow.value = false
@@ -70,6 +72,44 @@ describe('settings UI components', () => {
     expect(collectText(visible)).toContain('直播间布局')
 
     expect(hidden).toBeNull()
+  })
+
+  test('layout section exposes the unlockSpaceBlock checkbox and the 空间 search keyword', () => {
+    const bySpaceQuery = LayoutSection({ query: '空间' })
+    const byUnlockQuery = LayoutSection({ query: '解锁' })
+
+    expect(bySpaceQuery).not.toBeNull()
+    expect(byUnlockQuery).not.toBeNull()
+
+    const spaceCheckbox = findNodeById(bySpaceQuery, 'unlockSpaceBlock')
+    expect(spaceCheckbox).toBeDefined()
+    expect(spaceCheckbox?.props.checked).toBe(false)
+    expect(collectText(bySpaceQuery)).toContain('空间拉黑解锁')
+  })
+
+  test('toggling the unlockSpaceBlock input flips the underlying signal', () => {
+    const initial = LayoutSection({ query: '' })
+    const checkbox = findNodeById(initial, 'unlockSpaceBlock')
+    expect(checkbox).toBeDefined()
+    expect(unlockSpaceBlock.value).toBe(false)
+
+    checkbox?.props.onInput?.({ currentTarget: { checked: true } })
+    expect(unlockSpaceBlock.value).toBe(true)
+
+    checkbox?.props.onInput?.({ currentTarget: { checked: false } })
+    expect(unlockSpaceBlock.value).toBe(false)
+  })
+
+  test('the other layout toggles also write back through their onInput handlers', () => {
+    const tree = LayoutSection({ query: '' })
+
+    findNodeById(tree, 'optimizeLayout')?.props.onInput?.({ currentTarget: { checked: true } })
+    findNodeById(tree, 'forceScrollDanmaku')?.props.onInput?.({ currentTarget: { checked: true } })
+    findNodeById(tree, 'unlockForbidLive')?.props.onInput?.({ currentTarget: { checked: true } })
+
+    expect(optimizeLayout.value).toBe(true)
+    expect(forceScrollDanmaku.value).toBe(true)
+    expect(unlockForbidLive.value).toBe(true)
   })
 
   test('danmaku direct child toggles follow the parent mode state', () => {

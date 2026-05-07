@@ -10,6 +10,7 @@ import { isAutoBlendBlacklistedUid } from './auto-blend-blacklist'
 import { logAutoBlend, logAutoBlendSendResult } from './auto-blend-events'
 import {
   formatAutoBlendCandidate,
+  formatAutoBlendCandidateProgress,
   formatAutoBlendSenderInfo,
   formatAutoBlendStatus,
   shortAutoBlendText,
@@ -34,6 +35,7 @@ import { verifyBroadcast } from './send-verification'
 import {
   autoBlendAvoidRepeat,
   autoBlendBurstSettleMs,
+  autoBlendCandidateProgress,
   autoBlendCandidateText,
   autoBlendCooldownAuto,
   autoBlendCooldownSec,
@@ -261,7 +263,9 @@ function handleSendFailure(result: SendDanmakuResult, roomId?: number): boolean 
       errorCode: result.errorCode,
       reason: result.error,
     })
-    stopAutoBlendAfterModeration(`🔴 自动跟车：检测到你在本房间被禁言，已自动关闭。禁言时长：${duration}。`)
+    stopAutoBlendAfterModeration(
+      `🔴 自动跟车：检测到你在本房间被禁言，已自动关闭。禁言时长：${duration}。建议等到禁言解除后再开。`
+    )
     return true
   }
 
@@ -274,7 +278,9 @@ function handleSendFailure(result: SendDanmakuResult, roomId?: number): boolean 
       errorCode: result.errorCode,
       reason: result.error,
     })
-    stopAutoBlendAfterModeration(`🔴 自动跟车：检测到账号级限制/风控，已自动关闭。限制时长：${duration}。`)
+    stopAutoBlendAfterModeration(
+      `🔴 自动跟车：检测到账号级限制/风控，已自动关闭。限制时长：${duration}。建议先停用一段时间，或换账号再开。`
+    )
     return true
   }
 
@@ -309,7 +315,7 @@ function handleSendFailure(result: SendDanmakuResult, roomId?: number): boolean 
       advice: `${windowLabel}多次触发频率限制，自动跟车已经停车，建议休息一阵再开。`,
     })
     stopAutoBlendAfterModeration(
-      `⚠️ 自动跟车：${windowLabel}多次触发发送频率限制，已自动关闭，避免继续被系统/房管盯上。`
+      `⚠️ 自动跟车：${windowLabel}多次触发发送频率限制，已自动关闭，避免继续被系统/房管盯上。建议歇一阵子再开，或切到「稳一点」档减少触发频率。`
     )
     return true
   }
@@ -338,12 +344,17 @@ function countUniqueUids(events: TrendRecordEvent[]): number {
 }
 
 function updateCandidateText(): void {
-  autoBlendCandidateText.value = formatAutoBlendCandidate(
-    Array.from(trendMap, ([text, entry]) => ({
-      text,
-      totalCount: entry.events.length,
-      uniqueUsers: countUniqueUids(entry.events),
-    }))
+  const candidates = Array.from(trendMap, ([text, entry]) => ({
+    text,
+    totalCount: entry.events.length,
+    uniqueUsers: countUniqueUids(entry.events),
+  }))
+  autoBlendCandidateText.value = formatAutoBlendCandidate(candidates)
+  autoBlendCandidateProgress.value = formatAutoBlendCandidateProgress(
+    candidates,
+    autoBlendThreshold.value,
+    autoBlendRequireDistinctUsers.value,
+    autoBlendMinDistinctUsers.value
   )
 }
 
@@ -371,8 +382,19 @@ function pruneExpired(now: number, force = false): void {
   updateCandidateText()
 }
 
-function getAutoBlendRepeatGapMs(): number {
-  return Math.max(autoBlendCooldownSec.value * 1000, msgSendInterval.value * 1000, 1010)
+/**
+ * Gap between repeated sends of the same message inside one trigger
+ * (i.e. between "shot 1 of 3" and "shot 2 of 3" when autoBlendSendCount > 1).
+ *
+ * Uses the *effective* cooldown so that toggling autoBlendCooldownAuto on
+ * actually takes the manual autoBlendCooldownSec out of the picture — the
+ * previous direct read meant manual seconds silently bounded the gap even in
+ * adaptive mode. Always at least msgSendInterval and 1010ms (anti-spam floor).
+ *
+ * Pure-ish (reads signals); exported for unit testing.
+ */
+export function getAutoBlendRepeatGapMs(now: number): number {
+  return Math.max(getEffectiveCooldownMs(now), msgSendInterval.value * 1000, 1010)
 }
 
 function getAutoBlendBurstGapMs(): number {
@@ -746,7 +768,7 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
         updateStatusText()
 
         if (i < repeatCount - 1) {
-          const interval = getAutoBlendRepeatGapMs()
+          const interval = getAutoBlendRepeatGapMs(Date.now())
           const offset = randomInterval.value ? Math.floor(Math.random() * 500) : 0
           await new Promise(r => setTimeout(r, interval + offset))
         }
@@ -778,6 +800,7 @@ export function startAutoBlend(): void {
   lastPruneWindowMs = 0
   autoBlendStatusText.value = '观察中'
   autoBlendCandidateText.value = '暂无'
+  autoBlendCandidateProgress.value = null
   autoBlendLastActionText.value = '暂无'
 
   unsubscribe = subscribeDanmaku({
@@ -848,6 +871,7 @@ export function stopAutoBlend(): void {
   messageTimestamps.length = 0
   autoBlendStatusText.value = '已关闭'
   autoBlendCandidateText.value = '暂无'
+  autoBlendCandidateProgress.value = null
   autoBlendLastActionText.value = moderationStopReason ?? '暂无'
   moderationStopReason = null
 }

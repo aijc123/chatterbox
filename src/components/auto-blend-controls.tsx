@@ -1,5 +1,7 @@
 import { useSignal } from '@preact/signals'
+import { useEffect } from 'preact/hooks'
 
+import { computeAutoCooldownSec, getCurrentCpm } from '../lib/auto-blend'
 import { AUTO_BLEND_PRESETS } from '../lib/auto-blend-preset-config'
 import { applyAutoBlendPreset } from '../lib/auto-blend-presets'
 import { decideAutoBlendToggle } from '../lib/auto-blend-toggle'
@@ -8,9 +10,10 @@ import {
   autoBlendAdvancedOpen,
   autoBlendAvoidRepeat,
   autoBlendBurstSettleMs,
-  autoBlendCandidateText,
+  autoBlendCandidateProgress,
   autoBlendCooldownAuto,
   autoBlendCooldownSec,
+  autoBlendDriftFromPreset,
   autoBlendDryRun,
   autoBlendEnabled,
   autoBlendIncludeReply,
@@ -213,13 +216,122 @@ function BlacklistPanel() {
   )
 }
 
+/**
+ * Compact progress row for the leading trending candidate. Shows "正在刷"
+ * label, the short text, and a count + bar. Color shifts orange→red as the
+ * fill ratio approaches 1 so users see "almost triggering" at a glance.
+ * Uses the AND-bottleneck fillRatio so the bar reflects whichever of count
+ * or distinct-users is the limiter.
+ */
+function CandidateProgressRow() {
+  const progress = autoBlendCandidateProgress.value
+  const labelStyle = { wordBreak: 'break-all', overflowWrap: 'anywhere' as const }
+
+  if (!progress?.text) {
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: '4.5em 1fr', gap: '.25em' }}>
+        <strong>正在刷</strong>
+        <span style={labelStyle}>暂无</span>
+      </div>
+    )
+  }
+
+  const fill = Math.max(0, Math.min(1, progress.fillRatio))
+  // Hue: 30 (orange) → 0 (red) as fill grows. Lower than ~0.4 stays muted.
+  const hue = Math.round(30 * (1 - fill))
+  const sat = fill < 0.4 ? 25 : 60
+  const barFg = `hsl(${hue}, ${sat}%, 50%)`
+  const barBg = 'rgba(0,0,0,.08)'
+  const usersFragment = progress.requireDistinctUsers ? ` · ${progress.uniqueUsers}/${progress.minUsers} 人` : ''
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '4.5em 1fr', gap: '.25em' }}>
+      <strong>正在刷</strong>
+      <span style={labelStyle}>
+        <span>{progress.shortText}</span>
+        <span className='cb-soft' style={{ marginLeft: '.4em', fontSize: '11px' }}>
+          {progress.totalCount}/{progress.threshold} 条{usersFragment}
+        </span>
+        <span
+          aria-hidden='true'
+          style={{
+            display: 'inline-block',
+            verticalAlign: 'middle',
+            marginLeft: '.4em',
+            width: '60px',
+            height: '6px',
+            background: barBg,
+            borderRadius: '3px',
+            overflow: 'hidden',
+          }}
+        >
+          <span
+            style={{
+              display: 'block',
+              width: `${Math.round(fill * 100)}%`,
+              height: '100%',
+              background: barFg,
+              transition: 'width 200ms ease, background 200ms ease',
+            }}
+          />
+        </span>
+      </span>
+    </div>
+  )
+}
+
+/**
+ * Tick a counter on a setInterval so the panel re-reads getCurrentCpm /
+ * computeAutoCooldownSec every couple seconds for the auto-cooldown live
+ * readout. Cheap (just a setState every 2s); no-op when the panel is not
+ * visible because <details> closes Preact subtree rendering.
+ */
+function useTick(intervalMs: number): number {
+  const tick = useSignal(0)
+  useEffect(() => {
+    const id = setInterval(() => {
+      tick.value++
+    }, intervalMs)
+    return () => clearInterval(id)
+  }, [intervalMs])
+  return tick.value
+}
+
+/**
+ * Live "auto-tuning ~Xs (CPM=Y)" readout. Pulled out of the cooldown row so
+ * the row's NumberInput disabled state stays observable in the static VNode
+ * tree (this component owns the hook; the row stays hook-free and inlined
+ * directly in AutoBlendControls).
+ */
+function LiveCooldownReadout() {
+  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+  useTick(2000) // re-render every 2s for the live numbers
+  if (!autoBlendCooldownAuto.value) return null
+  const text = autoBlendEnabled.value
+    ? (() => {
+        const now = Date.now()
+        const cpm = getCurrentCpm(now)
+        const sec = computeAutoCooldownSec(cpm)
+        return `自动调节中（约 ${sec} 秒，CPM=${cpm}）`
+      })()
+    : '启动后按弹幕速率自动调节'
+  return (
+    <span className='cb-soft' style={{ flexBasis: '100%', fontSize: '11px', marginTop: '-.15em' }}>
+      {text}
+    </span>
+  )
+}
+
 export function AutoBlendControls() {
   const isOn = autoBlendEnabled.value
   const currentPreset = autoBlendPreset.value
+  const drift = autoBlendDriftFromPreset.value
   const presetHint =
     currentPreset === 'safe' || currentPreset === 'normal' || currentPreset === 'hot'
       ? AUTO_BLEND_PRESETS[currentPreset].hint
-      : '自定义参数'
+      : drift.baselinePreset
+        ? `自定义（基于「${AUTO_BLEND_PRESETS[drift.baselinePreset].label}」档 ${drift.driftPercent >= 0 ? '+' : ''}${drift.driftPercent}% 激进）`
+        : '自定义参数'
   const statusColor = !isOn
     ? '#777'
     : autoBlendStatusText.value.includes('冷却')
@@ -302,8 +414,21 @@ export function AutoBlendControls() {
               自定义
             </button>
           </div>
-          <div className='cb-note' style={{ marginTop: '.25em' }}>
-            当前：{presetHint}
+          <div
+            className='cb-note'
+            style={{ marginTop: '.25em', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '.4em' }}
+          >
+            <span>当前：{presetHint}</span>
+            {currentPreset === 'custom' && drift.baselinePreset && (
+              <button
+                type='button'
+                onClick={() => applyAutoBlendPreset(drift.baselinePreset as 'safe' | 'normal' | 'hot')}
+                style={{ minHeight: 'unset', padding: '1px 6px', fontSize: '11px' }}
+                title={`一键回到「${AUTO_BLEND_PRESETS[drift.baselinePreset].label}」档（丢弃当前自定义数值）`}
+              >
+                ↺ 回到「{AUTO_BLEND_PRESETS[drift.baselinePreset].label}」
+              </button>
+            )}
           </div>
         </div>
 
@@ -314,10 +439,7 @@ export function AutoBlendControls() {
             lineHeight: 1.6,
           }}
         >
-          <div style={{ display: 'grid', gridTemplateColumns: '4.5em 1fr', gap: '.25em' }}>
-            <strong>正在刷</strong>
-            <span style={{ wordBreak: 'break-all', overflowWrap: 'anywhere' }}>{autoBlendCandidateText.value}</span>
-          </div>
+          <CandidateProgressRow />
           <div style={{ display: 'grid', gridTemplateColumns: '4.5em 1fr', gap: '.25em' }}>
             <strong>刚刚</strong>
             <span style={{ wordBreak: 'break-all', overflowWrap: 'anywhere' }}>{autoBlendLastActionText.value}</span>
@@ -343,7 +465,7 @@ export function AutoBlendControls() {
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '.25em' }}>
-            <span>多少算跟：</span>
+            <span>触发条件：</span>
             <NumberInput
               value={autoBlendWindowSec.value}
               min={3}
@@ -352,7 +474,7 @@ export function AutoBlendControls() {
                 autoBlendWindowSec.value = v
               }}
             />
-            <span>秒内</span>
+            <span>秒内刷出</span>
             <NumberInput
               value={autoBlendThreshold.value}
               min={2}
@@ -361,9 +483,41 @@ export function AutoBlendControls() {
                 autoBlendThreshold.value = v
               }}
             />
-            <span>条</span>
+            <span>条相同弹幕</span>
           </div>
-          <SettingHint>在指定秒数内，同一句弹幕达到条数才触发；阈值越低越积极。</SettingHint>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '.25em',
+              marginLeft: '4.5em',
+              opacity: autoBlendRequireDistinctUsers.value ? 1 : 0.55,
+            }}
+          >
+            <input
+              id='autoBlendRequireDistinctUsers'
+              type='checkbox'
+              checked={autoBlendRequireDistinctUsers.value}
+              onInput={e => {
+                markCustom()
+                autoBlendRequireDistinctUsers.value = e.currentTarget.checked
+              }}
+            />
+            <label htmlFor='autoBlendRequireDistinctUsers'>且至少</label>
+            <NumberInput
+              value={autoBlendMinDistinctUsers.value}
+              min={2}
+              width='40px'
+              disabled={!autoBlendRequireDistinctUsers.value}
+              onChange={v => {
+                markCustom()
+                autoBlendMinDistinctUsers.value = v
+              }}
+            />
+            <span>人都在刷</span>
+          </div>
+          <SettingHint>条数和人数都满足才会跟车（且关系）；阈值越低越积极。</SettingHint>
 
           <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '.25em' }}>
             <span>节奏：</span>
@@ -389,11 +543,12 @@ export function AutoBlendControls() {
               }}
             />
             <span>秒</span>
+            <LiveCooldownReadout />
           </div>
-          <SettingHint>冷却是每次发送后的停顿；补跟是没有突发时重新检查热门弹幕的间隔。</SettingHint>
+          <SettingHint>冷却是每次发完的停顿；补跟是没刷屏时定时回头看热门的间隔。</SettingHint>
 
           <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '.25em' }}>
-            <span>突发等待</span>
+            <span>凑齐刷屏的窗口</span>
             <NumberInput
               value={autoBlendBurstSettleMs.value}
               min={0}
@@ -409,7 +564,7 @@ export function AutoBlendControls() {
           <SettingHint>检测到刷屏后先等一小会儿，把同一波里的其它高频弹幕一起纳入判断。</SettingHint>
 
           <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '.25em' }}>
-            <span>限频保护：</span>
+            <span>失败熔断：</span>
             <NumberInput
               value={autoBlendRateLimitWindowMin.value}
               min={1}
@@ -433,7 +588,7 @@ export function AutoBlendControls() {
             />
             <span>次后停车</span>
           </div>
-          <SettingHint>限制连续失败或风控信号；超过次数会自动停止跟车，避免继续刷失败。</SettingHint>
+          <SettingHint>连续失败/风控达到次数会自动停车，并按禁言/账号风控/频率限制给出建议。</SettingHint>
 
           <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '.25em' }}>
             <span>每次发：</span>
@@ -442,6 +597,7 @@ export function AutoBlendControls() {
               min={1}
               max={20}
               width='40px'
+              disabled={autoBlendSendAllTrending.value}
               onChange={v => {
                 markCustom()
                 autoBlendSendCount.value = v
@@ -449,7 +605,11 @@ export function AutoBlendControls() {
             />
             <span>遍</span>
           </div>
-          <SettingHint>同一句被选中后重复发送的次数；建议配合发送间隔和冷却一起调。</SettingHint>
+          {autoBlendSendAllTrending.value ? (
+            <SettingHint>已被「多句一起跟」覆盖：突发命中时一波内每句各发 1 次。</SettingHint>
+          ) : (
+            <SettingHint>同一句被选中后重复发送的次数；建议配合发送间隔和冷却一起调。</SettingHint>
+          )}
         </div>
 
         <div style={{ margin: '.5em 0', display: 'grid', gap: '.35em' }}>
@@ -473,34 +633,6 @@ export function AutoBlendControls() {
               <span style={{ color: '#a15c00', fontSize: '0.85em' }} title='当前关闭试运行，会真实发送弹幕。'>
                 关闭后会真实发送
               </span>
-            )}
-          </span>
-
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
-            <input
-              id='autoBlendRequireDistinctUsers'
-              type='checkbox'
-              checked={autoBlendRequireDistinctUsers.value}
-              onInput={e => {
-                markCustom()
-                autoBlendRequireDistinctUsers.value = e.currentTarget.checked
-              }}
-            />
-            <label htmlFor='autoBlendRequireDistinctUsers'>多人都在刷才跟</label>
-            {autoBlendRequireDistinctUsers.value && (
-              <>
-                <span>至少</span>
-                <NumberInput
-                  value={autoBlendMinDistinctUsers.value}
-                  min={2}
-                  width='40px'
-                  onChange={v => {
-                    markCustom()
-                    autoBlendMinDistinctUsers.value = v
-                  }}
-                />
-                <span>人</span>
-              </>
             )}
           </span>
 
@@ -576,8 +708,11 @@ export function AutoBlendControls() {
                 autoBlendSendAllTrending.value = e.currentTarget.checked
               }}
             />
-            <label htmlFor='autoBlendSendAllTrending' title='命中后连发同一波里多句达标弹幕，更激进。'>
-              一波刷屏全跟
+            <label
+              htmlFor='autoBlendSendAllTrending'
+              title='命中后把同一波里达标的几句各发 1 次（覆盖「每次发X遍」）。'
+            >
+              多句一起跟
             </label>
             <span style={{ color: '#a15c00' }} title='更激进：命中一波后会连发多条达标弹幕，更容易被风控。'>
               （更激进）
@@ -587,7 +722,7 @@ export function AutoBlendControls() {
 
         {autoBlendSendAllTrending.value && (
           <div style={{ color: '#a15c00', fontSize: '12px', lineHeight: 1.5, marginBottom: '.25em' }}>
-            会把同一波里达标的几句话依次发出去。
+            会把同一波里达标的几句话依次发出去；此时「每次发X遍」被覆盖为 1。
           </div>
         )}
 

@@ -1,24 +1,91 @@
+import { effect } from '@preact/signals'
+
 import { unsafeWindow } from '$'
 import { BASE_URL, CHATTERBOX_SEND_MARKER } from './const'
+import {
+  applyTransforms,
+  type HijackOpts,
+  injectSpaceBlockBanner,
+  removeSpaceBlockBanner,
+  shouldHijackUrl,
+} from './fetch-hijack-helpers'
 import { appendLog } from './log'
 import { verifyBroadcast } from './send-verification'
-import { unlockForbidLive } from './store'
+import { unlockForbidLive, unlockSpaceBlock } from './store'
 
-const GET_INFO_BY_USER_PATTERN = '/xlive/web-room/v1/index/getInfoByUser'
-
-function shouldHijackUrl(url: string): boolean {
-  return unlockForbidLive.value && url.includes(GET_INFO_BY_USER_PATTERN)
+function currentOpts(): HijackOpts {
+  return {
+    unlockForbidLive: unlockForbidLive.value,
+    unlockSpaceBlock: unlockSpaceBlock.value,
+  }
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: parsed JSON shape from Bilibili is not stable
-function applyTransforms(url: string, data: any): void {
-  if (!shouldHijackUrl(url)) return
-  const forbid = data?.data?.forbid_live
-  if (!forbid) return
-  forbid.is_forbid = false
-  forbid.forbid_text = ''
+// Self-healing observer for `.header.space-header`. We run at
+// `document-start` on `space.bilibili.com` so the header may not yet be
+// in the DOM when the matching API response arrives. The observer waits
+// for it. Module-scoped so a toggle-off `effect()` can cancel a pending
+// injection — without that, an observer waiting for a late-mounted
+// header would inject the banner after the user disabled the feature.
+let spaceBlockObserver: MutationObserver | null = null
+
+function disconnectSpaceBlockObserver(): void {
+  spaceBlockObserver?.disconnect()
+  spaceBlockObserver = null
 }
-/** Patches Response consumption for specific Bilibili live API endpoints. */
+
+function clearSpaceBlockBanner(): void {
+  disconnectSpaceBlockObserver()
+  removeSpaceBlockBanner()
+}
+
+function ensureSpaceBlockBanner(): void {
+  const headerSelector = '.header.space-header'
+  const header = document.querySelector<HTMLElement>(headerSelector)
+  if (header) {
+    injectSpaceBlockBanner(header)
+    return
+  }
+  // Cancel any earlier pending observer so we keep at most one alive.
+  disconnectSpaceBlockObserver()
+  spaceBlockObserver = new MutationObserver(() => {
+    // The user can flip `unlockSpaceBlock` off in the configurator
+    // between us setting up this observer and B站 finally mounting
+    // the space header. Re-read the signal so we don't inject behind
+    // the user's back. The `effect(...)` below also disconnects on
+    // toggle-off — this check is a defensive fallback for cases where
+    // the observer fires before the effect microtask runs.
+    if (!unlockSpaceBlock.value) {
+      disconnectSpaceBlockObserver()
+      return
+    }
+    const h = document.querySelector<HTMLElement>(headerSelector)
+    if (!h) return
+    disconnectSpaceBlockObserver()
+    injectSpaceBlockBanner(h)
+  })
+  spaceBlockObserver.observe(document.documentElement, { childList: true, subtree: true })
+}
+
+// React to the configurator toggle in real time so disabling the
+// feature drops the banner immediately, without forcing a reload.
+// (Re-enabling only re-shows it on the next fetch hit, which matches
+// the existing "刷新生效" UX of the toggle itself.)
+effect(() => {
+  if (!unlockSpaceBlock.value) clearSpaceBlockBanner()
+})
+
+function handleTransformResult(result: ReturnType<typeof applyTransforms>): void {
+  if (result.kind !== 'space') return
+  // Same SPA-navigation rationale as in the original LAPLACE script:
+  // clear the previous user's banner before deciding whether the
+  // current user's relation needs one. Bilibili's space pages reuse
+  // the header across SPA route changes, so a stale banner would
+  // otherwise linger when navigating to an account that isn't
+  // blocking us.
+  clearSpaceBlockBanner()
+  if (result.wasBlocking) ensureSpaceBlockBanner()
+}
+/** Patches Response consumption for specific Bilibili API endpoints. */
 ;(() => {
   try {
     const ResponseProto = unsafeWindow.Response.prototype as Response & {
@@ -34,9 +101,10 @@ function applyTransforms(url: string, data: any): void {
       // Fast path: skip transform inspection unless the feature is enabled and
       // the URL is one we care about. `applyTransforms` short-circuits too,
       // but doing it here avoids the function call entirely.
-      if (!url || !shouldHijackUrl(url) || !data || typeof data !== 'object') return data
+      const opts = currentOpts()
+      if (!url || !shouldHijackUrl(url, opts) || !data || typeof data !== 'object') return data
       try {
-        applyTransforms(url, data)
+        handleTransformResult(applyTransforms(url, data, opts))
       } catch (err) {
         console.error('[Chatterbox] fetch-hijack json transform failed:', err)
       }
@@ -47,10 +115,11 @@ function applyTransforms(url: string, data: any): void {
     ResponseProto.text = async function (this: Response): Promise<string> {
       const text = await origText.call(this)
       const url = this.url
-      if (!url || !shouldHijackUrl(url)) return text
+      const opts = currentOpts()
+      if (!url || !shouldHijackUrl(url, opts)) return text
       try {
         const data = JSON.parse(text)
-        applyTransforms(url, data)
+        handleTransformResult(applyTransforms(url, data, opts))
         return JSON.stringify(data)
       } catch {
         return text

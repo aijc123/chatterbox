@@ -14,6 +14,7 @@ import {
   autoBlendThreshold,
   autoBlendUseReplacements,
   autoBlendWindowSec,
+  lastAppliedPresetBaseline,
 } from './store'
 
 export function applyAutoBlendPreset(preset: AutoBlendPreset): void {
@@ -32,4 +33,6 @@ export function applyAutoBlendPreset(preset: AutoBlendPreset): void {
   autoBlendSendCount.value = p.sendCount
   autoBlendSendAllTrending.value = p.sendAllTrending
   autoBlendUseReplacements.value = p.useReplacements
+  // Remember which preset is the baseline for any subsequent drift to 'custom'.
+  lastAppliedPresetBaseline.value = preset
 }

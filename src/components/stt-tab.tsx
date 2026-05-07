@@ -448,6 +448,11 @@ export function SttTab() {
               </span>
             )
           })}
+        </div>
+        <div
+          className='cb-row'
+          style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.5em' }}
+        >
           <label htmlFor='sonioxMaxLength'>超过</label>
           <input
             id='sonioxMaxLength'

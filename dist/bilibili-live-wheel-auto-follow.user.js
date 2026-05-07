@@ -1,65 +1,71 @@
 // ==UserScript==
-// @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
-// @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.11.5
-// @author       aijc123
-// @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
-// @license      AGPL-3.0
-// @icon         https://www.bilibili.com/favicon.ico
-// @homepage     https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @homepageURL  https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @source       https://github.com/aijc123/bilibili-live-wheel-auto-follow.git
-// @supportURL   https://github.com/aijc123/bilibili-live-wheel-auto-follow/issues
-// @match        *://live.bilibili.com/*
-// @require      https://unpkg.com/@soniox/speech-to-text-web@1.4.0/dist/speech-to-text-web.umd.cjs
-// @require      data:application/javascript,%3Bwindow.SonioxSpeechToTextWeb%3Dwindow%5B%22speech-to-text-web%22%5D%3B
-// @require      https://cdn.jsdelivr.net/npm/systemjs@6.15.1/dist/system.min.js
-// @require      https://cdn.jsdelivr.net/npm/systemjs@6.15.1/dist/extras/named-register.min.js
-// @require      data:application/javascript,%3B(typeof%20System!%3D'undefined')%26%26(System%3Dnew%20System.constructor())%3B
-// @connect      bilibili-guard-room.vercel.app
-// @connect      localhost
-// @connect      sbhzm.cn
-// @connect      chatterbox-cloud.aijc-eric.workers.dev
-// @connect      live-meme-radar.aijc-eric.workers.dev
-// @connect      api.anthropic.com
-// @connect      api.openai.com
-// @connect      *
-// @grant        GM_addElement
-// @grant        GM_addStyle
-// @grant        GM_addValueChangeListener
-// @grant        GM_audio
-// @grant        GM_cookie
-// @grant        GM_deleteValue
-// @grant        GM_deleteValues
-// @grant        GM_download
-// @grant        GM_getResourceText
-// @grant        GM_getResourceURL
-// @grant        GM_getTab
-// @grant        GM_getTabs
-// @grant        GM_getValue
-// @grant        GM_getValues
-// @grant        GM_info
-// @grant        GM_listValues
-// @grant        GM_log
-// @grant        GM_notification
-// @grant        GM_openInTab
-// @grant        GM_registerMenuCommand
-// @grant        GM_removeValueChangeListener
-// @grant        GM_saveTab
-// @grant        GM_setClipboard
-// @grant        GM_setValue
-// @grant        GM_setValues
-// @grant        GM_unregisterMenuCommand
-// @grant        GM_webRequest
-// @grant        GM_xmlhttpRequest
-// @grant        unsafeWindow
-// @run-at       document-start
+// @name               B站独轮车直播间插件 + 自动跟车 / Bilibili Live Auto Follow
+// @name:zh-CN         B站独轮车直播间插件 + 自动跟车
+// @name:en            Bilibili Live Wheel Auto Follow
+// @namespace          https://github.com/aijc123/bilibili-live-wheel-auto-follow
+// @version            2.11.5
+// @author             aijc123
+// @description        B站独轮车直播间插件，给 B 站/哔哩哔哩直播间用的 Tampermonkey 弹幕助手：支持独轮车循环发送、自动跟车、弹幕自动发送、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
+// @description:zh-CN  B站独轮车直播间插件，给 B 站/哔哩哔哩直播间用的 Tampermonkey 弹幕助手：支持独轮车循环发送、自动跟车、弹幕自动发送、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
+// @description:en     Tampermonkey userscript for Bilibili live rooms: wheel-style repeated danmaku, auto follow, auto send, Chatterbox Chat, medal mute checks, translation, meme library, replacements, and AI rewrite helpers.
+// @license            AGPL-3.0
+// @icon               https://www.bilibili.com/favicon.ico
+// @homepage           https://aijc123.github.io/bilibili-live-wheel-auto-follow/
+// @homepageURL        https://aijc123.github.io/bilibili-live-wheel-auto-follow/
+// @website            https://aijc123.github.io/bilibili-live-wheel-auto-follow/
+// @source             https://github.com/aijc123/bilibili-live-wheel-auto-follow
+// @supportURL         https://github.com/aijc123/bilibili-live-wheel-auto-follow/issues
+// @match              *://live.bilibili.com/*
+// @match              *://space.bilibili.com/*
+// @require            https://unpkg.com/@soniox/speech-to-text-web@1.4.0/dist/speech-to-text-web.umd.cjs
+// @require            data:application/javascript,%3Bwindow.SonioxSpeechToTextWeb%3Dwindow%5B%22speech-to-text-web%22%5D%3B
+// @require            https://cdn.jsdelivr.net/npm/systemjs@6.15.1/dist/system.min.js
+// @require            https://cdn.jsdelivr.net/npm/systemjs@6.15.1/dist/extras/named-register.min.js
+// @require            data:application/javascript,%3B(typeof%20System!%3D'undefined')%26%26(System%3Dnew%20System.constructor())%3B
+// @connect            bilibili-guard-room.vercel.app
+// @connect            localhost
+// @connect            sbhzm.cn
+// @connect            chatterbox-cloud.aijc-eric.workers.dev
+// @connect            live-meme-radar.aijc-eric.workers.dev
+// @connect            api.anthropic.com
+// @connect            api.openai.com
+// @connect            *
+// @grant              GM_addElement
+// @grant              GM_addStyle
+// @grant              GM_addValueChangeListener
+// @grant              GM_audio
+// @grant              GM_cookie
+// @grant              GM_deleteValue
+// @grant              GM_deleteValues
+// @grant              GM_download
+// @grant              GM_getResourceText
+// @grant              GM_getResourceURL
+// @grant              GM_getTab
+// @grant              GM_getTabs
+// @grant              GM_getValue
+// @grant              GM_getValues
+// @grant              GM_info
+// @grant              GM_listValues
+// @grant              GM_log
+// @grant              GM_notification
+// @grant              GM_openInTab
+// @grant              GM_registerMenuCommand
+// @grant              GM_removeValueChangeListener
+// @grant              GM_saveTab
+// @grant              GM_setClipboard
+// @grant              GM_setValue
+// @grant              GM_setValues
+// @grant              GM_unregisterMenuCommand
+// @grant              GM_webRequest
+// @grant              GM_xmlhttpRequest
+// @grant              unsafeWindow
+// @run-at             document-start
 // ==/UserScript==
 
 System.addImportMap({ imports: {"@soniox/speech-to-text-web":"user:@soniox/speech-to-text-web"} });
 System.set("user:@soniox/speech-to-text-web", (()=>{const _=SonioxSpeechToTextWeb;('default' in _)||(_.default=_);return _})());
 
-System.register("./__entry.js", ['./__monkey.entry-DmtIo1ap.js'], (function (exports, module) {
+System.register("./__entry.js", ['./__monkey.entry-HOZFOtpD.js'], (function (exports, module) {
 	'use strict';
 	return {
 		setters: [null],
@@ -71,7 +77,7 @@ System.register("./__entry.js", ['./__monkey.entry-DmtIo1ap.js'], (function (exp
 	};
 }));
 
-System.register("./__monkey.entry-DmtIo1ap.js", ['@soniox/speech-to-text-web'], (function (exports, module) {
+System.register("./__monkey.entry-HOZFOtpD.js", ['@soniox/speech-to-text-web'], (function (exports, module) {
   'use strict';
   var SonioxClient;
   return {
@@ -339,105 +345,6 @@ System.register("./__monkey.entry-DmtIo1ap.js", ['@soniox/speech-to-text-web'], 
         if ("function" == typeof e2 && (a2 = e2.defaultProps)) for (c2 in a2) void 0 === p2[c2] && (p2[c2] = a2[c2]);
         return l$3.vnode && l$3.vnode(l2), l2;
       }
-      var _GM = (() => typeof GM != "undefined" ? GM : void 0)();
-      var _GM_addElement = (() => typeof GM_addElement != "undefined" ? GM_addElement : void 0)();
-      var _GM_addStyle = (() => typeof GM_addStyle != "undefined" ? GM_addStyle : void 0)();
-      var _GM_addValueChangeListener = (() => typeof GM_addValueChangeListener != "undefined" ? GM_addValueChangeListener : void 0)();
-      var _GM_cookie = (() => typeof GM_cookie != "undefined" ? GM_cookie : void 0)();
-      var _GM_deleteValue = (() => typeof GM_deleteValue != "undefined" ? GM_deleteValue : void 0)();
-      var _GM_deleteValues = (() => typeof GM_deleteValues != "undefined" ? GM_deleteValues : void 0)();
-      var _GM_download = (() => typeof GM_download != "undefined" ? GM_download : void 0)();
-      var _GM_getResourceText = (() => typeof GM_getResourceText != "undefined" ? GM_getResourceText : void 0)();
-      var _GM_getResourceURL = (() => typeof GM_getResourceURL != "undefined" ? GM_getResourceURL : void 0)();
-      var _GM_getTab = (() => typeof GM_getTab != "undefined" ? GM_getTab : void 0)();
-      var _GM_getTabs = (() => typeof GM_getTabs != "undefined" ? GM_getTabs : void 0)();
-      var _GM_getValue = (() => typeof GM_getValue != "undefined" ? GM_getValue : void 0)();
-      var _GM_getValues = (() => typeof GM_getValues != "undefined" ? GM_getValues : void 0)();
-      var _GM_info = (() => typeof GM_info != "undefined" ? GM_info : void 0)();
-      var _GM_listValues = (() => typeof GM_listValues != "undefined" ? GM_listValues : void 0)();
-      var _GM_log = (() => typeof GM_log != "undefined" ? GM_log : void 0)();
-      var _GM_notification = (() => typeof GM_notification != "undefined" ? GM_notification : void 0)();
-      var _GM_openInTab = (() => typeof GM_openInTab != "undefined" ? GM_openInTab : void 0)();
-      var _GM_registerMenuCommand = (() => typeof GM_registerMenuCommand != "undefined" ? GM_registerMenuCommand : void 0)();
-      var _GM_removeValueChangeListener = (() => typeof GM_removeValueChangeListener != "undefined" ? GM_removeValueChangeListener : void 0)();
-      var _GM_saveTab = (() => typeof GM_saveTab != "undefined" ? GM_saveTab : void 0)();
-      var _GM_setClipboard = (() => typeof GM_setClipboard != "undefined" ? GM_setClipboard : void 0)();
-      var _GM_setValue = (() => typeof GM_setValue != "undefined" ? GM_setValue : void 0)();
-      var _GM_setValues = (() => typeof GM_setValues != "undefined" ? GM_setValues : void 0)();
-      var _GM_unregisterMenuCommand = (() => typeof GM_unregisterMenuCommand != "undefined" ? GM_unregisterMenuCommand : void 0)();
-      var _GM_webRequest = (() => typeof GM_webRequest != "undefined" ? GM_webRequest : void 0)();
-      var _GM_xmlhttpRequest = (() => typeof GM_xmlhttpRequest != "undefined" ? GM_xmlhttpRequest : void 0)();
-      var _GM_audio = (() => typeof GM_audio != "undefined" ? GM_audio : void 0)();
-      var _unsafeWindow = (() => typeof unsafeWindow != "undefined" ? unsafeWindow : void 0)();
-      var _monkeyWindow = (() => window)();
-      const client = Object.freeze( Object.defineProperty({
-        __proto__: null,
-        GM: _GM,
-        GM_addElement: _GM_addElement,
-        GM_addStyle: _GM_addStyle,
-        GM_addValueChangeListener: _GM_addValueChangeListener,
-        GM_audio: _GM_audio,
-        GM_cookie: _GM_cookie,
-        GM_deleteValue: _GM_deleteValue,
-        GM_deleteValues: _GM_deleteValues,
-        GM_download: _GM_download,
-        GM_getResourceText: _GM_getResourceText,
-        GM_getResourceURL: _GM_getResourceURL,
-        GM_getTab: _GM_getTab,
-        GM_getTabs: _GM_getTabs,
-        GM_getValue: _GM_getValue,
-        GM_getValues: _GM_getValues,
-        GM_info: _GM_info,
-        GM_listValues: _GM_listValues,
-        GM_log: _GM_log,
-        GM_notification: _GM_notification,
-        GM_openInTab: _GM_openInTab,
-        GM_registerMenuCommand: _GM_registerMenuCommand,
-        GM_removeValueChangeListener: _GM_removeValueChangeListener,
-        GM_saveTab: _GM_saveTab,
-        GM_setClipboard: _GM_setClipboard,
-        GM_setValue: _GM_setValue,
-        GM_setValues: _GM_setValues,
-        GM_unregisterMenuCommand: _GM_unregisterMenuCommand,
-        GM_webRequest: _GM_webRequest,
-        GM_xmlhttpRequest: _GM_xmlhttpRequest,
-        monkeyWindow: _monkeyWindow,
-        unsafeWindow: _unsafeWindow
-      }, Symbol.toStringTag, { value: "Module" }));
-      const VERSION = _GM_info.script.version;
-      const BASE_URL = exports("B", {
-BILIBILI_ROOM_INIT: "https://api.live.bilibili.com/room/v1/Room/room_init",
-BILIBILI_ROOM_INIT_ALT: "https://api.live.bilibili.com/room/v1/Room/get_info",
-BILIBILI_ROOM_INFO_BY_UID: "https://api.live.bilibili.com/room/v1/Room/getRoomInfoOld",
-BILIBILI_MSG_SEND: "https://api.live.bilibili.com/msg/send",
-BILIBILI_MSG_CONFIG: "https://api.live.bilibili.com/xlive/web-room/v1/dM/AjaxSetConfig",
-BILIBILI_GET_DM_CONFIG: "https://api.live.bilibili.com/xlive/web-room/v1/dM/GetDMConfigByGroup",
-BILIBILI_DANMU_INFO: "https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo",
-BILIBILI_GET_EMOTICONS: "https://api.live.bilibili.com/xlive/web-ucenter/v2/emoticon/GetEmoticons",
-BILIBILI_MEDAL_WALL: "https://api.live.bilibili.com/xlive/web-ucenter/user/MedalWall",
-BILIBILI_FOLLOWINGS: "https://api.bilibili.com/x/relation/followings",
-BILIBILI_ROOM_USER_INFO: "https://api.live.bilibili.com/xlive/web-room/v1/index/getInfoByUser",
-BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/banned/GetSilentUserList",
-        LAPLACE_CHAT_AUDIT: "https://edge-workers.laplace.cn/laplace/chat-audit",
-        REMOTE_KEYWORDS: "https://workers.vrp.moe/gh-raw/laplace-live/public/master/artifacts/livesrtream-keywords.json",
-        LAPLACE_MEMES: "https://workers.vrp.moe/laplace/memes",
-        LAPLACE_MEME_COPY: "https://workers.vrp.moe/laplace/meme-copy",
-        BILIBILI_AVATAR: "https://workers.vrp.moe/bilibili/avatar",
-        BILIBILI_SUPERCHAT_ORDER: "https://workers.vrp.moe/bilibili/live-create-order",
-SBHZM_MEMES: "https://sbhzm.cn/api/public/memes",
-SBHZM_MEMES_RANDOM: "https://sbhzm.cn/api/public/memes/random",
-SBHZM_TAGS: "https://sbhzm.cn/api/public/tags",
-SBHZM_SUBMIT_MEME: "https://sbhzm.cn/api/admin/memes",
-SBHZM_SUBMIT_PAGE: "https://sbhzm.cn/submit",
-CB_BACKEND: "https://chatterbox-cloud.aijc-eric.workers.dev",
-RADAR_BACKEND: "https://live-meme-radar.aijc-eric.workers.dev",
-ANTHROPIC_MESSAGES: "https://api.anthropic.com/v1/messages",
-OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
-      });
-      const CHATTERBOX_SEND_PARAM = "cb_send";
-      const CHATTERBOX_SEND_VALUE = "1";
-      const CHATTERBOX_SEND_MARKER = `${CHATTERBOX_SEND_PARAM}=${CHATTERBOX_SEND_VALUE}`;
-      const ISSUES_URL = "https://github.com/aijc123/bilibili-live-wheel-auto-follow/issues";
       var t$1, r$1, u$1, i$1, o$1 = 0, f = [], c$1 = l$3, e$1 = c$1.__b, a$1 = c$1.__r, v$1 = c$1.diffed, l$2 = c$1.__c, m$1 = c$1.unmount, s$1 = c$1.__;
       function p$2(n2, t2) {
         c$1.__h && c$1.__h(r$1, n2, o$1 || t2), o$1 = 0;
@@ -1137,6 +1044,156 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
       function F() {
         if (1 === _.push(this)) (l$3.requestAnimationFrame || q$1)(x);
       }
+      var _GM = (() => typeof GM != "undefined" ? GM : void 0)();
+      var _GM_addElement = (() => typeof GM_addElement != "undefined" ? GM_addElement : void 0)();
+      var _GM_addStyle = (() => typeof GM_addStyle != "undefined" ? GM_addStyle : void 0)();
+      var _GM_addValueChangeListener = (() => typeof GM_addValueChangeListener != "undefined" ? GM_addValueChangeListener : void 0)();
+      var _GM_cookie = (() => typeof GM_cookie != "undefined" ? GM_cookie : void 0)();
+      var _GM_deleteValue = (() => typeof GM_deleteValue != "undefined" ? GM_deleteValue : void 0)();
+      var _GM_deleteValues = (() => typeof GM_deleteValues != "undefined" ? GM_deleteValues : void 0)();
+      var _GM_download = (() => typeof GM_download != "undefined" ? GM_download : void 0)();
+      var _GM_getResourceText = (() => typeof GM_getResourceText != "undefined" ? GM_getResourceText : void 0)();
+      var _GM_getResourceURL = (() => typeof GM_getResourceURL != "undefined" ? GM_getResourceURL : void 0)();
+      var _GM_getTab = (() => typeof GM_getTab != "undefined" ? GM_getTab : void 0)();
+      var _GM_getTabs = (() => typeof GM_getTabs != "undefined" ? GM_getTabs : void 0)();
+      var _GM_getValue = (() => typeof GM_getValue != "undefined" ? GM_getValue : void 0)();
+      var _GM_getValues = (() => typeof GM_getValues != "undefined" ? GM_getValues : void 0)();
+      var _GM_info = (() => typeof GM_info != "undefined" ? GM_info : void 0)();
+      var _GM_listValues = (() => typeof GM_listValues != "undefined" ? GM_listValues : void 0)();
+      var _GM_log = (() => typeof GM_log != "undefined" ? GM_log : void 0)();
+      var _GM_notification = (() => typeof GM_notification != "undefined" ? GM_notification : void 0)();
+      var _GM_openInTab = (() => typeof GM_openInTab != "undefined" ? GM_openInTab : void 0)();
+      var _GM_registerMenuCommand = (() => typeof GM_registerMenuCommand != "undefined" ? GM_registerMenuCommand : void 0)();
+      var _GM_removeValueChangeListener = (() => typeof GM_removeValueChangeListener != "undefined" ? GM_removeValueChangeListener : void 0)();
+      var _GM_saveTab = (() => typeof GM_saveTab != "undefined" ? GM_saveTab : void 0)();
+      var _GM_setClipboard = (() => typeof GM_setClipboard != "undefined" ? GM_setClipboard : void 0)();
+      var _GM_setValue = (() => typeof GM_setValue != "undefined" ? GM_setValue : void 0)();
+      var _GM_setValues = (() => typeof GM_setValues != "undefined" ? GM_setValues : void 0)();
+      var _GM_unregisterMenuCommand = (() => typeof GM_unregisterMenuCommand != "undefined" ? GM_unregisterMenuCommand : void 0)();
+      var _GM_webRequest = (() => typeof GM_webRequest != "undefined" ? GM_webRequest : void 0)();
+      var _GM_xmlhttpRequest = (() => typeof GM_xmlhttpRequest != "undefined" ? GM_xmlhttpRequest : void 0)();
+      var _GM_audio = (() => typeof GM_audio != "undefined" ? GM_audio : void 0)();
+      var _unsafeWindow = (() => typeof unsafeWindow != "undefined" ? unsafeWindow : void 0)();
+      var _monkeyWindow = (() => window)();
+      const client = Object.freeze( Object.defineProperty({
+        __proto__: null,
+        GM: _GM,
+        GM_addElement: _GM_addElement,
+        GM_addStyle: _GM_addStyle,
+        GM_addValueChangeListener: _GM_addValueChangeListener,
+        GM_audio: _GM_audio,
+        GM_cookie: _GM_cookie,
+        GM_deleteValue: _GM_deleteValue,
+        GM_deleteValues: _GM_deleteValues,
+        GM_download: _GM_download,
+        GM_getResourceText: _GM_getResourceText,
+        GM_getResourceURL: _GM_getResourceURL,
+        GM_getTab: _GM_getTab,
+        GM_getTabs: _GM_getTabs,
+        GM_getValue: _GM_getValue,
+        GM_getValues: _GM_getValues,
+        GM_info: _GM_info,
+        GM_listValues: _GM_listValues,
+        GM_log: _GM_log,
+        GM_notification: _GM_notification,
+        GM_openInTab: _GM_openInTab,
+        GM_registerMenuCommand: _GM_registerMenuCommand,
+        GM_removeValueChangeListener: _GM_removeValueChangeListener,
+        GM_saveTab: _GM_saveTab,
+        GM_setClipboard: _GM_setClipboard,
+        GM_setValue: _GM_setValue,
+        GM_setValues: _GM_setValues,
+        GM_unregisterMenuCommand: _GM_unregisterMenuCommand,
+        GM_webRequest: _GM_webRequest,
+        GM_xmlhttpRequest: _GM_xmlhttpRequest,
+        monkeyWindow: _monkeyWindow,
+        unsafeWindow: _unsafeWindow
+      }, Symbol.toStringTag, { value: "Module" }));
+      const VERSION = _GM_info.script.version;
+      const BASE_URL = exports("B", {
+BILIBILI_ROOM_INIT: "https://api.live.bilibili.com/room/v1/Room/room_init",
+BILIBILI_ROOM_INIT_ALT: "https://api.live.bilibili.com/room/v1/Room/get_info",
+BILIBILI_ROOM_INFO_BY_UID: "https://api.live.bilibili.com/room/v1/Room/getRoomInfoOld",
+BILIBILI_MSG_SEND: "https://api.live.bilibili.com/msg/send",
+BILIBILI_MSG_CONFIG: "https://api.live.bilibili.com/xlive/web-room/v1/dM/AjaxSetConfig",
+BILIBILI_GET_DM_CONFIG: "https://api.live.bilibili.com/xlive/web-room/v1/dM/GetDMConfigByGroup",
+BILIBILI_DANMU_INFO: "https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo",
+BILIBILI_GET_EMOTICONS: "https://api.live.bilibili.com/xlive/web-ucenter/v2/emoticon/GetEmoticons",
+BILIBILI_MEDAL_WALL: "https://api.live.bilibili.com/xlive/web-ucenter/user/MedalWall",
+BILIBILI_FOLLOWINGS: "https://api.bilibili.com/x/relation/followings",
+BILIBILI_ROOM_USER_INFO: "https://api.live.bilibili.com/xlive/web-room/v1/index/getInfoByUser",
+BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/banned/GetSilentUserList",
+        LAPLACE_CHAT_AUDIT: "https://edge-workers.laplace.cn/laplace/chat-audit",
+        REMOTE_KEYWORDS: "https://workers.vrp.moe/gh-raw/laplace-live/public/master/artifacts/livesrtream-keywords.json",
+        LAPLACE_MEMES: "https://workers.vrp.moe/laplace/memes",
+        LAPLACE_MEME_COPY: "https://workers.vrp.moe/laplace/meme-copy",
+        BILIBILI_AVATAR: "https://workers.vrp.moe/bilibili/avatar",
+        BILIBILI_SUPERCHAT_ORDER: "https://workers.vrp.moe/bilibili/live-create-order",
+SBHZM_MEMES: "https://sbhzm.cn/api/public/memes",
+SBHZM_MEMES_RANDOM: "https://sbhzm.cn/api/public/memes/random",
+SBHZM_TAGS: "https://sbhzm.cn/api/public/tags",
+SBHZM_SUBMIT_MEME: "https://sbhzm.cn/api/admin/memes",
+SBHZM_SUBMIT_PAGE: "https://sbhzm.cn/submit",
+CB_BACKEND: "https://chatterbox-cloud.aijc-eric.workers.dev",
+RADAR_BACKEND: "https://live-meme-radar.aijc-eric.workers.dev",
+ANTHROPIC_MESSAGES: "https://api.anthropic.com/v1/messages",
+OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
+      });
+      const CHATTERBOX_SEND_PARAM = "cb_send";
+      const CHATTERBOX_SEND_VALUE = "1";
+      const CHATTERBOX_SEND_MARKER = `${CHATTERBOX_SEND_PARAM}=${CHATTERBOX_SEND_VALUE}`;
+      const ISSUES_URL = "https://github.com/aijc123/bilibili-live-wheel-auto-follow/issues";
+      const GET_INFO_BY_USER_PATTERN = "/xlive/web-room/v1/index/getInfoByUser";
+      const ACC_RELATION_PATTERN = "/x/space/wbi/acc/relation";
+      const SPACE_BLOCK_BANNER_ID = "chatterbox-space-block-banner";
+      const NULL_RESULT = { kind: null };
+      function shouldHijackUrl(url, opts) {
+        if (!url) return false;
+        return opts.unlockForbidLive && url.includes(GET_INFO_BY_USER_PATTERN) || opts.unlockSpaceBlock && url.includes(ACC_RELATION_PATTERN);
+      }
+      function applyTransforms(url, data, opts) {
+        if (!url || data === null || typeof data !== "object") return NULL_RESULT;
+        if (opts.unlockForbidLive && url.includes(GET_INFO_BY_USER_PATTERN)) {
+          const forbid = data?.data?.forbid_live;
+          if (!forbid) return { kind: "live", wasBlocking: false };
+          const wasBlocking = !!forbid.is_forbid;
+          forbid.is_forbid = false;
+          forbid.forbid_text = "";
+          return { kind: "live", wasBlocking };
+        }
+        if (opts.unlockSpaceBlock && url.includes(ACC_RELATION_PATTERN)) {
+          const beRel = data?.data?.be_relation;
+          if (!beRel || typeof beRel !== "object") return { kind: "space", wasBlocking: false };
+          if (beRel.attribute === 128) {
+            beRel.attribute = 0;
+            return { kind: "space", wasBlocking: true };
+          }
+          return { kind: "space", wasBlocking: false };
+        }
+        return NULL_RESULT;
+      }
+      function injectSpaceBlockBanner(header) {
+        const existing = document.getElementById(SPACE_BLOCK_BANNER_ID);
+        if (existing) return existing;
+        const el = document.createElement("div");
+        el.id = SPACE_BLOCK_BANNER_ID;
+        el.textContent = "🔓 Chatterbox 弹幕助手已解除该用户的部分拉黑限制";
+        el.style.cssText = [
+          "background: rgb(228 243 240)",
+          "color: rgb(0 82 63)",
+          "padding: 8px 16px",
+          "font-size: 12px",
+          "text-align: center",
+          "box-sizing: border-box",
+          "width: 100%",
+          "line-height: 1"
+        ].join(";");
+        header.insertAdjacentElement("afterend", el);
+        return el;
+      }
+      function removeSpaceBlockBanner() {
+        document.getElementById(SPACE_BLOCK_BANNER_ID)?.remove();
+      }
       const registry = new Map();
       const validators = new Map();
       const pendingWrites = new Map();
@@ -1718,6 +1775,54 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
       const sendMsg = y$1(false);
       const availableDanmakuColors = y$1(null);
       const fasongText = y$1("");
+      const AUTO_BLEND_PRESETS = {
+        safe: {
+          label: "稳一点",
+          hint: "少跟，适合挂机",
+          windowSec: 25,
+          threshold: 5,
+          cooldownSec: 45,
+          routineIntervalSec: 75,
+          minDistinctUsers: 3,
+          burstSettleMs: 1800,
+          rateLimitWindowMin: 10,
+          rateLimitStopThreshold: 3
+        },
+        normal: {
+          label: "正常",
+          hint: "推荐，比较克制",
+          windowSec: 20,
+          threshold: 4,
+          cooldownSec: 35,
+          routineIntervalSec: 60,
+          minDistinctUsers: 3,
+          burstSettleMs: 1500,
+          rateLimitWindowMin: 10,
+          rateLimitStopThreshold: 3
+        },
+        hot: {
+          label: "热闹",
+          hint: "跟得更快，但会自动刹车",
+          windowSec: 15,
+          threshold: 3,
+          cooldownSec: 20,
+          routineIntervalSec: 40,
+          minDistinctUsers: 2,
+          burstSettleMs: 1200,
+          rateLimitWindowMin: 10,
+          rateLimitStopThreshold: 2
+        }
+      };
+      function getAutoBlendPresetValues(preset) {
+        return {
+          ...AUTO_BLEND_PRESETS[preset],
+          includeReply: false,
+          requireDistinctUsers: true,
+          sendCount: 1,
+          sendAllTrending: false,
+          useReplacements: true
+        };
+      }
       const autoBlendWindowSec = numericGmSignal("autoBlendWindowSec", 20, { min: 1, max: 600 });
       const autoBlendThreshold = numericGmSignal("autoBlendThreshold", 4, { min: 1, max: 100, integer: true });
       const autoBlendCooldownSec = numericGmSignal("autoBlendCooldownSec", 35, { min: 1, max: 3600 });
@@ -1731,6 +1836,7 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
         integer: true
       });
       const autoBlendPreset = gmSignal("autoBlendPreset", "normal");
+      const lastAppliedPresetBaseline = gmSignal("lastAppliedPresetBaseline", "normal");
       const autoBlendAdvancedOpen = gmSignal("autoBlendAdvancedOpen", false);
       const autoBlendDryRunMigrationKey = "autoBlendDryRunVisibleDefaultMigrated";
       if (!_GM_getValue(autoBlendDryRunMigrationKey, false)) {
@@ -1756,6 +1862,24 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
       const autoBlendStatusText = y$1("已关闭");
       const autoBlendCandidateText = y$1("暂无");
       const autoBlendLastActionText = y$1("暂无");
+      const autoBlendCandidateProgress = y$1(null);
+      const autoBlendDriftFromPreset = g$2(() => {
+        const preset = autoBlendPreset.value;
+        if (preset !== "custom") return { baselinePreset: preset, driftPercent: 0 };
+        const baseline = AUTO_BLEND_PRESETS[lastAppliedPresetBaseline.value];
+        const offsets = [
+          [(autoBlendWindowSec.value - baseline.windowSec) / baseline.windowSec, 1],
+          [(baseline.threshold - autoBlendThreshold.value) / baseline.threshold, 2],
+          [(baseline.cooldownSec - autoBlendCooldownSec.value) / baseline.cooldownSec, 2],
+          [(baseline.minDistinctUsers - autoBlendMinDistinctUsers.value) / baseline.minDistinctUsers, 1]
+        ];
+        const totalWeight = offsets.reduce((s2, [, w2]) => s2 + w2, 0);
+        const weighted = offsets.reduce((s2, [v2, w2]) => s2 + v2 * w2, 0) / totalWeight;
+        return {
+          baselinePreset: lastAppliedPresetBaseline.value,
+          driftPercent: Math.round(weighted * 100)
+        };
+      });
       const CUSTOM_CHAT_CSS_MAX_LENGTH = 256 * 1024;
       const IMPORT_RE = /@import[^;]*;?/gi;
       const URL_SCHEME_RE = /url\(\s*(["']?)\s*(javascript:|vbscript:|data:text\/html|data:application\/javascript|data:text\/javascript)[^)]*\)/gi;
@@ -2007,6 +2131,7 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
       const memesPanelOpen = gmSignal("memesPanelOpen", false);
       const dialogOpen = gmSignal("dialogOpen", false);
       const unlockForbidLive = gmSignal("unlockForbidLive", true);
+      const unlockSpaceBlock = gmSignal("unlockSpaceBlock", true);
       const hasSeenWelcome = gmSignal("hasSeenWelcome", false);
       const hasConfirmedAutoBlendRealFire = gmSignal("hasConfirmedAutoBlendRealFire", false);
       const lastSeenVersion = gmSignal("lastSeenVersion", "");
@@ -6308,16 +6433,48 @@ candidates: input.candidates ?? prev.candidates
         }
         return source;
       }
-      const GET_INFO_BY_USER_PATTERN = "/xlive/web-room/v1/index/getInfoByUser";
-      function shouldHijackUrl(url) {
-        return unlockForbidLive.value && url.includes(GET_INFO_BY_USER_PATTERN);
+      function currentOpts() {
+        return {
+          unlockForbidLive: unlockForbidLive.value,
+          unlockSpaceBlock: unlockSpaceBlock.value
+        };
       }
-      function applyTransforms(url, data) {
-        if (!shouldHijackUrl(url)) return;
-        const forbid = data?.data?.forbid_live;
-        if (!forbid) return;
-        forbid.is_forbid = false;
-        forbid.forbid_text = "";
+      let spaceBlockObserver = null;
+      function disconnectSpaceBlockObserver() {
+        spaceBlockObserver?.disconnect();
+        spaceBlockObserver = null;
+      }
+      function clearSpaceBlockBanner() {
+        disconnectSpaceBlockObserver();
+        removeSpaceBlockBanner();
+      }
+      function ensureSpaceBlockBanner() {
+        const headerSelector = ".header.space-header";
+        const header = document.querySelector(headerSelector);
+        if (header) {
+          injectSpaceBlockBanner(header);
+          return;
+        }
+        disconnectSpaceBlockObserver();
+        spaceBlockObserver = new MutationObserver(() => {
+          if (!unlockSpaceBlock.value) {
+            disconnectSpaceBlockObserver();
+            return;
+          }
+          const h2 = document.querySelector(headerSelector);
+          if (!h2) return;
+          disconnectSpaceBlockObserver();
+          injectSpaceBlockBanner(h2);
+        });
+        spaceBlockObserver.observe(document.documentElement, { childList: true, subtree: true });
+      }
+      j$1(() => {
+        if (!unlockSpaceBlock.value) clearSpaceBlockBanner();
+      });
+      function handleTransformResult(result) {
+        if (result.kind !== "space") return;
+        clearSpaceBlockBanner();
+        if (result.wasBlocking) ensureSpaceBlockBanner();
       }
       (() => {
         try {
@@ -6328,9 +6485,10 @@ candidates: input.candidates ?? prev.candidates
           ResponseProto.json = async function() {
             const data = await origJson.call(this);
             const url = this.url;
-            if (!url || !shouldHijackUrl(url) || !data || typeof data !== "object") return data;
+            const opts = currentOpts();
+            if (!url || !shouldHijackUrl(url, opts) || !data || typeof data !== "object") return data;
             try {
-              applyTransforms(url, data);
+              handleTransformResult(applyTransforms(url, data, opts));
             } catch (err) {
               console.error("[Chatterbox] fetch-hijack json transform failed:", err);
             }
@@ -6340,10 +6498,11 @@ candidates: input.candidates ?? prev.candidates
           ResponseProto.text = async function() {
             const text = await origText.call(this);
             const url = this.url;
-            if (!url || !shouldHijackUrl(url)) return text;
+            const opts = currentOpts();
+            if (!url || !shouldHijackUrl(url, opts)) return text;
             try {
               const data = JSON.parse(text);
-              applyTransforms(url, data);
+              handleTransformResult(applyTransforms(url, data, opts));
               return JSON.stringify(data);
             } catch {
               return text;
@@ -7828,6 +7987,38 @@ _clearForTests() {
         if (!best) return "暂无";
         return `${shortAutoBlendText(best.text)}（${formatAutoBlendSenderInfo(best.uniqueUsers, best.totalCount)}）`;
       }
+      function formatAutoBlendCandidateProgress(candidates, threshold, requireDistinctUsers, minUsers) {
+        let best = null;
+        for (const candidate of candidates) {
+          if (candidate.totalCount < 2) continue;
+          if (!best || candidate.totalCount > best.totalCount) best = candidate;
+        }
+        if (!best) {
+          return {
+            text: null,
+            shortText: null,
+            totalCount: 0,
+            threshold,
+            uniqueUsers: 0,
+            minUsers,
+            requireDistinctUsers,
+            fillRatio: 0
+          };
+        }
+        const countRatio = threshold > 0 ? Math.min(1, best.totalCount / threshold) : 0;
+        const userRatio = requireDistinctUsers && minUsers > 0 ? Math.min(1, best.uniqueUsers / minUsers) : 1;
+        const fillRatio = Math.min(countRatio, userRatio);
+        return {
+          text: best.text,
+          shortText: shortAutoBlendText(best.text),
+          totalCount: best.totalCount,
+          threshold,
+          uniqueUsers: best.uniqueUsers,
+          minUsers,
+          requireDistinctUsers,
+          fillRatio
+        };
+      }
       function detectTrend(events, windowMs, threshold) {
         const now = events.reduce((latest, event) => Math.max(latest, event.ts), 0);
         const windowStart = now - Math.max(0, windowMs);
@@ -8065,7 +8256,9 @@ _clearForTests() {
             errorCode: result.errorCode,
             reason: result.error
           });
-          stopAutoBlendAfterModeration(`🔴 自动跟车：检测到你在本房间被禁言，已自动关闭。禁言时长：${duration}。`);
+          stopAutoBlendAfterModeration(
+            `🔴 自动跟车：检测到你在本房间被禁言，已自动关闭。禁言时长：${duration}。建议等到禁言解除后再开。`
+          );
           return true;
         }
         if (codeKind === "account" || codeKind === null && isAccountRestrictedError(error)) {
@@ -8077,7 +8270,9 @@ _clearForTests() {
             errorCode: result.errorCode,
             reason: result.error
           });
-          stopAutoBlendAfterModeration(`🔴 自动跟车：检测到账号级限制/风控，已自动关闭。限制时长：${duration}。`);
+          stopAutoBlendAfterModeration(
+            `🔴 自动跟车：检测到账号级限制/风控，已自动关闭。限制时长：${duration}。建议先停用一段时间，或换账号再开。`
+          );
           return true;
         }
         const isRateLimit = codeKind === "rate-limit" || codeKind === null && isRateLimitError(error);
@@ -8109,7 +8304,7 @@ _clearForTests() {
             advice: `${windowLabel}多次触发频率限制，自动跟车已经停车，建议休息一阵再开。`
           });
           stopAutoBlendAfterModeration(
-            `⚠️ 自动跟车：${windowLabel}多次触发发送频率限制，已自动关闭，避免继续被系统/房管盯上。`
+            `⚠️ 自动跟车：${windowLabel}多次触发发送频率限制，已自动关闭，避免继续被系统/房管盯上。建议歇一阵子再开，或切到「稳一点」档减少触发频率。`
           );
           return true;
         }
@@ -8135,12 +8330,17 @@ _clearForTests() {
         return s2.size;
       }
       function updateCandidateText() {
-        autoBlendCandidateText.value = formatAutoBlendCandidate(
-          Array.from(trendMap, ([text, entry]) => ({
-            text,
-            totalCount: entry.events.length,
-            uniqueUsers: countUniqueUids(entry.events)
-          }))
+        const candidates = Array.from(trendMap, ([text, entry]) => ({
+          text,
+          totalCount: entry.events.length,
+          uniqueUsers: countUniqueUids(entry.events)
+        }));
+        autoBlendCandidateText.value = formatAutoBlendCandidate(candidates);
+        autoBlendCandidateProgress.value = formatAutoBlendCandidateProgress(
+          candidates,
+          autoBlendThreshold.value,
+          autoBlendRequireDistinctUsers.value,
+          autoBlendMinDistinctUsers.value
         );
       }
       function updateStatusText() {
@@ -8165,8 +8365,8 @@ _clearForTests() {
         nextTrendPruneAt = next;
         updateCandidateText();
       }
-      function getAutoBlendRepeatGapMs() {
-        return Math.max(autoBlendCooldownSec.value * 1e3, msgSendInterval.value * 1e3, 1010);
+      function getAutoBlendRepeatGapMs(now) {
+        return Math.max(getEffectiveCooldownMs(now), msgSendInterval.value * 1e3, 1010);
       }
       function getAutoBlendBurstGapMs() {
         return Math.max(msgSendInterval.value * 1e3, 1010);
@@ -8431,7 +8631,7 @@ _clearForTests() {
               }
               updateStatusText();
               if (i2 < repeatCount - 1) {
-                const interval = getAutoBlendRepeatGapMs();
+                const interval = getAutoBlendRepeatGapMs(Date.now());
                 const offset = randomInterval.value ? Math.floor(Math.random() * 500) : 0;
                 await new Promise((r2) => setTimeout(r2, interval + offset));
               }
@@ -8460,6 +8660,7 @@ _clearForTests() {
         lastPruneWindowMs = 0;
         autoBlendStatusText.value = "观察中";
         autoBlendCandidateText.value = "暂无";
+        autoBlendCandidateProgress.value = null;
         autoBlendLastActionText.value = "暂无";
         unsubscribe$3 = subscribeDanmaku({
           onMessage: (ev) => recordDanmaku(ev.text, ev.uid, ev.isReply)
@@ -8518,6 +8719,7 @@ _clearForTests() {
         messageTimestamps.length = 0;
         autoBlendStatusText.value = "已关闭";
         autoBlendCandidateText.value = "暂无";
+        autoBlendCandidateProgress.value = null;
         autoBlendLastActionText.value = moderationStopReason ?? "暂无";
         moderationStopReason = null;
       }
@@ -12709,54 +12911,6 @@ html.lc-dm-direct-always .${MARKER} {
           el.remove();
         }
       }
-      const AUTO_BLEND_PRESETS = {
-        safe: {
-          label: "稳一点",
-          hint: "少跟，适合挂机",
-          windowSec: 25,
-          threshold: 5,
-          cooldownSec: 45,
-          routineIntervalSec: 75,
-          minDistinctUsers: 3,
-          burstSettleMs: 1800,
-          rateLimitWindowMin: 10,
-          rateLimitStopThreshold: 3
-        },
-        normal: {
-          label: "正常",
-          hint: "推荐，比较克制",
-          windowSec: 20,
-          threshold: 4,
-          cooldownSec: 35,
-          routineIntervalSec: 60,
-          minDistinctUsers: 3,
-          burstSettleMs: 1500,
-          rateLimitWindowMin: 10,
-          rateLimitStopThreshold: 3
-        },
-        hot: {
-          label: "热闹",
-          hint: "跟得更快，但会自动刹车",
-          windowSec: 15,
-          threshold: 3,
-          cooldownSec: 20,
-          routineIntervalSec: 40,
-          minDistinctUsers: 2,
-          burstSettleMs: 1200,
-          rateLimitWindowMin: 10,
-          rateLimitStopThreshold: 2
-        }
-      };
-      function getAutoBlendPresetValues(preset) {
-        return {
-          ...AUTO_BLEND_PRESETS[preset],
-          includeReply: false,
-          requireDistinctUsers: true,
-          sendCount: 1,
-          sendAllTrending: false,
-          useReplacements: true
-        };
-      }
       function applyAutoBlendPreset(preset) {
         const p2 = getAutoBlendPresetValues(preset);
         autoBlendPreset.value = preset;
@@ -12773,6 +12927,7 @@ html.lc-dm-direct-always .${MARKER} {
         autoBlendSendCount.value = p2.sendCount;
         autoBlendSendAllTrending.value = p2.sendAllTrending;
         autoBlendUseReplacements.value = p2.useReplacements;
+        lastAppliedPresetBaseline.value = preset;
       }
       const MIN_SYNC_INTERVAL_MS = 3e4;
       const FOLLOWING_PAGE_LIMIT = 4;
@@ -13700,10 +13855,89 @@ u$2("button", { type: "button", onClick: handleAdd, style: { whiteSpace: "nowrap
           ] })
         ] });
       }
+      function CandidateProgressRow() {
+        const progress = autoBlendCandidateProgress.value;
+        const labelStyle = { wordBreak: "break-all", overflowWrap: "anywhere" };
+        if (!progress?.text) {
+          return u$2("div", { style: { display: "grid", gridTemplateColumns: "4.5em 1fr", gap: ".25em" }, children: [
+u$2("strong", { children: "正在刷" }),
+u$2("span", { style: labelStyle, children: "暂无" })
+          ] });
+        }
+        const fill = Math.max(0, Math.min(1, progress.fillRatio));
+        const hue = Math.round(30 * (1 - fill));
+        const sat = fill < 0.4 ? 25 : 60;
+        const barFg = `hsl(${hue}, ${sat}%, 50%)`;
+        const barBg = "rgba(0,0,0,.08)";
+        const usersFragment = progress.requireDistinctUsers ? ` · ${progress.uniqueUsers}/${progress.minUsers} 人` : "";
+        return u$2("div", { style: { display: "grid", gridTemplateColumns: "4.5em 1fr", gap: ".25em" }, children: [
+u$2("strong", { children: "正在刷" }),
+u$2("span", { style: labelStyle, children: [
+u$2("span", { children: progress.shortText }),
+u$2("span", { className: "cb-soft", style: { marginLeft: ".4em", fontSize: "11px" }, children: [
+              progress.totalCount,
+              "/",
+              progress.threshold,
+              " 条",
+              usersFragment
+            ] }),
+u$2(
+              "span",
+              {
+                "aria-hidden": "true",
+                style: {
+                  display: "inline-block",
+                  verticalAlign: "middle",
+                  marginLeft: ".4em",
+                  width: "60px",
+                  height: "6px",
+                  background: barBg,
+                  borderRadius: "3px",
+                  overflow: "hidden"
+                },
+                children: u$2(
+                  "span",
+                  {
+                    style: {
+                      display: "block",
+                      width: `${Math.round(fill * 100)}%`,
+                      height: "100%",
+                      background: barFg,
+                      transition: "width 200ms ease, background 200ms ease"
+                    }
+                  }
+                )
+              }
+            )
+          ] })
+        ] });
+      }
+      function useTick(intervalMs) {
+        const tick2 = useSignal(0);
+        y$2(() => {
+          const id = setInterval(() => {
+            tick2.value++;
+          }, intervalMs);
+          return () => clearInterval(id);
+        }, [intervalMs]);
+        return tick2.value;
+      }
+      function LiveCooldownReadout() {
+        useTick(2e3);
+        if (!autoBlendCooldownAuto.value) return null;
+        const text = autoBlendEnabled.value ? (() => {
+          const now = Date.now();
+          const cpm = getCurrentCpm(now);
+          const sec = computeAutoCooldownSec(cpm);
+          return `自动调节中（约 ${sec} 秒，CPM=${cpm}）`;
+        })() : "启动后按弹幕速率自动调节";
+        return u$2("span", { className: "cb-soft", style: { flexBasis: "100%", fontSize: "11px", marginTop: "-.15em" }, children: text });
+      }
       function AutoBlendControls() {
         const isOn = autoBlendEnabled.value;
         const currentPreset = autoBlendPreset.value;
-        const presetHint = currentPreset === "safe" || currentPreset === "normal" || currentPreset === "hot" ? AUTO_BLEND_PRESETS[currentPreset].hint : "自定义参数";
+        const drift = autoBlendDriftFromPreset.value;
+        const presetHint = currentPreset === "safe" || currentPreset === "normal" || currentPreset === "hot" ? AUTO_BLEND_PRESETS[currentPreset].hint : drift.baselinePreset ? `自定义（基于「${AUTO_BLEND_PRESETS[drift.baselinePreset].label}」档 ${drift.driftPercent >= 0 ? "+" : ""}${drift.driftPercent}% 激进）` : "自定义参数";
         const statusColor = !isOn ? "#777" : autoBlendStatusText.value.includes("冷却") ? "#a15c00" : autoBlendStatusText.value.includes("跟车") ? "#1677ff" : "#0a7f55";
         const toggleEnabled = () => {
           const decision = decideAutoBlendToggle(
@@ -13780,10 +14014,33 @@ u$2(
                       }
                     )
                   ] }),
-u$2("div", { className: "cb-note", style: { marginTop: ".25em" }, children: [
-                    "当前：",
-                    presetHint
-                  ] })
+u$2(
+                    "div",
+                    {
+                      className: "cb-note",
+                      style: { marginTop: ".25em", display: "flex", alignItems: "center", flexWrap: "wrap", gap: ".4em" },
+                      children: [
+u$2("span", { children: [
+                          "当前：",
+                          presetHint
+                        ] }),
+                        currentPreset === "custom" && drift.baselinePreset && u$2(
+                          "button",
+                          {
+                            type: "button",
+                            onClick: () => applyAutoBlendPreset(drift.baselinePreset),
+                            style: { minHeight: "unset", padding: "1px 6px", fontSize: "11px" },
+                            title: `一键回到「${AUTO_BLEND_PRESETS[drift.baselinePreset].label}」档（丢弃当前自定义数值）`,
+                            children: [
+                              "↺ 回到「",
+                              AUTO_BLEND_PRESETS[drift.baselinePreset].label,
+                              "」"
+                            ]
+                          }
+                        )
+                      ]
+                    }
+                  )
                 ] }),
 u$2(
                   "div",
@@ -13794,10 +14051,7 @@ u$2(
                       lineHeight: 1.6
                     },
                     children: [
-u$2("div", { style: { display: "grid", gridTemplateColumns: "4.5em 1fr", gap: ".25em" }, children: [
-u$2("strong", { children: "正在刷" }),
-u$2("span", { style: { wordBreak: "break-all", overflowWrap: "anywhere" }, children: autoBlendCandidateText.value })
-                      ] }),
+u$2(CandidateProgressRow, {}),
 u$2("div", { style: { display: "grid", gridTemplateColumns: "4.5em 1fr", gap: ".25em" }, children: [
 u$2("strong", { children: "刚刚" }),
 u$2("span", { style: { wordBreak: "break-all", overflowWrap: "anywhere" }, children: autoBlendLastActionText.value })
@@ -13827,7 +14081,7 @@ u$2(
                         },
                         children: [
 u$2("div", { style: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: ".25em" }, children: [
-u$2("span", { children: "多少算跟：" }),
+u$2("span", { children: "触发条件：" }),
 u$2(
                               NumberInput,
                               {
@@ -13839,7 +14093,7 @@ u$2(
                                 }
                               }
                             ),
-u$2("span", { children: "秒内" }),
+u$2("span", { children: "秒内刷出" }),
 u$2(
                               NumberInput,
                               {
@@ -13851,9 +14105,51 @@ u$2(
                                 }
                               }
                             ),
-u$2("span", { children: "条" })
+u$2("span", { children: "条相同弹幕" })
                           ] }),
-u$2(SettingHint, { children: "在指定秒数内，同一句弹幕达到条数才触发；阈值越低越积极。" }),
+u$2(
+                            "div",
+                            {
+                              style: {
+                                display: "flex",
+                                alignItems: "center",
+                                flexWrap: "wrap",
+                                gap: ".25em",
+                                marginLeft: "4.5em",
+                                opacity: autoBlendRequireDistinctUsers.value ? 1 : 0.55
+                              },
+                              children: [
+u$2(
+                                  "input",
+                                  {
+                                    id: "autoBlendRequireDistinctUsers",
+                                    type: "checkbox",
+                                    checked: autoBlendRequireDistinctUsers.value,
+                                    onInput: (e2) => {
+                                      markCustom();
+                                      autoBlendRequireDistinctUsers.value = e2.currentTarget.checked;
+                                    }
+                                  }
+                                ),
+u$2("label", { htmlFor: "autoBlendRequireDistinctUsers", children: "且至少" }),
+u$2(
+                                  NumberInput,
+                                  {
+                                    value: autoBlendMinDistinctUsers.value,
+                                    min: 2,
+                                    width: "40px",
+                                    disabled: !autoBlendRequireDistinctUsers.value,
+                                    onChange: (v2) => {
+                                      markCustom();
+                                      autoBlendMinDistinctUsers.value = v2;
+                                    }
+                                  }
+                                ),
+u$2("span", { children: "人都在刷" })
+                              ]
+                            }
+                          ),
+u$2(SettingHint, { children: "条数和人数都满足才会跟车（且关系）；阈值越低越积极。" }),
 u$2("div", { style: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: ".25em" }, children: [
 u$2("span", { children: "节奏：" }),
 u$2("span", { children: "冷却" }),
@@ -13883,11 +14179,12 @@ u$2(
                                 }
                               }
                             ),
-u$2("span", { children: "秒" })
+u$2("span", { children: "秒" }),
+u$2(LiveCooldownReadout, {})
                           ] }),
-u$2(SettingHint, { children: "冷却是每次发送后的停顿；补跟是没有突发时重新检查热门弹幕的间隔。" }),
+u$2(SettingHint, { children: "冷却是每次发完的停顿；补跟是没刷屏时定时回头看热门的间隔。" }),
 u$2("div", { style: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: ".25em" }, children: [
-u$2("span", { children: "突发等待" }),
+u$2("span", { children: "凑齐刷屏的窗口" }),
 u$2(
                               NumberInput,
                               {
@@ -13905,7 +14202,7 @@ u$2("span", { children: "毫秒" })
                           ] }),
 u$2(SettingHint, { children: "检测到刷屏后先等一小会儿，把同一波里的其它高频弹幕一起纳入判断。" }),
 u$2("div", { style: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: ".25em" }, children: [
-u$2("span", { children: "限频保护：" }),
+u$2("span", { children: "失败熔断：" }),
 u$2(
                               NumberInput,
                               {
@@ -13935,7 +14232,7 @@ u$2(
                             ),
 u$2("span", { children: "次后停车" })
                           ] }),
-u$2(SettingHint, { children: "限制连续失败或风控信号；超过次数会自动停止跟车，避免继续刷失败。" }),
+u$2(SettingHint, { children: "连续失败/风控达到次数会自动停车，并按禁言/账号风控/频率限制给出建议。" }),
 u$2("div", { style: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: ".25em" }, children: [
 u$2("span", { children: "每次发：" }),
 u$2(
@@ -13945,6 +14242,7 @@ u$2(
                                 min: 1,
                                 max: 20,
                                 width: "40px",
+                                disabled: autoBlendSendAllTrending.value,
                                 onChange: (v2) => {
                                   markCustom();
                                   autoBlendSendCount.value = v2;
@@ -13953,7 +14251,7 @@ u$2(
                             ),
 u$2("span", { children: "遍" })
                           ] }),
-u$2(SettingHint, { children: "同一句被选中后重复发送的次数；建议配合发送间隔和冷却一起调。" })
+                          autoBlendSendAllTrending.value ? u$2(SettingHint, { children: "已被「多句一起跟」覆盖：突发命中时一波内每句各发 1 次。" }) : u$2(SettingHint, { children: "同一句被选中后重复发送的次数；建议配合发送间隔和冷却一起调。" })
                         ]
                       }
                     ),
@@ -13980,37 +14278,6 @@ u$2(
                           }
                         ),
                         !autoBlendDryRun.value && u$2("span", { style: { color: "#a15c00", fontSize: "0.85em" }, title: "当前关闭试运行，会真实发送弹幕。", children: "关闭后会真实发送" })
-                      ] }),
-u$2("span", { style: { display: "inline-flex", alignItems: "center", gap: ".25em" }, children: [
-u$2(
-                          "input",
-                          {
-                            id: "autoBlendRequireDistinctUsers",
-                            type: "checkbox",
-                            checked: autoBlendRequireDistinctUsers.value,
-                            onInput: (e2) => {
-                              markCustom();
-                              autoBlendRequireDistinctUsers.value = e2.currentTarget.checked;
-                            }
-                          }
-                        ),
-u$2("label", { htmlFor: "autoBlendRequireDistinctUsers", children: "多人都在刷才跟" }),
-                        autoBlendRequireDistinctUsers.value && u$2(S$1, { children: [
-u$2("span", { children: "至少" }),
-u$2(
-                            NumberInput,
-                            {
-                              value: autoBlendMinDistinctUsers.value,
-                              min: 2,
-                              width: "40px",
-                              onChange: (v2) => {
-                                markCustom();
-                                autoBlendMinDistinctUsers.value = v2;
-                              }
-                            }
-                          ),
-u$2("span", { children: "人" })
-                        ] })
                       ] }),
 u$2("span", { style: { display: "inline-flex", alignItems: "center", gap: ".25em" }, children: [
 u$2(
@@ -14099,11 +14366,18 @@ u$2(
                             }
                           }
                         ),
-u$2("label", { htmlFor: "autoBlendSendAllTrending", title: "命中后连发同一波里多句达标弹幕，更激进。", children: "一波刷屏全跟" }),
+u$2(
+                          "label",
+                          {
+                            htmlFor: "autoBlendSendAllTrending",
+                            title: "命中后把同一波里达标的几句各发 1 次（覆盖「每次发X遍」）。",
+                            children: "多句一起跟"
+                          }
+                        ),
 u$2("span", { style: { color: "#a15c00" }, title: "更激进：命中一波后会连发多条达标弹幕，更容易被风控。", children: "（更激进）" })
                       ] })
                     ] }),
-                    autoBlendSendAllTrending.value && u$2("div", { style: { color: "#a15c00", fontSize: "12px", lineHeight: 1.5, marginBottom: ".25em" }, children: "会把同一波里达标的几句话依次发出去。" }),
+                    autoBlendSendAllTrending.value && u$2("div", { style: { color: "#a15c00", fontSize: "12px", lineHeight: 1.5, marginBottom: ".25em" }, children: "会把同一波里达标的几句话依次发出去；此时「每次发X遍」被覆盖为 1。" }),
                     autoBlendSendCount.value * msgSendInterval.value > autoBlendCooldownSec.value && u$2("div", { style: { color: "#a15c00", fontSize: "12px", lineHeight: 1.5, marginBottom: ".25em" }, children: [
                       "当前要发 ",
                       autoBlendSendCount.value * msgSendInterval.value,
@@ -14486,7 +14760,7 @@ u$2("label", { htmlFor: "persistSendState", children: "保持当前直播间独�
         bumpDailyLlmCalls(roomId);
         try {
           const chooser = opts?.chooser ?? (await __vitePreload(async () => {
-            const { chooseMemeWithLLM } = await module.import('./llm-driver-8yqaoekL-BXMVrzfc.js');
+            const { chooseMemeWithLLM } = await module.import('./llm-driver-DutV6n5u-hOhfIRly.js');
             return { chooseMemeWithLLM };
           }, true ? void 0 : void 0)).chooseMemeWithLLM;
           const chosenContent = await chooser({
@@ -14743,7 +15017,7 @@ u$2("label", { htmlFor: "persistSendState", children: "保持当前直播间独�
           testError.value = "";
           try {
             const { testLLMConnection } = await __vitePreload(async () => {
-              const { testLLMConnection: testLLMConnection2 } = await module.import('./llm-driver-8yqaoekL-BXMVrzfc.js');
+              const { testLLMConnection: testLLMConnection2 } = await module.import('./llm-driver-DutV6n5u-hOhfIRly.js');
               return { testLLMConnection: testLLMConnection2 };
             }, true ? void 0 : void 0);
             const r2 = await testLLMConnection({
@@ -17792,7 +18066,7 @@ u$2("label", { htmlFor: "danmakuDirectAlwaysShow", style: { color: danmakuDirect
         ] });
       }
       function LayoutSection({ query = "" }) {
-        const visible = !query || "直播间布局 优化布局 滚动 拉黑 解锁".toLowerCase().includes(query);
+        const visible = !query || "直播间布局 优化布局 滚动 拉黑 解锁 空间".toLowerCase().includes(query);
         if (!visible) return null;
         return u$2("details", { className: "cb-settings-accordion", children: [
 u$2("summary", { className: "cb-module-summary", children: [
@@ -17848,6 +18122,20 @@ u$2(
                       }
                     ),
 u$2("label", { htmlFor: "unlockForbidLive", children: "拉黑直播间解锁（刷新生效，仅布局解锁）" })
+                  ] }),
+u$2("span", { className: "cb-switch-row", style: { display: "inline-flex", alignItems: "center", gap: ".25em" }, children: [
+u$2(
+                      "input",
+                      {
+                        id: "unlockSpaceBlock",
+                        type: "checkbox",
+                        checked: unlockSpaceBlock.value,
+                        onInput: (e2) => {
+                          unlockSpaceBlock.value = e2.currentTarget.checked;
+                        }
+                      }
+                    ),
+u$2("label", { htmlFor: "unlockSpaceBlock", children: "空间拉黑解锁（刷新生效，仅布局解锁）" })
                   ] })
                 ] })
               ]
@@ -19937,7 +20225,16 @@ u$2("label", { htmlFor: lang, children: labels[lang] })
                           },
                           lang
                         );
-                      }),
+                      })
+                    ]
+                  }
+                ),
+u$2(
+                  "div",
+                  {
+                    className: "cb-row",
+                    style: { display: "flex", gap: ".5em", alignItems: "center", flexWrap: "wrap", marginBottom: ".5em" },
+                    children: [
 u$2("label", { htmlFor: "sonioxMaxLength", children: "超过" }),
 u$2(
                         "input",
@@ -20720,7 +21017,7 @@ u$2(AlertDialog, {})
   };
 }));
 
-System.register("./llm-driver-8yqaoekL-BXMVrzfc.js", ['./__monkey.entry-DmtIo1ap.js', '@soniox/speech-to-text-web'], (function (exports, module) {
+System.register("./llm-driver-DutV6n5u-hOhfIRly.js", ['./__monkey.entry-HOZFOtpD.js', '@soniox/speech-to-text-web'], (function (exports, module) {
   'use strict';
   var appendLog, gmFetch, BASE_URL;
   return {

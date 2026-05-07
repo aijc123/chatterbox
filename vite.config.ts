@@ -11,16 +11,27 @@ export default defineConfig({
     monkey({
       entry: 'src/main.tsx',
       userscript: {
-        name: 'B站独轮车 + 自动跟车 / Bilibili Live Auto Follow',
+        name: {
+          '': 'B站独轮车直播间插件 + 自动跟车 / Bilibili Live Auto Follow',
+          'zh-CN': 'B站独轮车直播间插件 + 自动跟车',
+          en: 'Bilibili Live Wheel Auto Follow',
+        },
         namespace: 'https://github.com/aijc123/bilibili-live-wheel-auto-follow',
-        description:
-          '给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。',
+        description: {
+          '': 'B站独轮车直播间插件，给 B 站/哔哩哔哩直播间用的 Tampermonkey 弹幕助手：支持独轮车循环发送、自动跟车、弹幕自动发送、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。',
+          'zh-CN':
+            'B站独轮车直播间插件，给 B 站/哔哩哔哩直播间用的 Tampermonkey 弹幕助手：支持独轮车循环发送、自动跟车、弹幕自动发送、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。',
+          en: 'Tampermonkey userscript for Bilibili live rooms: wheel-style repeated danmaku, auto follow, auto send, Chatterbox Chat, medal mute checks, translation, meme library, replacements, and AI rewrite helpers.',
+        },
         author: 'aijc123',
         license: 'AGPL-3.0',
         icon: 'https://www.bilibili.com/favicon.ico',
-        homepageURL: 'https://github.com/aijc123/bilibili-live-wheel-auto-follow',
+        homepage: 'https://aijc123.github.io/bilibili-live-wheel-auto-follow/',
+        homepageURL: 'https://aijc123.github.io/bilibili-live-wheel-auto-follow/',
+        website: 'https://aijc123.github.io/bilibili-live-wheel-auto-follow/',
+        source: 'https://github.com/aijc123/bilibili-live-wheel-auto-follow',
         supportURL: 'https://github.com/aijc123/bilibili-live-wheel-auto-follow/issues',
-        match: ['*://live.bilibili.com/*'],
+        match: ['*://live.bilibili.com/*', '*://space.bilibili.com/*'],
         connect: [
           'bilibili-guard-room.vercel.app',
           'localhost',

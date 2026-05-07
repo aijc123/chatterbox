@@ -3,23 +3,36 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>B站独轮车 + 自动跟车 | Bilibili Live 弹幕助手</title>
+    <title>B站独轮车直播间插件 + 自动跟车 | 哔哩哔哩直播弹幕助手</title>
     <meta
       name="description"
-      content="B站独轮车 + 自动跟车是给 B 站/哔哩哔哩直播间使用的 userscript，支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、替换规则、AI 规避候选、同传和烂梗库。"
+      content="B站独轮车直播间插件，适用于哔哩哔哩直播间的 Tampermonkey userscript。支持独轮车循环发送、自动跟车、弹幕自动发送、Chatterbox Chat、粉丝牌禁言巡检、替换规则、AI 规避候选、同传和烂梗库，可从 Greasy Fork 安装。"
     >
     <meta
       name="keywords"
-      content="B站独轮车,B站自动跟车,哔哩哔哩直播弹幕助手,Bilibili Live Auto Follow,Chatterbox Chat,Tampermonkey bilibili userscript,Greasy Fork bilibili"
+      content="独轮车直播间,直播间独轮车,B站独轮车,B站直播间独轮车,B站独轮车插件,B站自动跟车,弹幕自动发送,自动发送弹幕,哔哩哔哩直播弹幕助手,哔哩哔哩直播间插件,Bilibili Live Auto Follow,Chatterbox Chat,Tampermonkey bilibili userscript,Greasy Fork bilibili"
     >
+    <meta name="author" content="aijc123">
+    <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1">
+    <meta name="theme-color" content="#1677ff">
     <link rel="canonical" href="https://aijc123.github.io/bilibili-live-wheel-auto-follow/">
-    <meta property="og:title" content="B站独轮车 + 自动跟车">
+    <link rel="alternate" hreflang="zh-CN" href="https://aijc123.github.io/bilibili-live-wheel-auto-follow/">
+    <link rel="alternate" hreflang="x-default" href="https://aijc123.github.io/bilibili-live-wheel-auto-follow/">
+    <meta property="og:site_name" content="B站独轮车直播间插件">
+    <meta property="og:title" content="B站独轮车直播间插件 + 自动跟车">
     <meta
       property="og:description"
-      content="一款给 B 站直播间使用的弹幕助手：独轮车、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避候选。"
+      content="一款给 B 站/哔哩哔哩直播间使用的 Tampermonkey 弹幕助手：独轮车循环发送、自动跟车、弹幕自动发送、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避候选。"
     >
+    <meta property="og:locale" content="zh_CN">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://aijc123.github.io/bilibili-live-wheel-auto-follow/">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="B站独轮车直播间插件 + 自动跟车">
+    <meta
+      name="twitter:description"
+      content="B站直播间独轮车、自动跟车和弹幕自动发送 userscript，可从 Greasy Fork 安装。"
+    >
     <style>
       :root {
         color-scheme: light dark;
@@ -320,19 +333,79 @@
       {
         "@context": "https://schema.org",
         "@type": "SoftwareApplication",
-        "name": "B站独轮车 + 自动跟车",
-        "alternateName": "Bilibili Live Auto Follow",
+        "name": "B站独轮车直播间插件 + 自动跟车",
+        "alternateName": [
+          "B站独轮车",
+          "B站直播间独轮车",
+          "Bilibili Live Auto Follow",
+          "Bilibili Live Wheel Auto Follow"
+        ],
         "applicationCategory": "BrowserApplication",
         "operatingSystem": "Chrome, Edge, Firefox",
-        "description": "给 B 站/哔哩哔哩直播间用的弹幕助手 userscript，支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避候选。",
+        "description": "给 B 站/哔哩哔哩直播间用的 Tampermonkey 弹幕助手 userscript，支持独轮车循环发送、自动跟车、弹幕自动发送、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避候选。",
         "url": "https://aijc123.github.io/bilibili-live-wheel-auto-follow/",
         "downloadUrl": "https://greasyfork.org/zh-CN/scripts/574939-b%E7%AB%99%E7%8B%AC%E8%BD%AE%E8%BD%A6-%E8%87%AA%E5%8A%A8%E8%B7%9F%E8%BD%A6",
         "codeRepository": "https://github.com/aijc123/bilibili-live-wheel-auto-follow",
         "license": "https://spdx.org/licenses/AGPL-3.0.html",
+        "isAccessibleForFree": true,
+        "inLanguage": "zh-CN",
+        "keywords": "独轮车直播间,直播间独轮车,B站独轮车,B站直播间独轮车,B站独轮车插件,B站自动跟车,弹幕自动发送,哔哩哔哩直播弹幕助手,Tampermonkey,Greasy Fork",
+        "sameAs": [
+          "https://greasyfork.org/zh-CN/scripts/574939-b%E7%AB%99%E7%8B%AC%E8%BD%AE%E8%BD%A6-%E8%87%AA%E5%8A%A8%E8%B7%9F%E8%BD%A6",
+          "https://greasyfork.org/en/scripts/574939-b%E7%AB%99%E7%8B%AC%E8%BD%AE%E8%BD%A6-%E8%87%AA%E5%8A%A8%E8%B7%9F%E8%BD%A6-bilibili-live-auto-follow/post-install",
+          "https://github.com/aijc123/bilibili-live-wheel-auto-follow"
+        ],
+        "featureList": [
+          "B站直播间独轮车循环发送",
+          "自动跟车",
+          "弹幕自动发送",
+          "Chatterbox Chat 评论区",
+          "粉丝牌禁言巡检",
+          "替换规则和影子屏蔽候选",
+          "同传、翻译和烂梗库"
+        ],
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        },
         "author": {
           "@type": "Person",
           "name": "aijc123"
         }
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "inLanguage": "zh-CN",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "独轮车直播间插件是什么？",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "这是一个面向 B 站/哔哩哔哩直播间的 Tampermonkey userscript，可在直播间面板里进行独轮车循环发送、自动跟车、弹幕自动发送、评论区增强和粉丝牌禁言巡检。"
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "B站独轮车 + 自动跟车在哪里安装？",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "先安装 Tampermonkey 或 Violentmonkey，然后打开 Greasy Fork 脚本发布页，点击安装并在脚本管理器中确认。"
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "这个 B站直播间独轮车插件是官方功能吗？",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "不是。它是民间自用/自制的非官方 userscript。使用自动发送、自动跟车、+1、自动重发等功能时，应控制频率，避免打扰主播和其他观众。"
+            }
+          }
+        ]
       }
     </script>
   </head>
@@ -341,14 +414,15 @@
       <section class="hero">
         <div class="wrap hero-grid">
           <div>
-            <p class="eyebrow">Bilibili Live userscript</p>
-            <h1>B站独轮车 + 自动跟车</h1>
+            <p class="eyebrow">Bilibili Live userscript / Greasy Fork 发布</p>
+            <h1>B站独轮车直播间插件 + 自动跟车</h1>
             <p class="lead">
-              给 B 站直播间使用的弹幕助手：循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、
-              替换规则、影子屏蔽候选、同传和烂梗库都收在一个面板里。
+              给 B 站/哔哩哔哩直播间使用的独轮车弹幕助手：独轮车循环发送、自动跟车、
+              弹幕自动发送、Chatterbox Chat、粉丝牌禁言巡检、替换规则、影子屏蔽候选、
+              同传和烂梗库都收在一个面板里。
             </p>
             <div class="actions" aria-label="项目链接">
-              <a class="button primary" href="https://greasyfork.org/zh-CN/scripts/574939-b%E7%AB%99%E7%8B%AC%E8%BD%AE%E8%BD%A6-%E8%87%AA%E5%8A%A8%E8%B7%9F%E8%BD%A6">从 Greasy Fork 安装</a>
+              <a class="button primary" href="https://greasyfork.org/zh-CN/scripts/574939-b%E7%AB%99%E7%8B%AC%E8%BD%AE%E8%BD%A6-%E8%87%AA%E5%8A%A8%E8%B7%9F%E8%BD%A6">Greasy Fork 安装发布页</a>
               <a class="button" href="https://github.com/aijc123/bilibili-live-wheel-auto-follow">GitHub 源码</a>
               <a class="button" href="https://github.com/aijc123/bilibili-live-wheel-auto-follow/issues">反馈问题</a>
             </div>
@@ -358,6 +432,7 @@
             <h2>适合这些场景</h2>
             <ul>
               <li>提前准备多句弹幕，按节奏循环发送。</li>
+              <li>搜索“独轮车直播间”“B站直播间独轮车”时，这里就是插件官网和安装入口。</li>
               <li>直播间刷屏气氛起来时，带冷却自动跟一句。</li>
               <li>把右侧评论区换成更清爽的 Chatterbox Chat。</li>
               <li>巡检粉丝牌房间是否存在禁言、屏蔽、风控或主播注销。</li>
@@ -369,10 +444,11 @@
 
       <section class="section" id="what-it-does">
         <div class="wrap">
-          <h2>项目做什么</h2>
+          <h2>独轮车直播间插件做什么</h2>
           <p class="section-intro">
             安装后，B 站直播间右下角会出现 <code>弹幕助手</code> 按钮。它面向直播间弹幕互动，
-            提供发送、跟车、评论区增强、巡检、替换和同传等能力。
+            提供独轮车循环发送、自动跟车、评论区增强、巡检、替换和同传等能力。你可以把它理解成一个
+            B站独轮车插件、哔哩哔哩直播间弹幕助手和 Tampermonkey userscript。
           </p>
           <div class="note">
             这是民间自用/自制插件，不是 B 站官方功能。使用自动发送、自动跟车、+1、自动重发等功能时，请控制频率。
@@ -382,24 +458,34 @@
 
       <section class="section" id="installation">
         <div class="wrap">
-          <h2>安装步骤</h2>
+          <h2>安装 B站独轮车插件</h2>
           <ol class="steps">
             <li class="step">
               <div>
                 <h3>安装脚本管理器</h3>
-                <p>先安装 Tampermonkey 或 Violentmonkey。</p>
+                <p>
+                  先安装
+                  <a href="https://www.tampermonkey.net/">Tampermonkey</a>
+                  或
+                  <a href="https://violentmonkey.github.io/">Violentmonkey</a>。
+                  Chrome / Edge 用户一般直接装 Tampermonkey，Firefox 用户也可以二选一。
+                </p>
               </div>
             </li>
             <li class="step">
               <div>
                 <h3>打开 Greasy Fork</h3>
-                <p>进入脚本页面，点击安装，并在脚本管理器弹窗里确认。</p>
+                <p>进入 <a href="https://greasyfork.org/zh-CN/scripts/574939-b%E7%AB%99%E7%8B%AC%E8%BD%AE%E8%BD%A6-%E8%87%AA%E5%8A%A8%E8%B7%9F%E8%BD%A6">B站独轮车 + 自动跟车 Greasy Fork 发布页</a>，点击安装，并在脚本管理器弹窗里确认。</p>
               </div>
             </li>
             <li class="step">
               <div>
                 <h3>打开 B 站直播间</h3>
-                <p>访问 <code>https://live.bilibili.com/</code>，点击右下角 <code>弹幕助手</code>。</p>
+                <p>
+                  打开
+                  <a href="https://live.bilibili.com/">B 站直播首页</a>
+                  或任意直播间，刷新页面后点击右下角 <code>弹幕助手</code>。
+                </p>
               </div>
             </li>
             <li class="step">
@@ -409,20 +495,25 @@
               </div>
             </li>
           </ol>
+          <div class="actions" aria-label="快速安装链接">
+            <a class="button primary" href="https://greasyfork.org/zh-CN/scripts/574939-b%E7%AB%99%E7%8B%AC%E8%BD%AE%E8%BD%A6-%E8%87%AA%E5%8A%A8%E8%B7%9F%E8%BD%A6">直接安装脚本</a>
+            <a class="button" href="https://www.tampermonkey.net/">安装 Tampermonkey</a>
+            <a class="button" href="https://violentmonkey.github.io/">安装 Violentmonkey</a>
+          </div>
         </div>
       </section>
 
       <section class="section" id="features">
         <div class="wrap">
-          <h2>主要功能</h2>
+          <h2>直播间独轮车主要功能</h2>
           <div class="grid">
             <article class="card">
               <h3>独轮车循环发送</h3>
-              <p>多套模板、每行一句，支持固定/随机间隔、随机颜色、随机字符和长弹幕拆分。</p>
+              <p>面向 B站直播间独轮车场景，多套模板、每行一句，支持固定/随机间隔、随机颜色、随机字符和长弹幕拆分。</p>
             </article>
             <article class="card">
               <h3>自动跟车</h3>
-              <p>识别短时间内被多人重复发送的弹幕，达到阈值后带冷却跟一句，可忽略黑名单用户。</p>
+              <p>识别短时间内被多人重复发送的弹幕，达到阈值后带冷却跟一句，适合直播间自动跟车，可忽略黑名单用户。</p>
             </article>
             <article class="card">
               <h3>Chatterbox Chat</h3>
@@ -515,6 +606,22 @@
             <li><strong>同传不可用：</strong>检查麦克风权限、浏览器支持，以及 unpkg/Soniox 资源能否加载。</li>
             <li><strong>候选改写没有自动发送：</strong>默认“只给候选”模式不会自动重发，需要明确开启自动重发和 AI 规避。</li>
           </ul>
+        </div>
+      </section>
+
+      <section class="section" id="search-terms">
+        <div class="wrap">
+          <h2>相关搜索词</h2>
+          <p class="section-intro">
+            如果你在搜索独轮车直播间、直播间独轮车、B站独轮车、B站直播间独轮车、
+            B站独轮车插件、B站自动跟车、哔哩哔哩直播间插件、弹幕自动发送或
+            Tampermonkey bilibili userscript，这个页面对应的就是
+            <strong>B站独轮车 + 自动跟车 / Bilibili Live Auto Follow</strong>。
+          </p>
+          <div class="actions">
+            <a class="button primary" href="https://greasyfork.org/en/scripts/574939-b%E7%AB%99%E7%8B%AC%E8%BD%AE%E8%BD%A6-%E8%87%AA%E5%8A%A8%E8%B7%9F%E8%BD%A6-bilibili-live-auto-follow/post-install">Greasy Fork Post Install</a>
+            <a class="button" href="https://greasyfork.org/zh-CN/scripts/574939-b%E7%AB%99%E7%8B%AC%E8%BD%AE%E8%BD%A6-%E8%87%AA%E5%8A%A8%E8%B7%9F%E8%BD%A6">Greasy Fork 中文发布页</a>
+          </div>
         </div>
       </section>
 
