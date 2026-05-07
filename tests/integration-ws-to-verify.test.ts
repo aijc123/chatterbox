@@ -112,7 +112,7 @@ mock.module('../src/lib/api', () => ({
 }))
 
 // ---- fetch routing for ensureWbiKeys + getDanmuInfo + Laplace chat-audit ---
-let danmuInfoResponder: () => Response = () =>
+const danmuInfoResponder: () => Response = () =>
   new Response(
     JSON.stringify({
       code: 0,
@@ -120,7 +120,7 @@ let danmuInfoResponder: () => Response = () =>
     }),
     { status: 200, headers: { 'content-type': 'application/json' } }
   )
-let wbiNavResponder: () => Response = () =>
+const wbiNavResponder: () => Response = () =>
   new Response(
     JSON.stringify({
       data: {
