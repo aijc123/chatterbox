@@ -399,7 +399,12 @@ export function SttTab() {
           <label htmlFor='sonioxAudioDevice'>设备：</label>
           <select
             id='sonioxAudioDevice'
-            style={{ flex: 1, minWidth: '150px' }}
+            // `min-width: 0` overrides the flex-item implicit
+            // `min-width: auto` so a long device label can't force
+            // the select wider than its flex-allocated space and
+            // push the row beyond the (narrow) panel right edge.
+            // `max-width: 100%` is a defense-in-depth cap.
+            style={{ flex: '1 1 0', minWidth: 0, maxWidth: '100%' }}
             value={savedDeviceId}
             onChange={e => {
               sonioxAudioDeviceId.value = e.currentTarget.value

@@ -61,7 +61,7 @@
 System.addImportMap({ imports: {"@soniox/speech-to-text-web":"user:@soniox/speech-to-text-web"} });
 System.set("user:@soniox/speech-to-text-web", (()=>{const _=SonioxSpeechToTextWeb;('default' in _)||(_.default=_);return _})());
 
-System.register("./__entry.js", ['./__monkey.entry-HOZFOtpD.js'], (function (exports, module) {
+System.register("./__entry.js", ['./__monkey.entry-CM3Ye8GR.js'], (function (exports, module) {
 	'use strict';
 	return {
 		setters: [null],
@@ -73,7 +73,7 @@ System.register("./__entry.js", ['./__monkey.entry-HOZFOtpD.js'], (function (exp
 	};
 }));
 
-System.register("./__monkey.entry-HOZFOtpD.js", ['@soniox/speech-to-text-web'], (function (exports, module) {
+System.register("./__monkey.entry-CM3Ye8GR.js", ['@soniox/speech-to-text-web'], (function (exports, module) {
   'use strict';
   var SonioxClient;
   return {
@@ -14756,7 +14756,7 @@ u$2("label", { htmlFor: "persistSendState", children: "保持当前直播间独�
         bumpDailyLlmCalls(roomId);
         try {
           const chooser = opts?.chooser ?? (await __vitePreload(async () => {
-            const { chooseMemeWithLLM } = await module.import('./llm-driver-DutV6n5u-hOhfIRly.js');
+            const { chooseMemeWithLLM } = await module.import('./llm-driver-C24PAyKv-AR7OPVdf.js');
             return { chooseMemeWithLLM };
           }, true ? void 0 : void 0)).chooseMemeWithLLM;
           const chosenContent = await chooser({
@@ -15013,7 +15013,7 @@ u$2("label", { htmlFor: "persistSendState", children: "保持当前直播间独�
           testError.value = "";
           try {
             const { testLLMConnection } = await __vitePreload(async () => {
-              const { testLLMConnection: testLLMConnection2 } = await module.import('./llm-driver-DutV6n5u-hOhfIRly.js');
+              const { testLLMConnection: testLLMConnection2 } = await module.import('./llm-driver-C24PAyKv-AR7OPVdf.js');
               return { testLLMConnection: testLLMConnection2 };
             }, true ? void 0 : void 0);
             const r2 = await testLLMConnection({
@@ -20176,7 +20176,7 @@ u$2(
                         "select",
                         {
                           id: "sonioxAudioDevice",
-                          style: { flex: 1, minWidth: "150px" },
+                          style: { flex: "1 1 0", minWidth: 0, maxWidth: "100%" },
                           value: savedDeviceId,
                           onChange: (e2) => {
                             sonioxAudioDeviceId.value = e2.currentTarget.value;
@@ -21013,7 +21013,7 @@ u$2(AlertDialog, {})
   };
 }));
 
-System.register("./llm-driver-DutV6n5u-hOhfIRly.js", ['./__monkey.entry-HOZFOtpD.js', '@soniox/speech-to-text-web'], (function (exports, module) {
+System.register("./llm-driver-C24PAyKv-AR7OPVdf.js", ['./__monkey.entry-CM3Ye8GR.js', '@soniox/speech-to-text-web'], (function (exports, module) {
   'use strict';
   var appendLog, gmFetch, BASE_URL;
   return {
