@@ -152,7 +152,7 @@ export function AboutTab() {
           <span>
             作者:{' '}
             <a href='https://github.com/aijc123' target='_blank' rel='noopener' style={LINK_STYLE}>
-              Eric Ai
+              NougatDev
             </a>
           </span>
           <span>许可证: AGPL-3.0</span>
