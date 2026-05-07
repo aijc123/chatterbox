@@ -59,7 +59,7 @@
 System.addImportMap({ imports: {"@soniox/speech-to-text-web":"user:@soniox/speech-to-text-web"} });
 System.set("user:@soniox/speech-to-text-web", (()=>{const _=SonioxSpeechToTextWeb;('default' in _)||(_.default=_);return _})());
 
-System.register("./__entry.js", ['./__monkey.entry-BMPnrVcg.js'], (function (exports, module) {
+System.register("./__entry.js", ['./__monkey.entry-BI-Lq-FN.js'], (function (exports, module) {
 	'use strict';
 	return {
 		setters: [null],
@@ -71,7 +71,7 @@ System.register("./__entry.js", ['./__monkey.entry-BMPnrVcg.js'], (function (exp
 	};
 }));
 
-System.register("./__monkey.entry-BMPnrVcg.js", ['@soniox/speech-to-text-web'], (function (exports, module) {
+System.register("./__monkey.entry-BI-Lq-FN.js", ['@soniox/speech-to-text-web'], (function (exports, module) {
   'use strict';
   var SonioxClient;
   return {
@@ -14405,7 +14405,7 @@ u$2("label", { htmlFor: "persistSendState", children: "保持当前直播间独�
         bumpDailyLlmCalls(roomId);
         try {
           const chooser = opts?.chooser ?? (await __vitePreload(async () => {
-            const { chooseMemeWithLLM } = await module.import('./llm-driver-DdEJZMY3-QZuMQaY2.js');
+            const { chooseMemeWithLLM } = await module.import('./llm-driver-CiOrRdxS-DA5WVfaZ.js');
             return { chooseMemeWithLLM };
           }, true ? void 0 : void 0)).chooseMemeWithLLM;
           const chosenContent = await chooser({
@@ -14662,7 +14662,7 @@ u$2("label", { htmlFor: "persistSendState", children: "保持当前直播间独�
           testError.value = "";
           try {
             const { testLLMConnection } = await __vitePreload(async () => {
-              const { testLLMConnection: testLLMConnection2 } = await module.import('./llm-driver-DdEJZMY3-QZuMQaY2.js');
+              const { testLLMConnection: testLLMConnection2 } = await module.import('./llm-driver-CiOrRdxS-DA5WVfaZ.js');
               return { testLLMConnection: testLLMConnection2 };
             }, true ? void 0 : void 0);
             const r2 = await testLLMConnection({
@@ -16057,21 +16057,10 @@ u$2("span", { style: { color: "#888", marginLeft: "auto", fontSize: "10px" }, ch
           }
         );
       }
-      const MEME_SORT_OPTIONS = new Set(["lastCopiedAt", "copyCount", "createdAt"]);
-      const isMemeSortBy = (v2) => MEME_SORT_OPTIONS.has(v2);
-      const TAG_COLORS = {
-        red: "#ef4444",
-        yellow: "#eab308",
-        fuchsia: "#d946ef",
-        emerald: "#10b981",
-        blue: "#3b82f6",
-        orange: "#f97316",
-        purple: "#a855f7",
-        pink: "#ec4899",
-        cyan: "#06b6d4",
-        green: "#22c55e"
-      };
-      function TrendingBadge({ match }) {
+      function TrendingBadge({ content }) {
+        void trendingMemeKeys.value;
+        const match = lookupTrendingMatch(content);
+        if (!match) return null;
         const title = `今日跨房间热门 · 第 ${match.rank} 位（簇 #${match.clusterId}）`;
         return u$2(
           "span",
@@ -16090,6 +16079,20 @@ u$2("span", { style: { color: "#888", marginLeft: "auto", fontSize: "10px" }, ch
           }
         );
       }
+      const MEME_SORT_OPTIONS = new Set(["lastCopiedAt", "copyCount", "createdAt"]);
+      const isMemeSortBy = (v2) => MEME_SORT_OPTIONS.has(v2);
+      const TAG_COLORS = {
+        red: "#ef4444",
+        yellow: "#eab308",
+        fuchsia: "#d946ef",
+        emerald: "#10b981",
+        blue: "#3b82f6",
+        orange: "#f97316",
+        purple: "#a855f7",
+        pink: "#ec4899",
+        cyan: "#06b6d4",
+        green: "#22c55e"
+      };
       function SourceBadge({ source }) {
         if (!source || source === "laplace") return null;
         const config = source === "sbhzm" ? { letter: "H", bg: "#10b981", title: "来自社区专属梗库（sbhzm.cn）" } : { letter: "C", bg: "#3b82f6", title: "来自 chatterbox-cloud 自建梗库" };
@@ -16262,11 +16265,7 @@ u$2(
                     },
                     children: [
 u$2(SourceBadge, { source: meme._source }),
-                      (() => {
-                        void trendingMemeKeys.value;
-                        const match = lookupTrendingMatch(meme.content);
-                        return match ? u$2(TrendingBadge, { match }) : null;
-                      })(),
+u$2(TrendingBadge, { content: meme.content }),
                       meme.content
                     ]
                   }
@@ -20556,7 +20555,7 @@ u$2(AlertDialog, {})
   };
 }));
 
-System.register("./llm-driver-DdEJZMY3-QZuMQaY2.js", ['./__monkey.entry-BMPnrVcg.js', '@soniox/speech-to-text-web'], (function (exports, module) {
+System.register("./llm-driver-CiOrRdxS-DA5WVfaZ.js", ['./__monkey.entry-BI-Lq-FN.js', '@soniox/speech-to-text-web'], (function (exports, module) {
   'use strict';
   var appendLog, gmFetch, BASE_URL;
   return {

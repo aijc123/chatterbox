@@ -12,7 +12,7 @@ import { appendLog, notifyUser } from '../lib/log'
 import { ignoreMemeCandidate } from '../lib/meme-contributor'
 import { fetchAllMemes, type MemeSortBy, sortMemes } from '../lib/meme-fetch'
 import { getMemeSourceForRoom } from '../lib/meme-sources'
-import { lookupTrendingMatch, refreshTrendingMemes, type TrendingMatch, trendingMemeKeys } from '../lib/meme-trending'
+import { refreshTrendingMemes } from '../lib/meme-trending'
 import { applyReplacements } from '../lib/replacement'
 import { maybeProbeSbhzmFreshness } from '../lib/sbhzm-freshness-probe'
 import { enqueueDanmaku, SendPriority } from '../lib/send-queue'
@@ -32,6 +32,7 @@ import { processMessages } from '../lib/utils'
 import { CbSubmitRow } from './cb-submit-row'
 import { MemeTagsBar } from './meme-tags-bar'
 import { SbhzmSubmitRow } from './sbhzm-submit-row'
+import { TrendingBadge } from './trending-badge'
 
 /** 候选梗当前展开的提交目标:同时只能开一个,避免 UI 拥挤。 */
 type SubmittingTarget = { text: string; target: 'sbhzm' | 'cb' } | null
@@ -50,28 +51,6 @@ const TAG_COLORS: Record<string, string> = {
   pink: '#ec4899',
   cyan: '#06b6d4',
   green: '#22c55e',
-}
-
-function TrendingBadge({ match }: { match: TrendingMatch }) {
-  // Compact 🔥 chip rendered next to SourceBadge. Tooltip carries the rank;
-  // the visual itself stays tiny so it doesn't crowd the meme content.
-  const title = `今日跨房间热门 · 第 ${match.rank} 位（簇 #${match.clusterId}）`
-  return (
-    <span
-      title={title}
-      style={{
-        display: 'inline-block',
-        flexShrink: 0,
-        marginRight: '.3em',
-        padding: '0 .25em',
-        fontSize: '10px',
-        lineHeight: 1.6,
-        verticalAlign: 'middle',
-      }}
-    >
-      🔥
-    </span>
-  )
 }
 
 function SourceBadge({ source }: { source: 'laplace' | 'sbhzm' | 'cb' | undefined }) {
@@ -266,14 +245,7 @@ function MemeItem({
           }}
         >
           <SourceBadge source={meme._source} />
-          {(() => {
-            // Subscribe to trendingMemeKeys.value so this card re-renders when
-            // refreshTrendingMemes() lands. Reading .value here is enough for
-            // Preact signals to track the dependency.
-            void trendingMemeKeys.value
-            const match = lookupTrendingMatch(meme.content)
-            return match ? <TrendingBadge match={match} /> : null
-          })()}
+          <TrendingBadge content={meme.content} />
           {meme.content}
         </button>
       </div>

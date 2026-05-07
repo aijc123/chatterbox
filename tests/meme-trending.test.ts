@@ -219,35 +219,15 @@ describe('refreshTrendingMemes (network + signal)', () => {
   })
 
   test('concurrent callers share the in-flight promise (one network round trip)', async () => {
-    const resolveResponse: ((body: string) => void) | null = null
-    responder = () => ({
-      delayMs: 0,
-      status: 200,
-      body: '{"items": []}',
-    })
-    // Replace responder with one that holds the response open until we
-    // explicitly release it, so we can prove concurrent dedup.
-    let releaseFn: (() => void) | null = null
-    const releasePromise = new Promise<void>(resolve => {
-      releaseFn = resolve
-    })
-    responder = () => ({
-      status: 200,
-      body: '{"items": []}',
-      // Borrow delayMs to ensure ordering: the test releases the gate
-      // before the timer fires.
-      delayMs: 0,
-    })
+    // Hold the responder open for ~10 ms so all three calls overlap during the
+    // in-flight window. Without dedup we'd see 3 captures; with dedup we see 1.
+    responder = () => ({ status: 200, body: '{"items": []}', delayMs: 10 })
 
     const a = refreshTrendingMemes()
     const b = refreshTrendingMemes()
     const c = refreshTrendingMemes()
     await Promise.all([a, b, c])
-    void releasePromise // unused but documents intent
-    void resolveResponse
-    void releaseFn
 
-    // All three resolved; only one HTTP request fired thanks to in-flight dedup.
     expect(captured.length).toBe(1)
   })
 
