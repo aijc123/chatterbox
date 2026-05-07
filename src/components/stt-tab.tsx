@@ -397,31 +397,45 @@ export function SttTab() {
           style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.5em' }}
         >
           <label htmlFor='sonioxAudioDevice'>设备：</label>
-          <select
-            id='sonioxAudioDevice'
-            // `min-width: 0` overrides the flex-item implicit
-            // `min-width: auto` so a long device label can't force
-            // the select wider than its flex-allocated space and
-            // push the row beyond the (narrow) panel right edge.
-            // `max-width: 100%` is a defense-in-depth cap.
-            style={{ flex: '1 1 0', minWidth: 0, maxWidth: '100%' }}
-            value={savedDeviceId}
-            onChange={e => {
-              sonioxAudioDeviceId.value = e.currentTarget.value
-            }}
-          >
-            <option value=''>系统默认</option>
-            {devices.map((d, i) => (
-              <option key={d.deviceId || `mic-${i}`} value={d.deviceId}>
-                {d.label || `麦克风 ${i + 1}`}
-              </option>
-            ))}
-            {/* Surface a stale id so the user can see *something* is
-                selected and switch away — without this the <select> would
-                silently fall back to "系统默认" while the underlying
-                stored id remains unchanged. */}
-            {savedDeviceMissing && <option value={savedDeviceId}>(已保存设备不可用)</option>}
-          </select>
+          {/* Wrap the <select> in a min-width:0 / overflow:hidden flex
+              container. Chrome honors `min-width: 0` directly on the
+              <select> and shrinks it to fit the flex-allocated space, but
+              Edge / Firefox treat <select> as a "replaced-element-ish"
+              control whose intrinsic width is set by the longest <option>
+              text and ignore min-width on the element itself. A long
+              microphone name (e.g. "Microphone Array (Intel® Smart Sound
+              Technology for Digital Microphones)") then forces the
+              <select> to ~450px and pushes the entire row past the
+              320px panel right edge.
+
+              The wrapper div is the actual flex item. Its `min-width: 0`
+              + `overflow: hidden` clip the select visually instead of
+              expanding the row. The select keeps `width: 100%` so it
+              follows the wrapper. The dropdown popup width is still
+              browser-controlled and may extend past the panel — that's
+              an Edge native control thing we can't override from CSS. */}
+          <div style={{ flex: '1 1 0', minWidth: 0, overflow: 'hidden', display: 'flex' }}>
+            <select
+              id='sonioxAudioDevice'
+              style={{ width: '100%', minWidth: 0, maxWidth: '100%' }}
+              value={savedDeviceId}
+              onChange={e => {
+                sonioxAudioDeviceId.value = e.currentTarget.value
+              }}
+            >
+              <option value=''>系统默认</option>
+              {devices.map((d, i) => (
+                <option key={d.deviceId || `mic-${i}`} value={d.deviceId}>
+                  {d.label || `麦克风 ${i + 1}`}
+                </option>
+              ))}
+              {/* Surface a stale id so the user can see *something* is
+                  selected and switch away — without this the <select> would
+                  silently fall back to "系统默认" while the underlying
+                  stored id remains unchanged. */}
+              {savedDeviceMissing && <option value={savedDeviceId}>(已保存设备不可用)</option>}
+            </select>
+          </div>
           {!hasMicLabels && (
             <button type='button' onClick={() => void requestMicPermission()} style={{ whiteSpace: 'nowrap' }}>
               授权
