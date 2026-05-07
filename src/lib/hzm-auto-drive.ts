@@ -53,6 +53,8 @@ import {
   hzmStrictHeuristic,
   pushRecentSent,
 } from './store-hzm'
+import { maxLength } from './store-send'
+import { splitTextSmart } from './utils'
 
 // 60s 而不是旧版 30s——为了确保活跃度闸门窗口（默认 45s）总能看到完整数据。
 // 闸门窗口可调，但保留缓冲到 60s 让用户配大窗口时不卡上限。
@@ -382,19 +384,34 @@ async function sendOne(roomId: number, meme: LaplaceMemeWithSource): Promise<voi
   }
 
   try {
-    const result = await enqueueDanmaku(meme.content, roomId, csrfToken, SendPriority.AUTO)
-    if (result.success && !result.cancelled) {
-      sentTimestamps.push(Date.now())
-      pushRecentSent(roomId, meme.content)
-      bumpDailySent(roomId)
-      lastActionAt = Date.now()
-      updateHzmStatusText()
-      appendLog(`🚗 智驾：${meme.content}`)
-    } else if (result.cancelled) {
-      appendLog(`⏭ 智驾被打断：${meme.content}`)
-    } else {
-      appendLog(`❌ 智驾发送失败：${meme.content}，原因：${result.error ?? '未知'}`)
+    const segments = splitTextSmart(meme.content, maxLength.value)
+    const total = segments.length
+    let recentRecorded = false
+
+    for (let i = 0; i < total; i++) {
+      const segment = segments[i]
+      const result = await enqueueDanmaku(segment, roomId, csrfToken, SendPriority.AUTO)
+      const tag = total > 1 ? ` [${i + 1}/${total}]` : ''
+
+      if (result.success && !result.cancelled) {
+        sentTimestamps.push(Date.now())
+        bumpDailySent(roomId)
+        if (!recentRecorded) {
+          pushRecentSent(roomId, meme.content)
+          recentRecorded = true
+        }
+        lastActionAt = Date.now()
+        appendLog(`🚗 智驾：${segment}${tag}`)
+      } else if (result.cancelled) {
+        appendLog(`⏭ 智驾被打断：${segment}${tag}`)
+        break
+      } else {
+        appendLog(`❌ 智驾发送失败：${segment}${tag}，原因：${result.error ?? '未知'}`)
+        break
+      }
     }
+
+    updateHzmStatusText()
   } catch (err) {
     appendLog(`❌ 智驾发送异常：${err instanceof Error ? err.message : String(err)}`)
   }
@@ -561,4 +578,13 @@ export async function _runOneTickForTests(): Promise<void> {
     clearTimeout(tickTimer)
     tickTimer = null
   }
+}
+
+/**
+ * 测试用：直接跑一次 sendOne，绕过 picker / 活跃度闸门 / 限速。
+ * 用于稳定测试切片分段发送的逻辑（segment loop / recent dedup / daily
+ * counter / 错误中断 / 异常捕获），不需要构造能稳定命中 picker 的 fixture。
+ */
+export async function _sendOneForTests(roomId: number, meme: LaplaceMemeWithSource): Promise<void> {
+  await sendOne(roomId, meme)
 }
