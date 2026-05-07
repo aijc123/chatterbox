@@ -32,8 +32,10 @@ import { applyReplacements } from './replacement'
 import { enqueueDanmaku, SendPriority } from './send-queue'
 import { verifyBroadcast } from './send-verification'
 import {
+  autoBlendAvoidRepeat,
   autoBlendBurstSettleMs,
   autoBlendCandidateText,
+  autoBlendCooldownAuto,
   autoBlendCooldownSec,
   autoBlendDryRun,
   autoBlendEnabled,
@@ -95,6 +97,14 @@ let routineTimeout: ReturnType<typeof setTimeout> | null = null
 let routineActive = false
 let myUid: string | null = null
 let isSending = false
+// 上次自动跟车发出去的那条原文(同 trendMap 的 key,trim 后、replacement 前)。
+// autoBlendAvoidRepeat 开启时 recordDanmaku 会把完全相同的新弹幕早期丢弃,
+// 避免冷却结束后立刻被同一句再次刷上去。stopAutoBlend 时清空。
+let lastAutoSentText: string | null = null
+// CPM (chats-per-minute) 滑动窗口:跟踪每条非自身弹幕的时间戳。读取时按
+// CPM_WINDOW_SEC 裁剪。包括所有非自身弹幕(黑名单/锁定表情/回复都算),
+// 因为 CPM 衡量的是"房间整体活跃度",不是"达标候选活跃度"。
+const messageTimestamps: number[] = []
 let rateLimitHitCount = 0
 let firstRateLimitHitAt = 0
 let moderationStopReason: string | null = null
@@ -106,6 +116,99 @@ const SILENT_DROP_CHECK_THRESHOLD = 3
 // "just started, 2 messages" and prevents all-trending mode from seeing the
 // rest of the same wave.
 const RATE_LIMIT_BACKOFF_MS = 2 * 60 * 1000
+
+// === Adaptive cooldown ==================================================
+// CPM 滑动窗口:30s 足够短,突发的话几秒就能看到 CPM 抬升;同时长到能把
+// 单条噪音抹平。CPM_MIN_WINDOW_MS 是外推下限——刚启动只有一两条时
+// 不至于把 CPM 估成几百。
+const CPM_WINDOW_SEC = 30
+const CPM_MIN_WINDOW_MS = 2000
+// COOLDOWN_FLOOR_SEC 对应"最快也只 2 秒一发"的语义,在最热的房间不至于
+// 刷得太密。CEILING 让冷场房间不会冷却到天荒地老。STEALTH_K = 300 ⇒
+// 在任意 CPM 下,我们的 send 之间大约会有 5 条别人的弹幕(K/cpm 秒 ×
+// cpm/60 = K/60 = 5),读起来像是"自然地融入聊天",既不会主导热闹房间,
+// 也不会在冷场房间显得太机械。
+const COOLDOWN_FLOOR_SEC = 2
+const COOLDOWN_CEILING_SEC = 60
+const COOLDOWN_STEALTH_K = 300
+
+function pruneOldTimestamps(now: number): void {
+  const cutoff = now - CPM_WINDOW_SEC * 1000
+  let i = 0
+  while (i < messageTimestamps.length && messageTimestamps[i] < cutoff) i++
+  if (i > 0) messageTimestamps.splice(0, i)
+}
+
+/**
+ * Compute the room's current CPM (chats per minute) based on the rolling
+ * timestamp window. Pure read-mostly: prunes the window then extrapolates
+ * from the actual span (capped to {@link CPM_WINDOW_SEC}) so a fresh
+ * tracker stabilizes in seconds rather than waiting for the full window
+ * to fill.
+ */
+export function getCurrentCpm(now: number): number {
+  pruneOldTimestamps(now)
+  const n = messageTimestamps.length
+  if (n === 0) return 0
+  const spanMs = now - messageTimestamps[0]
+  const windowMs = Math.max(CPM_MIN_WINDOW_MS, Math.min(spanMs, CPM_WINDOW_SEC * 1000))
+  return Math.round((n * 60_000) / windowMs)
+}
+
+/**
+ * Map a CPM reading to a cooldown in seconds via K/cpm, clamped to
+ * [{@link COOLDOWN_FLOOR_SEC}, {@link COOLDOWN_CEILING_SEC}]. Quiet rooms
+ * (cpm == 0) get the ceiling so we don't immediately re-fire when chat
+ * goes silent right after a trigger.
+ *
+ * Pure function — exported for unit testing.
+ */
+export function computeAutoCooldownSec(cpm: number): number {
+  if (cpm <= 0) return COOLDOWN_CEILING_SEC
+  const auto = Math.round(COOLDOWN_STEALTH_K / cpm)
+  return Math.min(COOLDOWN_CEILING_SEC, Math.max(COOLDOWN_FLOOR_SEC, auto))
+}
+
+/** Cooldown(ms) that would be engaged if triggerSend fired right now. */
+export function getEffectiveCooldownMs(now: number): number {
+  if (!autoBlendCooldownAuto.value) return autoBlendCooldownSec.value * 1000
+  return computeAutoCooldownSec(getCurrentCpm(now)) * 1000
+}
+
+/** Test-only: push a synthetic timestamp into the CPM tracking window. */
+export function _pushCpmTimestampForTests(ts: number): void {
+  messageTimestamps.push(ts)
+}
+
+/** Test-only: read the current size of the CPM tracking window. */
+export function _getCpmWindowSizeForTests(): number {
+  return messageTimestamps.length
+}
+
+/** Test-only: directly invoke recordDanmaku without setting up subscriptions. */
+export function _recordDanmakuForTests(rawText: string, uid: string | null, isReply: boolean): void {
+  recordDanmaku(rawText, uid, isReply)
+}
+
+/** Test-only: seed lastAutoSentText for avoid-repeat tests. */
+export function _setLastAutoSentTextForTests(text: string | null): void {
+  lastAutoSentText = text
+}
+
+/** Test-only: read trend-map size for avoid-repeat assertions. */
+export function _getTrendMapSizeForTests(): number {
+  return trendMap.size
+}
+
+/** Test-only: observe the cooldown deadline (ms epoch). */
+export function _getCooldownUntilForTests(): number {
+  return cooldownUntil
+}
+
+/** Test-only: read lastAutoSentText (avoidRepeat ground truth). */
+export function _getLastAutoSentTextForTests(): string | null {
+  return lastAutoSentText
+}
 
 function getBurstSettleMs(): number {
   return Math.max(0, autoBlendBurstSettleMs.value)
@@ -331,17 +434,27 @@ function maybeScheduleBurstFromCurrentTrends(): void {
 function recordDanmaku(rawText: string, uid: string | null, isReply: boolean): void {
   if (!autoBlendEnabled.value) return
 
+  // 自身回声:在 CPM 跟踪之前过滤,免得自动跟车的发送被回灌进 CPM,
+  // 进而把自适应冷却推到下限,导致越发越快的正反馈。
+  if (uid && myUid && uid === myUid) return
+
   const now = Date.now()
+  // CPM 是房间整体活跃度的代理,所以这里不管后面会不会被过滤,只要不是
+  // 自身的弹幕都算上。黑名单/锁定表情/回复也算。
+  messageTimestamps.push(now)
+
   updateStatusText()
 
   const text = rawText.trim()
   if (!text) return
   if (isReply && !autoBlendIncludeReply.value) return
 
-  // Always exclude self to prevent positive feedback loops.
-  if (uid && myUid && uid === myUid) return
   if (isAutoBlendBlacklistedUid(uid)) return
   if (isLockedEmoticon(text)) return
+
+  // 不重复上次自动发送:在计数前丢弃,所以被屏蔽的句子也不会进候选榜——
+  // 仍能命中的,必然是我们刚刚自己发出去的那条。
+  if (autoBlendAvoidRepeat.value && lastAutoSentText !== null && text === lastAutoSentText) return
 
   pruneExpired(now)
 
@@ -463,7 +576,12 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
 
   // Engage cooldown and remove all targeted entries so they don't immediately
   // re-trigger when cooldown ends. Non-targeted entries keep their counts.
-  cooldownUntil = Date.now() + autoBlendCooldownSec.value * 1000
+  // 实时读 effective cooldown(自动模式下会按当前 CPM 算):突发命中的瞬间
+  // 立刻拿到积极的冷却值,而不是回看上一次 sample。
+  {
+    const cooldownNow = Date.now()
+    cooldownUntil = cooldownNow + getEffectiveCooldownMs(cooldownNow)
+  }
   for (const { text } of targets) trendMap.delete(text)
   updateCandidateText()
   updateStatusText()
@@ -496,6 +614,10 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
         logAutoBlend(formatLockedEmoticonReject(originalText, '自动跟车(表情)'), 'warning')
         continue
       }
+      // 记录"正在动手发的这一句",让 autoBlendAvoidRepeat 在内层重发循环里、
+      // 以及多目标 burst 推进到下一目标时都能立刻生效。无条件写入:开关关闭时
+      // 这个值就只是个无人读取的字段,不会带来副作用。
+      lastAutoSentText = originalText
       const isEmote = isEmoticonUnique(originalText)
       const useReplacements = autoBlendUseReplacements.value && !isEmote
       const replaced = useReplacements ? applyReplacements(originalText) : originalText
@@ -617,7 +739,10 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
           recordMemeCandidate(originalText, roomId)
         }
 
-        cooldownUntil = Math.max(cooldownUntil, Date.now() + autoBlendCooldownSec.value * 1000)
+        {
+          const cooldownNow = Date.now()
+          cooldownUntil = Math.max(cooldownUntil, cooldownNow + getEffectiveCooldownMs(cooldownNow))
+        }
         updateStatusText()
 
         if (i < repeatCount - 1) {
@@ -719,6 +844,8 @@ export function stopAutoBlend(): void {
   consecutiveSilentDrops = 0
   rateLimitHitCount = 0
   firstRateLimitHitAt = 0
+  lastAutoSentText = null
+  messageTimestamps.length = 0
   autoBlendStatusText.value = '已关闭'
   autoBlendCandidateText.value = '暂无'
   autoBlendLastActionText.value = moderationStopReason ?? '暂无'
@@ -739,6 +866,8 @@ export function _resetAutoBlendStateForTests(): void {
   moderationStopReason = null
   cooldownUntil = 0
   pendingBurstText = null
+  lastAutoSentText = null
+  messageTimestamps.length = 0
   if (burstSettleTimer) {
     clearTimeout(burstSettleTimer)
     burstSettleTimer = null

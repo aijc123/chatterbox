@@ -383,14 +383,13 @@ export function MemesList() {
       const dy = prev.top - curr.top
       if (Math.abs(dy) < 1) continue
 
-      node.style.transform = `translateY(${dy}px)`
-      node.style.transition = ''
+      // 用 Web Animations API 而不是 CSS transition：自动取消已有动画,
+      // 在快速重排时不会出现"上一条还没动完就被新值打断"的视觉残留。
+      for (const anim of node.getAnimations()) anim.cancel()
 
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          node.style.transition = 'transform .3s ease'
-          node.style.transform = ''
-        })
+      node.animate([{ transform: `translateY(${dy}px)` }, { transform: 'translateY(0)' }], {
+        duration: 300,
+        easing: 'ease',
       })
     }
   }, [memes.value])

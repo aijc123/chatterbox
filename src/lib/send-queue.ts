@@ -167,11 +167,18 @@ export function getQueueDepth(): number {
  * second `enqueueDanmaku` without waiting through `HARD_MIN_GAP_MS` carried
  * over from a previous test's send. Production code never resets this — the
  * gap is the rate-limit safety net.
+ *
+ * Also marks any inflight item cancelled so a still-pending HARD_MIN_GAP
+ * setTimeout closure from the previous test can't fire sendDanmaku into
+ * the next test's run (the item itself stays referenced by the closure;
+ * we can't stop the timer, but we can make processQueue's post-sleep
+ * cancellation re-check (line ~100) bail before sending).
  */
 export function _resetSendQueueForTests(): void {
   queue.length = 0
   processing = false
   lastSendCompletedAt = 0
+  if (inflight !== null) inflight.cancelled = true
   inflight = null
 }
 

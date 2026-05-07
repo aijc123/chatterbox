@@ -9,5 +9,9 @@ export const sonioxMaxLength = gmSignal('sonioxMaxLength', 40)
 export const sonioxWrapBrackets = gmSignal('sonioxWrapBrackets', false)
 export const sonioxTranslationEnabled = gmSignal('sonioxTranslationEnabled', false)
 export const sonioxTranslationTarget = gmSignal('sonioxTranslationTarget', 'en')
+// Empty = system default mic. The id is validated against the live device
+// list before every start; a stale id (mic unplugged across sessions)
+// silently falls back to default instead of erroring out.
+export const sonioxAudioDeviceId = gmSignal('sonioxAudioDeviceId', '')
 
 export const sttRunning = signal(false)

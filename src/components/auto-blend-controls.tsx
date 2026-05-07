@@ -6,8 +6,10 @@ import { decideAutoBlendToggle } from '../lib/auto-blend-toggle'
 import { appendLog } from '../lib/log'
 import {
   autoBlendAdvancedOpen,
+  autoBlendAvoidRepeat,
   autoBlendBurstSettleMs,
   autoBlendCandidateText,
+  autoBlendCooldownAuto,
   autoBlendCooldownSec,
   autoBlendDryRun,
   autoBlendEnabled,
@@ -36,12 +38,14 @@ function NumberInput({
   min,
   max,
   width = '40px',
+  disabled,
   onChange,
 }: {
   value: number
   min: number
   max?: number
   width?: string
+  disabled?: boolean
   onChange: (n: number) => void
 }) {
   const rangeText = max !== undefined ? `${min}–${max}` : `≥${min}`
@@ -57,6 +61,7 @@ function NumberInput({
         aria-label={rangeHint}
         style={{ width }}
         value={value}
+        disabled={disabled}
         onInput={e => {
           let v = Number.parseInt(e.currentTarget.value, 10)
           if (Number.isNaN(v) || v < min) v = min
@@ -367,6 +372,7 @@ export function AutoBlendControls() {
               value={autoBlendCooldownSec.value}
               min={4}
               width='50px'
+              disabled={autoBlendCooldownAuto.value}
               onChange={v => {
                 markCustom()
                 autoBlendCooldownSec.value = v
@@ -522,6 +528,42 @@ export function AutoBlendControls() {
               }}
             />
             <label htmlFor='autoBlendIncludeReply'>也跟 @ 回复</label>
+          </span>
+
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
+            <input
+              id='autoBlendAvoidRepeat'
+              type='checkbox'
+              checked={autoBlendAvoidRepeat.value}
+              onInput={e => {
+                markCustom()
+                autoBlendAvoidRepeat.value = e.currentTarget.checked
+              }}
+            />
+            <label
+              htmlFor='autoBlendAvoidRepeat'
+              title='开启后,与上次自动跟车发出的弹幕完全相同的新弹幕不再计入候选,避免冷却结束后被同一句话立刻再次刷上去。'
+            >
+              不重复上次自动发送
+            </label>
+          </span>
+
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
+            <input
+              id='autoBlendCooldownAuto'
+              type='checkbox'
+              checked={autoBlendCooldownAuto.value}
+              onInput={e => {
+                markCustom()
+                autoBlendCooldownAuto.value = e.currentTarget.checked
+              }}
+            />
+            <label
+              htmlFor='autoBlendCooldownAuto'
+              title='开启后按当前房间弹幕速率(CPM)动态算冷却,冷场拉长(上限 60 秒),高峰压短(下限 2 秒)。开启时上面的固定冷却数值会被忽略。'
+            >
+              自动冷却（按弹幕速率）
+            </label>
           </span>
 
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>

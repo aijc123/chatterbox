@@ -219,9 +219,17 @@ const { _resetLiveWsStateForTests, _setLiveWsFactoryForTests, startLiveWsSource,
   '../src/lib/live-ws-source'
 )
 const { _setCachedWbiKeysForTests } = await import('../src/lib/wbi')
-const { _resetAutoBlendStateForTests, startAutoBlend, stopAutoBlend } = await import('../src/lib/auto-blend')
 const {
+  _resetAutoBlendStateForTests,
+  _getLastAutoSentTextForTests,
+  _getCooldownUntilForTests,
+  startAutoBlend,
+  stopAutoBlend,
+} = await import('../src/lib/auto-blend')
+const {
+  autoBlendAvoidRepeat,
   autoBlendBurstSettleMs,
+  autoBlendCooldownAuto,
   autoBlendCooldownSec,
   autoBlendDryRun,
   autoBlendEnabled,
@@ -332,6 +340,9 @@ beforeEach(async () => {
   autoBlendMinDistinctUsers.value = 2
   // Avoid the 60s routine timer firing and reshuffling state mid-test.
   autoBlendRoutineIntervalSec.value = 3600
+  // Default both new ports off; specific tests opt in via the signal.
+  autoBlendAvoidRepeat.value = false
+  autoBlendCooldownAuto.value = false
 
   liveWs = await startAndConnect()
   initialLogLen.value = logLines.value.length
@@ -606,5 +617,92 @@ describe('integration: WS DANMU_MSG → auto-blend → enqueueDanmaku → echo v
     // the preempt's send (HARD_MIN_GAP wait would add ~1s); afterEach flushes
     // pending microtasks. Both promises were already attached to a noop catch.
     releaseBlocking?.()
+  })
+})
+
+describe('integration: WS DANMU_MSG → auto-blend ports (avoidRepeat + cooldownAuto)', () => {
+  test('avoidRepeat — same trend after cooldown ends does not re-fire', async () => {
+    // 端到端验证 autoBlendAvoidRepeat:第一波"上车"触发并发送之后,
+    // triggerSend 把 lastAutoSentText 设为"上车"。冷却结束后再有"上车"
+    // 涌入,recordDanmaku 应该早期丢弃(连 trendMap 都不进),所以哪怕
+    // cleanupTimer 再扫一遍候选也找不到"上车",而是另一个新的 trend
+    // 才能触发。
+    if (!liveWs) throw new Error('liveWs not initialized')
+    autoBlendAvoidRepeat.value = true
+
+    // 第一波:触发并跟车。
+    liveWs._emitDanmuMsg(makeDanmuMsg('上车', 1001, 'A'))
+    liveWs._emitDanmuMsg(makeDanmuMsg('上车', 1002, 'B'))
+    await flushAsync(autoBlendBurstSettleMs.value + 80)
+    expect(sendDanmakuLog).toEqual(['上车'])
+    // triggerSend 已经写入 lastAutoSentText。
+    expect(_getLastAutoSentTextForTests()).toBe('上车')
+
+    // 释放 echo wait,让 isSending 恢复。
+    liveWs._emitDanmuMsg(makeDanmuMsg('上车', 99999, 'self'))
+    await flushAsync(20)
+
+    // 推到冷却结束之后。
+    advanceNow(2000)
+
+    // 第二波"上车":即使是新 uid,也应该被 avoidRepeat 早期丢弃,不进
+    // trendMap、不会再次触发跟车。
+    liveWs._emitDanmuMsg(makeDanmuMsg('上车', 1003, 'C'))
+    liveWs._emitDanmuMsg(makeDanmuMsg('上车', 1004, 'D'))
+    await flushAsync(autoBlendBurstSettleMs.value + 80)
+
+    // 没有第二条"上车"被发出去。
+    expect(sendDanmakuLog).toEqual(['上车'])
+
+    // 但同一时刻别的 trend 仍然能正常触发——证明屏蔽是按文本而不是
+    // 全局冻结。
+    liveWs._emitDanmuMsg(makeDanmuMsg('666', 1005, 'E'))
+    liveWs._emitDanmuMsg(makeDanmuMsg('666', 1006, 'F'))
+    await flushAsync(autoBlendBurstSettleMs.value + 80)
+
+    expect(sendDanmakuLog).toEqual(['上车', '666'])
+    // lastAutoSentText 现在追到了最新的 "666"。
+    expect(_getLastAutoSentTextForTests()).toBe('666')
+  })
+
+  test('cooldownAuto — adaptive cooldown engaged at trigger time differs from manual setting', async () => {
+    // 端到端验证 autoBlendCooldownAuto:当开启时,triggerSend 应该用
+    // getEffectiveCooldownMs 算出的值(基于 CPM)而不是 autoBlendCooldownSec。
+    //
+    // 测试设置:autoBlendCooldownSec=1(手动 1 秒)。开启 cooldownAuto
+    // 之后,2 条触发消息会让 messageTimestamps 至少有 2 条,CPM 取
+    // CPM_MIN_WINDOW_MS=2s 下限算 → 60 cpm → cooldown=300/60=5s。
+    // 我们检查 cooldownUntil - now 接近 5s,而不是 1s。
+    if (!liveWs) throw new Error('liveWs not initialized')
+    autoBlendCooldownAuto.value = true
+
+    const beforeTrigger = Date.now()
+    liveWs._emitDanmuMsg(makeDanmuMsg('上车', 7001, 'A'))
+    liveWs._emitDanmuMsg(makeDanmuMsg('上车', 7002, 'B'))
+    await flushAsync(autoBlendBurstSettleMs.value + 80)
+
+    expect(sendDanmakuLog).toEqual(['上车'])
+
+    const cooldownDelta = _getCooldownUntilForTests() - beforeTrigger
+    // 手动模式会是 1000ms。自动模式 ≥ FLOOR(2000ms),通常 5000ms。
+    expect(cooldownDelta).toBeGreaterThanOrEqual(2000)
+    expect(cooldownDelta).toBeLessThanOrEqual(60_000)
+    expect(cooldownDelta).not.toBe(1000)
+  })
+
+  test('cooldownAuto OFF — cooldown matches the manual autoBlendCooldownSec', async () => {
+    // 控制对照:同样的触发,但关闭 cooldownAuto,cooldown 应该精确等于
+    // autoBlendCooldownSec.value * 1000(1000ms)。
+    if (!liveWs) throw new Error('liveWs not initialized')
+    autoBlendCooldownAuto.value = false
+    autoBlendCooldownSec.value = 1
+
+    const beforeTrigger = Date.now()
+    liveWs._emitDanmuMsg(makeDanmuMsg('666', 8001, 'A'))
+    liveWs._emitDanmuMsg(makeDanmuMsg('666', 8002, 'B'))
+    await flushAsync(autoBlendBurstSettleMs.value + 80)
+
+    expect(sendDanmakuLog).toEqual(['666'])
+    expect(_getCooldownUntilForTests() - beforeTrigger).toBe(1000)
   })
 })
