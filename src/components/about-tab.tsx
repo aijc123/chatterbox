@@ -149,12 +149,7 @@ export function AboutTab() {
               </span>
             )}
           </span>
-          <span>
-            作者:{' '}
-            <a href='https://github.com/aijc123' target='_blank' rel='noopener' style={LINK_STYLE}>
-              NougatDev
-            </a>
-          </span>
+          <span>作者: NougatDev</span>
           <span>许可证: AGPL-3.0</span>
           <span>
             源代码:{' '}

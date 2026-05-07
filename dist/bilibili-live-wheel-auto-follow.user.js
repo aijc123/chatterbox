@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.11.12
+// @version      2.11.13
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -61,7 +61,7 @@
 System.addImportMap({ imports: {"@soniox/speech-to-text-web":"user:@soniox/speech-to-text-web"} });
 System.set("user:@soniox/speech-to-text-web", (()=>{const _=SonioxSpeechToTextWeb;('default' in _)||(_.default=_);return _})());
 
-System.register("./__entry.js", ['./__monkey.entry-DlMLeNbb.js'], (function (exports, module) {
+System.register("./__entry.js", ['./__monkey.entry-7CJVq4xd.js'], (function (exports, module) {
 	'use strict';
 	return {
 		setters: [null],
@@ -73,7 +73,7 @@ System.register("./__entry.js", ['./__monkey.entry-DlMLeNbb.js'], (function (exp
 	};
 }));
 
-System.register("./__monkey.entry-DlMLeNbb.js", ['@soniox/speech-to-text-web'], (function (exports, module) {
+System.register("./__monkey.entry-7CJVq4xd.js", ['@soniox/speech-to-text-web'], (function (exports, module) {
   'use strict';
   var SonioxClient;
   return {
@@ -13598,11 +13598,7 @@ u$2("span", { children: [
                   }
                 )
               ] }),
-u$2("span", { children: [
-                "作者:",
-                " ",
-u$2("a", { href: "https://github.com/aijc123", target: "_blank", rel: "noopener", style: LINK_STYLE, children: "NougatDev" })
-              ] }),
+u$2("span", { children: "作者: NougatDev" }),
 u$2("span", { children: "许可证: AGPL-3.0" }),
 u$2("span", { children: [
                 "源代码:",
@@ -14756,7 +14752,7 @@ u$2("label", { htmlFor: "persistSendState", children: "保持当前直播间独�
         bumpDailyLlmCalls(roomId);
         try {
           const chooser = opts?.chooser ?? (await __vitePreload(async () => {
-            const { chooseMemeWithLLM } = await module.import('./llm-driver-e7c3Zw4l-CZfMwmzq.js');
+            const { chooseMemeWithLLM } = await module.import('./llm-driver-D6pULRuN-CUSVjafX.js');
             return { chooseMemeWithLLM };
           }, true ? void 0 : void 0)).chooseMemeWithLLM;
           const chosenContent = await chooser({
@@ -15013,7 +15009,7 @@ u$2("label", { htmlFor: "persistSendState", children: "保持当前直播间独�
           testError.value = "";
           try {
             const { testLLMConnection } = await __vitePreload(async () => {
-              const { testLLMConnection: testLLMConnection2 } = await module.import('./llm-driver-e7c3Zw4l-CZfMwmzq.js');
+              const { testLLMConnection: testLLMConnection2 } = await module.import('./llm-driver-D6pULRuN-CUSVjafX.js');
               return { testLLMConnection: testLLMConnection2 };
             }, true ? void 0 : void 0);
             const r2 = await testLLMConnection({
@@ -21015,7 +21011,7 @@ u$2(AlertDialog, {})
   };
 }));
 
-System.register("./llm-driver-e7c3Zw4l-CZfMwmzq.js", ['./__monkey.entry-DlMLeNbb.js', '@soniox/speech-to-text-web'], (function (exports, module) {
+System.register("./llm-driver-D6pULRuN-CUSVjafX.js", ['./__monkey.entry-7CJVq4xd.js', '@soniox/speech-to-text-web'], (function (exports, module) {
   'use strict';
   var appendLog, gmFetch, BASE_URL;
   return {
