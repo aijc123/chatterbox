@@ -431,11 +431,13 @@ export function SttTab() {
             刷新
           </button>
         </div>
+        <div className='cb-row' style={{ display: 'flex', alignItems: 'center', marginBottom: '.25em' }}>
+          <span>语言提示：</span>
+        </div>
         <div
           className='cb-row'
           style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.5em' }}
         >
-          <span>语言提示：</span>
           {(['zh', 'en', 'ja', 'ko'] as const).map(lang => {
             const labels: Record<string, string> = { zh: '中文', en: 'English', ja: '日本語', ko: '한국어' }
             return (
