@@ -1,7 +1,7 @@
 {
   "name": "bilibili-live-wheel-auto-follow",
   "private": true,
-  "version": "2.11.2",
+  "version": "2.11.3",
   "description": "B站/哔哩哔哩直播间独轮车、自动跟车、Chatterbox Chat 和粉丝牌禁言巡检弹幕助手 userscript",
   "homepage": "https://github.com/aijc123/bilibili-live-wheel-auto-follow",
   "repository": {
@@ -21,6 +21,9 @@
     "粉丝牌禁言巡检",
     "哔哩哔哩直播"
   ],
+  "greasyfork": {
+    "scriptId": "574939"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
