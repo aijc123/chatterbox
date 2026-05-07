@@ -14,6 +14,7 @@ import {
   formatAutoBlendStatus,
   shortAutoBlendText,
 } from './auto-blend-status'
+import { consultRadarBoost } from './auto-blend-radar'
 import { detectTrend, type TrendEvent } from './auto-blend-trend'
 import { subscribeCustomChatEvents } from './custom-chat-events'
 import { subscribeDanmaku } from './danmaku-stream'
@@ -28,7 +29,6 @@ import {
   isMutedError,
   isRateLimitError,
 } from './moderation'
-import { queryClusterRank } from './radar-client'
 import { applyReplacements } from './replacement'
 import { enqueueDanmaku, SendPriority } from './send-queue'
 import { verifyBroadcast } from './send-verification'
@@ -54,7 +54,6 @@ import {
   cachedRoomId,
   maxLength,
   msgSendInterval,
-  radarConsultEnabled,
   randomChar,
   randomColor,
   randomInterval,
@@ -463,39 +462,12 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
   pruneExpired(Date.now())
   const targets = collectBurst(triggeredText, reason)
 
-  // Soft radar consult gate (Week 8). Default OFF — only fires when the user
-  // opted into radarConsultEnabled. Acts as an additional signal on top of the
-  // local trend gate, never as a replacement:
-  //   - radar isTrending=true  → log a confidence boost and proceed (signal +1)
-  //   - radar isTrending=false → skip THIS send without engaging cooldown so a
-  //                              stronger local wave can re-trigger (signal -1)
-  //   - radar matched=false / network error → silent fall-through to local logic
-  //
-  // Note: queryClusterRank() already swallows all errors and returns null; the
-  // try/catch here is defense-in-depth only.
-  if (radarConsultEnabled.value) {
-    try {
-      const rank = await queryClusterRank(triggeredText)
-      if (rank?.isTrending) {
-        const rankLabel = rank.currentRankToday !== null ? `今日第 ${rank.currentRankToday} 位` : 'trending'
-        logAutoBlend(
-          `自动跟车：📡 radar 确认（簇 #${rank.clusterId}，${rankLabel}）：${shortAutoBlendText(triggeredText)}`
-        )
-      } else if (rank) {
-        autoBlendLastActionText.value = `radar 否决：${shortAutoBlendText(triggeredText)}`
-        logAutoBlend(
-          `自动跟车：📡 radar 标记此候选未在跨房间 trending（簇 #${rank.clusterId}），跳过本次：${shortAutoBlendText(triggeredText)}`,
-          'warning'
-        )
-        isSending = false
-        updateStatusText()
-        return
-      }
-      // rank === null → no match in radar, fall through silently
-    } catch {
-      // queryClusterRank already returns null on failure; fail-open here too.
-    }
-  }
+  // Optional radar boost (experimental, default OFF). Boost-only / passive:
+  // radar can ADD a confidence log when it sees the same meme heating up
+  // across other rooms, but it must never block, skip, or alter the local
+  // send. Users want to follow THIS room's vibe; a cross-room signal must
+  // not veto a local meme.
+  await consultRadarBoost(triggeredText)
 
   // Engage cooldown and remove all targeted entries so they don't immediately
   // re-trigger when cooldown ends. Non-targeted entries keep their counts.

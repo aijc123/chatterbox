@@ -124,24 +124,19 @@ bun run build
 
 不要在 issue、截图或导出的配置里公开 cookie、csrf token、账号密钥、localStorage dump、私人房间规则或私有同步地址。
 
-## 传感器（live-meme-radar）
+## 传感器（live-meme-radar，实验，默认关闭）
 
-[live-meme-radar](https://live-meme-radar.pages.dev) 是与本项目分离的"meme 雷达"传感器：它消化几十个直播间的弹幕，聚类成跨房间 meme，把"今天哪些梗在多个房间同时刷起来"这一信号开放给 userscript。它本身**不发送弹幕**，只读、聚合、暴露公开 API。
+[live-meme-radar](https://live-meme-radar.pages.dev) 是与本项目分离的只读"meme 雷达"传感器：它消化几十个直播间的弹幕、聚类成跨房间 meme，把"今天哪些梗在多个房间同时刷起来"的信号开放给 userscript。它本身**不发送弹幕**，只读、聚合、暴露公开 API。
 
-设置面板里 → 工具 → "Meme 雷达（live-meme-radar）" 区块下有两个独立开关，**默认全部关闭**：
+设置面板 → 工具 → "Meme 雷达（live-meme-radar）" 区块下有一个**默认关闭**的实验开关：
 
-- **"启用 radar 软门（自动跟车）"** — `radarConsultEnabled`。打开后，自动跟车在准备发送某条候选弹幕之前会调用一次 `GET /radar/cluster-rank`：
-  - 雷达确认该梗当下"跨房间 trending" → 在日志里打一条 boost 备注，然后正常按本地节奏发送。
-  - 雷达匹配到了对应簇但今天**未** trending → 视作本房间的局部噪声，跳过这次发送（不冷却、不消耗 trendMap，本轮新弹幕足够强还能再触发）。
-  - 雷达没匹配到 / 网络挂 / 4s 超时 → 完全按本地逻辑继续，雷达失联绝不阻塞主流程。
-- **"把本房间聚合 sample 上传给 radar"** — `radarReportEnabled`。Week 9-10 起 radar 会接收 `POST /radar/report` 双源数据贡献。在那之前打开开关也是无害的（endpoint 不存在 → 静默 404）。上传内容只包含：
-  - 房间号、主播 channelUid、时间窗口起止
-  - 已 dedupe 后的短文本数组（≤30 条，每条 ≤200 字）
-  - **不**送单条弹幕明文 + 发送者 uid 的对应关系；如果将来需要送 uid 也只送 SHA-256(salt + uid) 之后的哈希。
+- **"实验：用跨房间热度增强自动跟车"** — `radarConsultEnabled`。打开后，自动跟车在准备发送某条候选弹幕之前会调用一次 `GET /radar/cluster-rank`：
+  - 雷达确认该梗也在其他房间 trending → 在日志里加一条确认提示，然后正常按本地节奏发送。
+  - 其他任何情况（雷达匹配但本日未 trending / 没匹配 / 网络挂 / 4s 超时）→ 完全按本地自动跟车逻辑继续。**雷达永远不会阻止、跳过或延迟本地发送。**
 
-两条路径走 `GM_xmlhttpRequest`（绕开浏览器 CORS），失败一律静默不影响主流程。开发期可在设置里通过 `radarBackendUrlOverride` 指到自部署 radar（`http://localhost:8788` 或自有 *.workers.dev）。
+雷达请求走 `GM_xmlhttpRequest`（绕开浏览器 CORS），失败一律静默不影响主流程。开发期可在设置里通过 `radarBackendUrlOverride` 指到自部署 radar（`http://localhost:8788` 或自有 `*.workers.dev`）。
 
-更多 radar 项目细节、自部署指南、API 形态请见：<https://live-meme-radar.pages.dev>。
+当前版本不会把本房间任何数据上传到 radar；本地 userscript 只读取雷达发布的聚合统计。更多 radar 项目细节、自部署指南、API 形态请见：<https://live-meme-radar.pages.dev>。
 
 ## 常见问题和排障
 
