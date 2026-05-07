@@ -12,6 +12,7 @@ import { appendLog, notifyUser } from '../lib/log'
 import { ignoreMemeCandidate } from '../lib/meme-contributor'
 import { fetchAllMemes, type MemeSortBy, sortMemes } from '../lib/meme-fetch'
 import { getMemeSourceForRoom } from '../lib/meme-sources'
+import { lookupTrendingMatch, refreshTrendingMemes, type TrendingMatch, trendingMemeKeys } from '../lib/meme-trending'
 import { applyReplacements } from '../lib/replacement'
 import { maybeProbeSbhzmFreshness } from '../lib/sbhzm-freshness-probe'
 import { enqueueDanmaku, SendPriority } from '../lib/send-queue'
@@ -49,6 +50,28 @@ const TAG_COLORS: Record<string, string> = {
   pink: '#ec4899',
   cyan: '#06b6d4',
   green: '#22c55e',
+}
+
+function TrendingBadge({ match }: { match: TrendingMatch }) {
+  // Compact 🔥 chip rendered next to SourceBadge. Tooltip carries the rank;
+  // the visual itself stays tiny so it doesn't crowd the meme content.
+  const title = `今日跨房间热门 · 第 ${match.rank} 位（簇 #${match.clusterId}）`
+  return (
+    <span
+      title={title}
+      style={{
+        display: 'inline-block',
+        flexShrink: 0,
+        marginRight: '.3em',
+        padding: '0 .25em',
+        fontSize: '10px',
+        lineHeight: 1.6,
+        verticalAlign: 'middle',
+      }}
+    >
+      🔥
+    </span>
+  )
 }
 
 function SourceBadge({ source }: { source: 'laplace' | 'sbhzm' | 'cb' | undefined }) {
@@ -243,6 +266,14 @@ function MemeItem({
           }}
         >
           <SourceBadge source={meme._source} />
+          {(() => {
+            // Subscribe to trendingMemeKeys.value so this card re-renders when
+            // refreshTrendingMemes() lands. Reading .value here is enough for
+            // Preact signals to track the dependency.
+            void trendingMemeKeys.value
+            const match = lookupTrendingMatch(meme.content)
+            return match ? <TrendingBadge match={match} /> : null
+          })()}
           {meme.content}
         </button>
       </div>
@@ -344,6 +375,12 @@ export function MemesList() {
       status.value = parts.length > 1 ? parts.join(' + ') : `${data.length} 条`
       memes.value = data
       currentMemesList.value = data
+
+      // Fire-and-forget refresh of the cross-room trending map. TTL-gated
+      // inside the helper so calling this from every 30s loadMemes tick
+      // collapses to one network request per 10 min. Failures are silent —
+      // worst case the 🔥 badges just don't appear.
+      void refreshTrendingMemes()
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       status.value = `加载失败: ${msg}`

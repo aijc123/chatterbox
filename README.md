@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/aijc123/bilibili-live-wheel-auto-follow/actions/workflows/ci.yml/badge.svg)](https://github.com/aijc123/bilibili-live-wheel-auto-follow/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/aijc123/bilibili-live-wheel-auto-follow/branch/master/graph/badge.svg)](https://codecov.io/gh/aijc123/bilibili-live-wheel-auto-follow)
-[![Greasy Fork installs](https://img.shields.io/greasyfork/dt/574939?label=installs&color=brightgreen)](https://greasyfork.org/zh-CN/scripts/574939)
-[![Greasy Fork version](https://img.shields.io/greasyfork/v/574939?color=blue)](https://greasyfork.org/zh-CN/scripts/574939)
+[![Greasy Fork installs](https://img.shields.io/badge/installs-27-brightgreen)](https://greasyfork.org/zh-CN/scripts/574939)
+[![Greasy Fork version](https://img.shields.io/badge/greasy%20fork-v2.11.2-blue)](https://greasyfork.org/zh-CN/scripts/574939)
 [![Bundle size](https://img.shields.io/github/size/aijc123/bilibili-live-wheel-auto-follow/dist/bilibili-live-wheel-auto-follow.user.js?label=userscript%20size)](https://github.com/aijc123/bilibili-live-wheel-auto-follow/blob/master/dist/bilibili-live-wheel-auto-follow.user.js)
 [![Last commit](https://img.shields.io/github/last-commit/aijc123/bilibili-live-wheel-auto-follow)](https://github.com/aijc123/bilibili-live-wheel-auto-follow/commits/master)
 [![License: AGPL-3.0](https://img.shields.io/github/license/aijc123/bilibili-live-wheel-auto-follow)](LICENSE)
@@ -91,7 +91,7 @@ bun run build
   - `localhost`：本地开发和自托管后端测试。
   - `sbhzm.cn`：烂梗库专属梗源（社区自建库）。
   - `chatterbox-cloud.aijc-eric.workers.dev`：本仓库 `server/` 自建后端，聚合 LAPLACE+SBHZM+社区贡献的梗库；可在设置里通过 `cbBackendUrlOverride` 指向自有部署。
-  - `live-meme-radar.aijc-eric.workers.dev`：可选的 [live-meme-radar](https://live-meme-radar.pages.dev) 传感器后端，用于"自动跟车"软门和（Week 9-10 起的）双源数据贡献。两条路径默认关闭；可在设置里通过 `radarBackendUrlOverride` 指向自有部署。详见下面的"传感器（live-meme-radar）"小节。
+  - `live-meme-radar.aijc-eric.workers.dev`：[live-meme-radar](https://live-meme-radar.pages.dev) 传感器后端，烂梗库面板打开时后台拉一次 `GET /radar/clusters/today`（10 分钟缓存）用于给跨房间热门梗加 🔥 徽章；纯被动，无用户开关，详见下面的"传感器（live-meme-radar）"小节。
   - `api.anthropic.com`、`api.openai.com`：智能辅助驾驶（LLM 改写/AI 规避）默认 provider，仅在你填入 API key 并启用相关功能时调用。
   - `*`：兜底项，让你能填入 OpenAI 兼容的自定义 base URL（DeepSeek、Moonshot、OpenRouter、Ollama、小米 mimo 等）。脚本管理器仍会在首次访问每个新域时单独弹窗确认，这是这些自定义 LLM 调用的最后一道闸门。
 - `GM_addStyle`：向页面注入弹幕助手和 Chatterbox Chat 的隔离样式。
@@ -117,26 +117,20 @@ bun run build
 - Soniox：仅在启用并使用同传/语音识别时涉及音频识别能力。
 - 直播间保安室：完全可选。开启后只同步巡检摘要或选定规则，不应上传 cookie、csrf、localStorage 或完整 B 站接口响应。
 - 烂梗库梗源（`sbhzm.cn` 社区库 / `chatterbox-cloud.aijc-eric.workers.dev` 自建聚合后端）：仅在打开烂梗库或社区贡献时拉取梗列表；可在设置里改成自部署地址或关闭该功能。
-- live-meme-radar 传感器（`live-meme-radar.aijc-eric.workers.dev`）：完全可选，默认关闭。详见下面的"传感器（live-meme-radar）"小节。
+- live-meme-radar 传感器（`live-meme-radar.aijc-eric.workers.dev`）：烂梗库面板打开时后台只读拉一次 trending 列表给 🔥 徽章用，每 10 分钟最多一次，不上传任何本地数据。详见下面的"传感器（live-meme-radar）"小节。
 - LLM 智能辅助驾驶（`api.anthropic.com`、`api.openai.com`，以及任何你自填的 OpenAI 兼容 base URL）：仅在你填入 API key 并主动开启 AI 规避/改写时才会调用，prompt 内容只包含当前要改写的弹幕和必要上下文。
 - GitHub Pages / Greasy Fork：用于托管官网、发布产物和安装页面。
 - unpkg：用于加载 Soniox 浏览器端客户端。
 
 不要在 issue、截图或导出的配置里公开 cookie、csrf token、账号密钥、localStorage dump、私人房间规则或私有同步地址。
 
-## 传感器（live-meme-radar，实验，默认关闭）
+## 传感器（live-meme-radar）
 
 [live-meme-radar](https://live-meme-radar.pages.dev) 是与本项目分离的只读"meme 雷达"传感器：它消化几十个直播间的弹幕、聚类成跨房间 meme，把"今天哪些梗在多个房间同时刷起来"的信号开放给 userscript。它本身**不发送弹幕**，只读、聚合、暴露公开 API。
 
-设置面板 → 工具 → "Meme 雷达（live-meme-radar）" 区块下有一个**默认关闭**的实验开关：
+userscript 把雷达数据用作烂梗库的辅助标记：打开烂梗库面板时，后台异步拉一次 `GET /radar/clusters/today`（10 分钟内存缓存），命中"今日跨房间热门"的梗在烂梗库面板里多一个 🔥 小徽章 + tooltip "今日第 N 位"。**没有用户设置开关、不影响自动跟车，雷达失联时只是徽章不出现，烂梗库本身不受影响。**
 
-- **"实验：用跨房间热度增强自动跟车"** — `radarConsultEnabled`。打开后，自动跟车在准备发送某条候选弹幕之前会调用一次 `GET /radar/cluster-rank`：
-  - 雷达确认该梗也在其他房间 trending → 在日志里加一条确认提示，然后正常按本地节奏发送。
-  - 其他任何情况（雷达匹配但本日未 trending / 没匹配 / 网络挂 / 4s 超时）→ 完全按本地自动跟车逻辑继续。**雷达永远不会阻止、跳过或延迟本地发送。**
-
-雷达请求走 `GM_xmlhttpRequest`（绕开浏览器 CORS），失败一律静默不影响主流程。开发期可在设置里通过 `radarBackendUrlOverride` 指到自部署 radar（`http://localhost:8788` 或自有 `*.workers.dev`）。
-
-当前版本不会把本房间任何数据上传到 radar；本地 userscript 只读取雷达发布的聚合统计。更多 radar 项目细节、自部署指南、API 形态请见：<https://live-meme-radar.pages.dev>。
+请求走 `GM_xmlhttpRequest`（绕开浏览器 CORS），失败一律静默。当前版本不会把本房间任何数据上传到 radar；本地 userscript 只读取雷达发布的聚合统计。更多 radar 项目细节、自部署指南、API 形态请见：<https://live-meme-radar.pages.dev>。
 
 ## 常见问题和排障
 

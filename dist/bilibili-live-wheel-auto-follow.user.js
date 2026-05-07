@@ -59,7 +59,7 @@
 System.addImportMap({ imports: {"@soniox/speech-to-text-web":"user:@soniox/speech-to-text-web"} });
 System.set("user:@soniox/speech-to-text-web", (()=>{const _=SonioxSpeechToTextWeb;('default' in _)||(_.default=_);return _})());
 
-System.register("./__entry.js", ['./__monkey.entry-DKci02r-.js'], (function (exports, module) {
+System.register("./__entry.js", ['./__monkey.entry-BMPnrVcg.js'], (function (exports, module) {
 	'use strict';
 	return {
 		setters: [null],
@@ -71,7 +71,7 @@ System.register("./__entry.js", ['./__monkey.entry-DKci02r-.js'], (function (exp
 	};
 }));
 
-System.register("./__monkey.entry-DKci02r-.js", ['@soniox/speech-to-text-web'], (function (exports, module) {
+System.register("./__monkey.entry-BMPnrVcg.js", ['@soniox/speech-to-text-web'], (function (exports, module) {
   'use strict';
   var SonioxClient;
   return {
@@ -1962,7 +1962,7 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
         const next = !cur || cur.date !== today ? { date: today, sent: 0, llmCalls: delta } : { ...cur, llmCalls: cur.llmCalls + delta };
         hzmDailyStatsByRoom.value = { ...hzmDailyStatsByRoom.value, [key]: next };
       }
-      const radarConsultEnabled = gmSignal("radarConsultEnabled", false);
+      gmSignal("radarConsultEnabled", false);
       gmSignal("radarReportEnabled", false);
       const radarBackendUrlOverride = gmSignal("radarBackendUrlOverride", "");
       (() => {
@@ -3096,7 +3096,7 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
       const queue = [];
       let processing = false;
       let lastSendCompletedAt = 0;
-      let inflight = null;
+      let inflight$1 = null;
       function cancelAutoItem(item, error) {
         if (item.cancelled || item.priority !== SendPriority.AUTO) return;
         item.cancelled = true;
@@ -3115,7 +3115,7 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
             while (queue.length > 0 && queue[0].cancelled) queue.shift();
             const item = queue.shift();
             if (!item) break;
-            inflight = item;
+            inflight$1 = item;
             if (lastSendCompletedAt > 0) {
               const sinceLast = Date.now() - lastSendCompletedAt;
               if (sinceLast < HARD_MIN_GAP_MS) {
@@ -3123,10 +3123,10 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
               }
             }
             if (item.cancelled) {
-              inflight = null;
+              inflight$1 = null;
               continue;
             }
-            inflight = null;
+            inflight$1 = null;
             try {
               const result = await sendDanmaku(item.message, item.roomId, item.csrfToken);
               lastSendCompletedAt = Date.now();
@@ -3149,7 +3149,7 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
           const item = { message, roomId, csrfToken, priority, resolve, reject, cancelled: false };
           insertByPriority(item);
           if (priority === SendPriority.MANUAL) {
-            if (inflight !== null) cancelAutoItem(inflight, "preempted");
+            if (inflight$1 !== null) cancelAutoItem(inflight$1, "preempted");
             for (const q2 of queue) {
               if (q2 !== item) cancelAutoItem(q2, "preempted");
             }
@@ -3158,7 +3158,7 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
         });
       }
       function cancelPendingAuto() {
-        if (inflight !== null) cancelAutoItem(inflight, "loop-stopped");
+        if (inflight$1 !== null) cancelAutoItem(inflight$1, "loop-stopped");
         for (const q2 of queue) cancelAutoItem(q2, "loop-stopped");
       }
       const SENSITIVE_WORD_MAX_LEN = 200;
@@ -7830,81 +7830,6 @@ _clearForTests() {
         if (!best) return "暂无";
         return `${shortAutoBlendText(best.text)}（${formatAutoBlendSenderInfo(best.uniqueUsers, best.totalCount)}）`;
       }
-      function normalizeRadarBackendUrl(input) {
-        const trimmed = input.trim().replace(/\/+$/, "");
-        if (!trimmed) return "";
-        let parsed;
-        try {
-          parsed = new URL(trimmed);
-        } catch {
-          return "";
-        }
-        if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return "";
-        if (parsed.protocol === "http:") {
-          const host = parsed.hostname;
-          const bare = host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
-          const isLoopback = bare === "localhost" || bare === "127.0.0.1" || bare === "::1";
-          if (!isLoopback) return "";
-        }
-        return trimmed;
-      }
-      function getRadarBackendBaseUrl() {
-        const overrideRaw = radarBackendUrlOverride.value;
-        const overrideOk = normalizeRadarBackendUrl(overrideRaw);
-        if (overrideOk) return overrideOk;
-        return BASE_URL.RADAR_BACKEND.replace(/\/+$/, "");
-      }
-      async function queryClusterRank(text, roomId) {
-        const trimmed = text.trim();
-        if (!trimmed) return null;
-        if (trimmed.length > 500) return null;
-        const base = getRadarBackendBaseUrl();
-        if (!base) return null;
-        const params = new URLSearchParams();
-        params.set("text", trimmed);
-        const url = `${base}/radar/cluster-rank?${params.toString()}`;
-        let resp;
-        try {
-          resp = await gmFetch(url, {
-            method: "GET",
-            headers: { Accept: "application/json" },
-
-timeoutMs: 4e3
-          });
-        } catch {
-          return null;
-        }
-        if (!resp.ok) return null;
-        let body;
-        try {
-          body = resp.json();
-        } catch {
-          return null;
-        }
-        if (body.matched !== true) return null;
-        if (typeof body.clusterId !== "number") return null;
-        return {
-          clusterId: body.clusterId,
-          similarity: typeof body.similarity === "number" ? body.similarity : 0,
-          currentRankToday: typeof body.currentRankToday === "number" ? body.currentRankToday : null,
-          heatScore: typeof body.heatScore === "number" ? body.heatScore : 0,
-          slopeScore: typeof body.slopeScore === "number" ? body.slopeScore : 0,
-          isTrending: body.isTrending === true
-        };
-      }
-      async function consultRadarBoost(triggeredText) {
-        if (!radarConsultEnabled.value) return;
-        try {
-          const rank = await queryClusterRank(triggeredText);
-          if (rank?.isTrending) {
-            const rankLabel = rank.currentRankToday !== null ? `今日第 ${rank.currentRankToday} 位` : "trending";
-            logAutoBlend(
-              `自动跟车：📡 radar 确认跨房间热度（簇 #${rank.clusterId}，${rankLabel}）：${shortAutoBlendText(triggeredText)}`
-            );
-          }
-        } catch {
-        }
-      }
       function detectTrend(events, windowMs, threshold) {
         const now = events.reduce((latest, event) => Math.max(latest, event.ts), 0);
         const windowStart = now - Math.max(0, windowMs);
@@ -8350,7 +8275,6 @@ timeoutMs: 4e3
         updateStatusText();
         pruneExpired(Date.now());
         const targets = collectBurst(triggeredText, reason);
-        await consultRadarBoost(triggeredText);
         cooldownUntil = Date.now() + autoBlendCooldownSec.value * 1e3;
         for (const { text } of targets) trendMap.delete(text);
         updateCandidateText();
@@ -14481,7 +14405,7 @@ u$2("label", { htmlFor: "persistSendState", children: "保持当前直播间独�
         bumpDailyLlmCalls(roomId);
         try {
           const chooser = opts?.chooser ?? (await __vitePreload(async () => {
-            const { chooseMemeWithLLM } = await module.import('./llm-driver-A-x1tmdz-Dvq6V3DH.js');
+            const { chooseMemeWithLLM } = await module.import('./llm-driver-DdEJZMY3-QZuMQaY2.js');
             return { chooseMemeWithLLM };
           }, true ? void 0 : void 0)).chooseMemeWithLLM;
           const chosenContent = await chooser({
@@ -14738,7 +14662,7 @@ u$2("label", { htmlFor: "persistSendState", children: "保持当前直播间独�
           testError.value = "";
           try {
             const { testLLMConnection } = await __vitePreload(async () => {
-              const { testLLMConnection: testLLMConnection2 } = await module.import('./llm-driver-A-x1tmdz-Dvq6V3DH.js');
+              const { testLLMConnection: testLLMConnection2 } = await module.import('./llm-driver-DdEJZMY3-QZuMQaY2.js');
               return { testLLMConnection: testLLMConnection2 };
             }, true ? void 0 : void 0);
             const r2 = await testLLMConnection({
@@ -15622,6 +15546,101 @@ u$2("div", { className: "cb-body", children: u$2(
         sortMemes(merged, sortBy);
         return merged;
       }
+      function normalizeRadarBackendUrl(input) {
+        const trimmed = input.trim().replace(/\/+$/, "");
+        if (!trimmed) return "";
+        let parsed;
+        try {
+          parsed = new URL(trimmed);
+        } catch {
+          return "";
+        }
+        if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return "";
+        if (parsed.protocol === "http:") {
+          const host = parsed.hostname;
+          const bare = host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+          const isLoopback = bare === "localhost" || bare === "127.0.0.1" || bare === "::1";
+          if (!isLoopback) return "";
+        }
+        return trimmed;
+      }
+      function getRadarBackendBaseUrl() {
+        const overrideRaw = radarBackendUrlOverride.value;
+        const overrideOk = normalizeRadarBackendUrl(overrideRaw);
+        if (overrideOk) return overrideOk;
+        return BASE_URL.RADAR_BACKEND.replace(/\/+$/, "");
+      }
+      async function fetchTodayRadar(limit = 20) {
+        const base = getRadarBackendBaseUrl();
+        if (!base) return [];
+        const n2 = Math.floor(Number(limit));
+        const safeLimit = Number.isFinite(n2) ? Math.max(1, Math.min(100, n2)) : 20;
+        const url = `${base}/radar/clusters/today?limit=${safeLimit}`;
+        try {
+          const resp = await gmFetch(url, {
+            method: "GET",
+            headers: { Accept: "application/json" },
+            timeoutMs: 8e3
+          });
+          if (!resp.ok) {
+            appendLog(`⚠️ live-meme-radar HTTP ${resp.status}(/clusters/today)`);
+            return [];
+          }
+          const body = resp.json();
+          if (!Array.isArray(body.items)) return [];
+          return body.items.filter(isRadarClusterSummary);
+        } catch (err) {
+          appendLog(`⚠️ live-meme-radar 网络错误(/clusters/today):${err instanceof Error ? err.message : String(err)}`);
+          return [];
+        }
+      }
+      function isRadarClusterSummary(x2) {
+        if (!x2 || typeof x2 !== "object") return false;
+        const r2 = x2;
+        return typeof r2.id === "number" && typeof r2.representativeText === "string" && typeof r2.memberCount === "number";
+      }
+      const trendingMemeKeys = y$1( new Map());
+      const TTL_MS = 10 * 60 * 1e3;
+      const FETCH_LIMIT = 50;
+      let lastFetchAt = 0;
+      let inflight = null;
+      async function refreshTrendingMemes(force = false) {
+        const now = Date.now();
+        if (!force && now - lastFetchAt < TTL_MS) return;
+        if (inflight) return inflight;
+        inflight = (async () => {
+          try {
+            const clusters = await fetchTodayRadar(FETCH_LIMIT);
+            lastFetchAt = Date.now();
+            trendingMemeKeys.value = buildTrendingMap(clusters);
+          } finally {
+            inflight = null;
+          }
+        })();
+        return inflight;
+      }
+      function buildTrendingMap(clusters) {
+        const map = new Map();
+        for (let i2 = 0; i2 < clusters.length; i2++) {
+          const c2 = clusters[i2];
+          const key = memeContentKey(c2.representativeText);
+          if (!key) continue;
+          if (!map.has(key)) {
+            map.set(key, {
+              rank: i2 + 1,
+              clusterId: c2.id,
+              heatScore: c2.heatScore,
+              slopeScore: c2.slopeScore
+            });
+          }
+        }
+        return map;
+      }
+      function lookupTrendingMatch(content) {
+        const key = memeContentKey(content);
+        if (!key) return null;
+        return trendingMemeKeys.value.get(key) ?? null;
+      }
       const PROBE_INTERVAL_MS = 30 * 60 * 1e3;
       const lastProbeByEndpoint = new Map();
       async function maybeProbeSbhzmFreshness(source, options = {}) {
@@ -16052,6 +16071,25 @@ u$2("span", { style: { color: "#888", marginLeft: "auto", fontSize: "10px" }, ch
         cyan: "#06b6d4",
         green: "#22c55e"
       };
+      function TrendingBadge({ match }) {
+        const title = `今日跨房间热门 · 第 ${match.rank} 位（簇 #${match.clusterId}）`;
+        return u$2(
+          "span",
+          {
+            title,
+            style: {
+              display: "inline-block",
+              flexShrink: 0,
+              marginRight: ".3em",
+              padding: "0 .25em",
+              fontSize: "10px",
+              lineHeight: 1.6,
+              verticalAlign: "middle"
+            },
+            children: "🔥"
+          }
+        );
+      }
       function SourceBadge({ source }) {
         if (!source || source === "laplace") return null;
         const config = source === "sbhzm" ? { letter: "H", bg: "#10b981", title: "来自社区专属梗库（sbhzm.cn）" } : { letter: "C", bg: "#3b82f6", title: "来自 chatterbox-cloud 自建梗库" };
@@ -16224,6 +16262,11 @@ u$2(
                     },
                     children: [
 u$2(SourceBadge, { source: meme._source }),
+                      (() => {
+                        void trendingMemeKeys.value;
+                        const match = lookupTrendingMatch(meme.content);
+                        return match ? u$2(TrendingBadge, { match }) : null;
+                      })(),
                       meme.content
                     ]
                   }
@@ -16314,6 +16357,7 @@ u$2(
             status.value = parts.length > 1 ? parts.join(" + ") : `${data.length} 条`;
             memes.value = data;
             currentMemesList.value = data;
+            void refreshTrendingMemes();
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             status.value = `加载失败: ${msg}`;
@@ -17067,7 +17111,7 @@ u$2("p", { style: { color: "#666", fontSize: "0.8em", margin: ".25em 0 0" }, chi
           ] })
         ] });
       }
-      const SECTION_KEYWORDS$2 = "梗库后端 chatterbox cloud cb 后端 自建 backend localhost";
+      const SECTION_KEYWORDS$1 = "梗库后端 chatterbox cloud cb 后端 自建 backend localhost";
       function statusDotColor(state) {
         switch (state) {
           case "ok":
@@ -17093,7 +17137,7 @@ u$2("p", { style: { color: "#666", fontSize: "0.8em", margin: ".25em 0 0" }, chi
         }
       }
       function CbBackendSection({ query = "" }) {
-        const visible = !query || SECTION_KEYWORDS$2.toLowerCase().includes(query);
+        const visible = !query || SECTION_KEYWORDS$1.toLowerCase().includes(query);
         if (!visible) return null;
         async function handleProbe() {
           await probeAndUpdateCbBackendHealth();
@@ -18395,60 +18439,6 @@ u$2("br", {}),
           )
         ] });
       }
-      const SECTION_KEYWORDS$1 = "radar 雷达 live-meme-radar trending 跨房间 meme 传感器 sensor cluster rank amplifier";
-      function RadarSection({ query = "" }) {
-        const visible = !query || SECTION_KEYWORDS$1.toLowerCase().includes(query);
-        if (!visible) return null;
-        return u$2("details", { className: "cb-settings-accordion", children: [
-u$2("summary", { children: u$2("span", { className: "cb-accordion-title", children: "Meme 雷达（live-meme-radar）" }) }),
-u$2("div", { className: "cb-section cb-stack", style: { margin: ".5em 0", paddingBottom: "1em" }, children: [
-u$2("div", { className: "cb-heading", style: { fontWeight: "bold", marginBottom: ".5em" }, children: "Meme 雷达（live-meme-radar）" }),
-u$2("div", { className: "cb-note", style: { color: "#666", fontSize: "0.85em", marginBottom: ".5em" }, children: [
-              '独立的"meme 传感器"项目，聚类几十个直播间的弹幕成跨房间 meme。该开关默认关闭， 启用前 userscript 行为完全等同旧版。完整说明见',
-              " ",
-u$2("a", { href: "https://live-meme-radar.pages.dev", target: "_blank", rel: "noreferrer", children: "live-meme-radar.pages.dev" }),
-              "。"
-            ] }),
-u$2("label", { className: "cb-row", style: { display: "flex", gap: ".5em", alignItems: "flex-start" }, children: [
-u$2(
-                "input",
-                {
-                  type: "checkbox",
-                  style: { marginTop: ".2em" },
-                  checked: radarConsultEnabled.value,
-                  onChange: (e2) => {
-                    radarConsultEnabled.value = e2.currentTarget.checked;
-                  }
-                }
-              ),
-u$2("span", { className: "cb-stack", style: { gap: ".15em" }, children: [
-u$2("span", { children: "实验：用跨房间热度增强自动跟车" }),
-u$2("span", { style: { color: "#888", fontSize: "0.8em" }, children: "开启后，脚本会在自动跟车前查询该弹幕是否也在其他直播间流行；确认热门时只会在日志里加一条提示， 不会阻止原本的自动跟车。雷达失联时仍按原逻辑运行。默认关闭。" })
-              ] })
-            ] }),
-u$2("div", { className: "cb-stack", style: { marginTop: ".5em", gap: ".25em" }, children: [
-u$2("label", { htmlFor: "radarBackendUrlOverride", style: { color: "#666", fontSize: "0.85em" }, children: [
-                "radar URL(开发用,留空走默认 ",
-                BASE_URL.RADAR_BACKEND,
-                ")"
-              ] }),
-u$2(
-                "input",
-                {
-                  id: "radarBackendUrlOverride",
-                  type: "url",
-                  placeholder: "http://localhost:8788",
-                  value: radarBackendUrlOverride.value,
-                  style: { width: "100%", fontSize: "12px" },
-                  onInput: (e2) => {
-                    radarBackendUrlOverride.value = e2.currentTarget.value;
-                  }
-                }
-              )
-            ] })
-          ] })
-        ] });
-      }
       const REMOTE_KEYWORDS_MAX_GLOBAL = 1e3;
       const REMOTE_KEYWORDS_MAX_PER_ROOM = 500;
       const REMOTE_KEYWORDS_MAX_ROOMS = 200;
@@ -19419,7 +19409,6 @@ u$2(ShadowObservationSection, { query }),
 u$2(GroupHeading, { query, children: "工具" }),
 u$2(MedalCheckSection, { query }),
 u$2(CbBackendSection, { query }),
-u$2(RadarSection, { query }),
 u$2(BackupSection, { query }),
 u$2(GroupHeading, { query, children: "系统" }),
           (!query || "日志设置 日志 行数 调试 debug".toLowerCase().includes(query)) && u$2("details", { className: "cb-settings-accordion", children: [
@@ -20567,7 +20556,7 @@ u$2(AlertDialog, {})
   };
 }));
 
-System.register("./llm-driver-A-x1tmdz-Dvq6V3DH.js", ['./__monkey.entry-DKci02r-.js', '@soniox/speech-to-text-web'], (function (exports, module) {
+System.register("./llm-driver-DdEJZMY3-QZuMQaY2.js", ['./__monkey.entry-BMPnrVcg.js', '@soniox/speech-to-text-web'], (function (exports, module) {
   'use strict';
   var appendLog, gmFetch, BASE_URL;
   return {

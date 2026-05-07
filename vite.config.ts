@@ -30,8 +30,8 @@ export default defineConfig({
           // 默认部署在 *.workers.dev；本地开发时 cbBackendUrlOverride 走上面的 localhost。
           'chatterbox-cloud.aijc-eric.workers.dev',
           // live-meme-radar 传感器后端（跨房间 meme 聚类 + trending rank）。
-          // 可选只读：当 radarConsultEnabled=true 时 auto-blend 查询 /radar/cluster-rank
-          // 用于日志确认；不发送弹幕，不阻塞本地逻辑。默认关闭。
+          // 只读：烂梗库面板打开时后台拉一次 /radar/clusters/today（10 分钟缓存），
+          // 把命中的梗在 UI 上加 🔥 徽章。无用户开关，失败静默。不发送弹幕。
           'live-meme-radar.aijc-eric.workers.dev',
           // 智能辅助驾驶 LLM 默认 provider
           'api.anthropic.com',

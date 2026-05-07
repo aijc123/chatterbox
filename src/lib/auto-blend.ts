@@ -8,7 +8,6 @@ import {
 } from './api'
 import { isAutoBlendBlacklistedUid } from './auto-blend-blacklist'
 import { logAutoBlend, logAutoBlendSendResult } from './auto-blend-events'
-import { consultRadarBoost } from './auto-blend-radar'
 import {
   formatAutoBlendCandidate,
   formatAutoBlendSenderInfo,
@@ -461,13 +460,6 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
 
   pruneExpired(Date.now())
   const targets = collectBurst(triggeredText, reason)
-
-  // Optional radar boost (experimental, default OFF). Boost-only / passive:
-  // radar can ADD a confidence log when it sees the same meme heating up
-  // across other rooms, but it must never block, skip, or alter the local
-  // send. Users want to follow THIS room's vibe; a cross-room signal must
-  // not veto a local meme.
-  await consultRadarBoost(triggeredText)
 
   // Engage cooldown and remove all targeted entries so they don't immediately
   // re-trigger when cooldown ends. Non-targeted entries keep their counts.
