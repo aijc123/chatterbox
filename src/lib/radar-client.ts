@@ -228,7 +228,7 @@ export async function fetchTopAmplifiers(area?: string): Promise<AmplifierSummar
   if (!base) return []
 
   const params = new URLSearchParams()
-  if (area && area.trim()) params.set('area', area.trim())
+  if (area?.trim()) params.set('area', area.trim())
   const qs = params.toString()
   const url = `${base}/radar/amplifiers/today${qs ? `?${qs}` : ''}`
 

@@ -142,7 +142,9 @@ afterEach(() => {
   for (const u of activeUnsubs) {
     try {
       u()
-    } catch {}
+    } catch {
+      // best-effort teardown; ignore failures from already-disposed subscribers
+    }
   }
   activeUnsubs = []
   document.body.innerHTML = ''

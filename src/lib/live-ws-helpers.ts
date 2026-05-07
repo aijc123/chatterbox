@@ -78,6 +78,5 @@ export function shouldForceImmediateReconnect(input: {
 }): boolean {
   if (input.visibilityState !== 'visible') return false
   if (!input.started) return false
-  if (input.connectionHealthy) return false
-  return true
+  return !input.connectionHealthy
 }

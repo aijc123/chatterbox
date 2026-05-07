@@ -21,7 +21,7 @@ const { sanitizeDetectionResult, SENSITIVE_WORD_MAX_LEN, SENSITIVE_WORDS_MAX_COU
 describe('sanitizeDetectionResult', () => {
   test('null / non-object → safe default', () => {
     expect(sanitizeDetectionResult(null)).toEqual({ hasSensitiveContent: false })
-    expect(sanitizeDetectionResult(undefined)).toEqual({ hasSensitiveContent: false })
+    expect(sanitizeDetectionResult(undefined)).toEqual({ hasSensitiveContent: false }) // skipcq: JS-W1042
     expect(sanitizeDetectionResult('not an object')).toEqual({ hasSensitiveContent: false })
     expect(sanitizeDetectionResult(42)).toEqual({ hasSensitiveContent: false })
   })

@@ -83,8 +83,7 @@ export function isValidDanmakuNode(node: HTMLElement): boolean {
   if (count === 2) return true
   if (node.classList.contains('chat-colorful-bubble') && node.classList.contains('has-bubble') && count === 4)
     return true
-  if (node.classList.contains('has-bubble') && count === 3) return true
-  return false
+  return node.classList.contains('has-bubble') && count === 3
 }
 
 function cleanInlineText(value: string | null | undefined): string {
@@ -94,8 +93,7 @@ function cleanInlineText(value: string | null | undefined): string {
 function isBadNameCandidate(value: string, text = ''): boolean {
   if (!value || value === text || value.length > 36) return true
   if (/通过活动|查看我的装扮|获得|装扮|荣耀|粉丝牌|用户等级|头像|复制|举报|回复|关闭/.test(value)) return true
-  if (/^[\d\s:：/.-]+$/.test(value)) return true
-  return false
+  return /^[\d\s:：/.-]+$/.test(value)
 }
 
 function firstUsefulText(el: Element | null): string | null {

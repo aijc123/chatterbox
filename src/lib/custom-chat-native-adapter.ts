@@ -66,8 +66,7 @@ export function isNoiseEventText(text: string): boolean {
   if (!clean) return true
   if (/^(头像|匿名|复制|举报|回复|关闭|更多|展开|收起|弹幕|礼物|SC|进场|通知|暂停|清屏|状态|显示)$/.test(clean))
     return true
-  if (/^搜索\s*user:/.test(clean)) return true
-  return false
+  return /^搜索\s*user:/.test(clean)
 }
 
 // ── Avatar URL ───────────────────────────────────────────────────────────────

@@ -50,7 +50,7 @@ describe('detectPlatform', () => {
   })
 
   test('handles empty / undefined user agents safely (no false positives)', () => {
-    expect(detectPlatform(undefined)).toEqual({ isMobileUA: false, warning: null })
+    expect(detectPlatform(undefined)).toEqual({ isMobileUA: false, warning: null }) // skipcq: JS-W1042
     expect(detectPlatform('')).toEqual({ isMobileUA: false, warning: null })
   })
 

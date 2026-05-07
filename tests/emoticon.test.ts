@@ -70,7 +70,7 @@ describe('emoticon helpers', () => {
 
   test('getEmoticonLockReason falls back to 权限不足 for missing or empty hint', () => {
     expect(getEmoticonLockReason(null)).toBe('权限不足')
-    expect(getEmoticonLockReason(undefined)).toBe('权限不足')
+    expect(getEmoticonLockReason(undefined)).toBe('权限不足') // skipcq: JS-W1042
     expect(
       getEmoticonLockReason({
         emoji: '',

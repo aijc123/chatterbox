@@ -88,7 +88,7 @@ describe('medal-check-section UID scoping', () => {
     store.set('medalCheckStatus', 'old status')
 
     setupGmMock(store)
-    setApiMock(undefined)
+    setApiMock(undefined) // skipcq: JS-W1042
     await loadFreshSection()
     await new Promise(r => setTimeout(r, 200))
 

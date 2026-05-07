@@ -116,6 +116,8 @@ export default {
           })
           const elapsed = Date.now() - t0
           if (result.skipped) {
+            // Cloudflare Workers cron — console is the only sink visible to dashboard logs.
+            // skipcq: JS-0002
             console.log(
               `[cron sbhzm] skipped reason=${result.reason} actor=${result.recentActivity?.actor} elapsed=${elapsed}ms`
             )

@@ -28,7 +28,7 @@ type Responder = (req: CapturedReq) => {
   throwError?: string
 }
 
-let responder: Responder = () => ({ status: 200, body: '{"items": []}' })
+let responder: Responder = _req => ({ status: 200, body: '{"items": []}' })
 
 interface XhrOpts {
   method: string

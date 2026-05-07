@@ -17,7 +17,7 @@ interface FetchCall {
   init: RequestInit
 }
 const fetchCalls: FetchCall[] = []
-let fetchImpl: (url: string, init: RequestInit) => Promise<Response> = async () =>
+let fetchImpl: (url: string, init: RequestInit) => Promise<Response> = async (_url, _init) =>
   new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
 
 mock.module('$', () => ({
@@ -106,7 +106,7 @@ describe('classifyRiskEvent', () => {
   })
 
   test('undefined error → fallback send_failed', () => {
-    const out = classifyRiskEvent(undefined)
+    const out = classifyRiskEvent(undefined) // skipcq: JS-W1042
     expect(out.kind).toBe('send_failed')
     expect(out.level).toBe('observe')
   })

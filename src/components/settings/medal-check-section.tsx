@@ -41,9 +41,9 @@ const medalCheckFilterByUid = gmSignal<Record<string, MedalCheckFilter>>('medalC
 ;(() => {
   const uid = getDedeUid()
   if (!uid) return
-  const legacyResults = GM_getValue<MedalRestrictionCheck[] | undefined>('medalCheckResults', undefined)
-  const legacyStatus = GM_getValue<string | undefined>('medalCheckStatus', undefined)
-  const legacyFilter = GM_getValue<MedalCheckFilter | undefined>('medalCheckFilter', undefined)
+  const legacyResults = GM_getValue<MedalRestrictionCheck[] | undefined>('medalCheckResults')
+  const legacyStatus = GM_getValue<string | undefined>('medalCheckStatus')
+  const legacyFilter = GM_getValue<MedalCheckFilter | undefined>('medalCheckFilter')
   let migrated = false
   if (Array.isArray(legacyResults) && legacyResults.length > 0 && !medalCheckResultsByUid.value[uid]) {
     medalCheckResultsByUid.value = { ...medalCheckResultsByUid.value, [uid]: legacyResults }
@@ -60,13 +60,19 @@ const medalCheckFilterByUid = gmSignal<Record<string, MedalCheckFilter>>('medalC
   if (migrated) {
     try {
       GM_deleteValue('medalCheckResults')
-    } catch {}
+    } catch {
+      // best-effort cleanup; legacy keys may already be gone
+    }
     try {
       GM_deleteValue('medalCheckStatus')
-    } catch {}
+    } catch {
+      // best-effort cleanup; legacy keys may already be gone
+    }
     try {
       GM_deleteValue('medalCheckFilter')
-    } catch {}
+    } catch {
+      // best-effort cleanup; legacy keys may already be gone
+    }
   }
 })()
 

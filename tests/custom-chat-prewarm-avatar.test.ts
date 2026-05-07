@@ -73,7 +73,7 @@ describe('prewarmAvatar', () => {
   })
 
   test('is a no-op for undefined / empty inputs', () => {
-    prewarmAvatar(undefined)
+    prewarmAvatar(undefined) // skipcq: JS-W1042
     prewarmAvatar('')
 
     expect(constructions).toHaveLength(0)

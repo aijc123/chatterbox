@@ -43,8 +43,7 @@ export function isInfrastructureError(error: string | undefined): boolean {
   if (/Failed to fetch/i.test(error)) return true
   if (/^HTTP\s/i.test(error)) return true
   if (/无响应$/.test(error)) return true
-  if (/NetworkError|TypeError|AbortError/i.test(error)) return true
-  return false
+  return /NetworkError|TypeError|AbortError/i.test(error)
 }
 
 export function isMutedError(error: string | undefined): boolean {

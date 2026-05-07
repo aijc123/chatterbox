@@ -53,7 +53,7 @@ type Responder = (req: CapturedReq) => {
   throwError?: string
 }
 
-let responder: Responder = () => ({ status: 200, body: '{}' })
+let responder: Responder = _req => ({ status: 200, body: '{}' })
 
 interface XhrOpts {
   method: string

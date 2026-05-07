@@ -82,7 +82,7 @@ export function exportSettings(): string {
     __exportedAt: new Date().toISOString(),
   }
   for (const key of EXPORT_KEYS) {
-    const val = GM_getValue(key, undefined)
+    const val = GM_getValue(key)
     if (val !== undefined) data[key] = val
   }
   return JSON.stringify(data, null, 2)

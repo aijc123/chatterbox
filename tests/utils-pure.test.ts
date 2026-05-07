@@ -297,7 +297,7 @@ describe('addRandomCharacter', () => {
 
 describe('formatDanmakuError', () => {
   test('undefined error → "未知错误"', () => {
-    expect(formatDanmakuError(undefined)).toBe('未知错误')
+    expect(formatDanmakuError(undefined)).toBe('未知错误') // skipcq: JS-W1042
   })
 
   test('empty string → "未知错误"', () => {

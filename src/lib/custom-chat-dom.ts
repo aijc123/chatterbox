@@ -451,9 +451,13 @@ function isReliableEvent(event: CustomChatEvent): boolean {
   if (shouldSuppressCustomChatEvent(event)) return false
   const text = compactText(event.text)
   if (isNoiseEventText(text)) return false
-  if (event.source === 'dom' && displayName(event) === '匿名' && !event.uid && !event.avatarUrl && text.length <= 2)
-    return false
-  return true
+  return !(
+    event.source === 'dom' &&
+    displayName(event) === '匿名' &&
+    !event.uid &&
+    !event.avatarUrl &&
+    text.length <= 2
+  )
 }
 
 function shouldShowUserLevelBadge(message: CustomChatEvent): boolean {

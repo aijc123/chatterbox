@@ -63,8 +63,7 @@ function passesQualityFilter(text: string): boolean {
   if (len < 4 || len > 30) return false
   if (/^\d+$/.test(text)) return false
   if ([...text].every(c => c === text[0])) return false
-  if (/^[\p{P}\p{S}\s]+$/u.test(text)) return false
-  return true
+  return !/^[\p{P}\p{S}\s]+$/u.test(text)
 }
 
 /**

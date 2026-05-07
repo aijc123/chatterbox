@@ -42,7 +42,7 @@ describe('computeReconnectDelay (H-logic: jitter + cap)', () => {
 
 describe('parseAuthUid (C1: precision-safe Bilibili LiveWS uid parsing)', () => {
   test('returns 0 for missing cookie', () => {
-    expect(parseAuthUid(undefined)).toBe(0)
+    expect(parseAuthUid(undefined)).toBe(0) // skipcq: JS-W1042
     expect(parseAuthUid(null)).toBe(0)
     expect(parseAuthUid('')).toBe(0)
   })

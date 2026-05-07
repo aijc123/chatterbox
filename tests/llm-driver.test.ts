@@ -18,7 +18,7 @@ interface Captured {
 }
 
 let captured: Captured[] = []
-let mockResponseFactory: (url: string) => unknown = () => ({})
+let mockResponseFactory: (url: string) => unknown = _url => ({})
 let mockHttpStatus = 200
 
 function installGmFetchMock(): void {

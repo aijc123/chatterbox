@@ -1,0 +1,26 @@
+version = 1
+
+exclude_patterns = [
+  "dist/**",
+  "coverage/**",
+  "node_modules/**",
+  "scripts/**",
+  "server/scripts/**",
+  "public/**",
+  "**/*.min.js",
+]
+
+test_patterns = [
+  "tests/**",
+  "**/*.test.ts",
+  "**/*.test.tsx",
+]
+
+[[analyzers]]
+name = "javascript"
+
+  [analyzers.meta]
+  environment = ["browser", "nodejs"]
+  module_system = "es-modules"
+  plugins = ["react"]
+  dialect = "typescript"

@@ -79,7 +79,7 @@ describe('moderation', () => {
       expect(isInfrastructureError('你已被禁言')).toBe(false)
       expect(isInfrastructureError('发送频率过快')).toBe(false)
       expect(isInfrastructureError('code 11002')).toBe(false)
-      expect(isInfrastructureError(undefined)).toBe(false)
+      expect(isInfrastructureError(undefined)).toBe(false) // skipcq: JS-W1042
       expect(isInfrastructureError('')).toBe(false)
     })
   })

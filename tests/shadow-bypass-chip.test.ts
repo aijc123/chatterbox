@@ -292,12 +292,12 @@ describe('findComposerAnchor', () => {
 describe('obsKey', () => {
   test('uses NUL byte separator so colons in text/roomId never collide', () => {
     const a = obsKey('foo', 1)
-    const b = obsKey('foo:1', undefined)
+    const b = obsKey('foo:1', undefined) // skipcq: JS-W1042
     expect(a).not.toBe(b)
     expect(a.includes('\x00')).toBe(true)
   })
 
   test('treats undefined roomId as global', () => {
-    expect(obsKey('foo', undefined)).toContain('global')
+    expect(obsKey('foo', undefined)).toContain('global') // skipcq: JS-W1042
   })
 })

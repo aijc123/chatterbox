@@ -23,7 +23,7 @@ interface FetchCall {
   init: RequestInit
 }
 const fetchCalls: FetchCall[] = []
-let fetchImpl: (url: string, init: RequestInit) => Promise<Response> = async () =>
+let fetchImpl: (url: string, init: RequestInit) => Promise<Response> = async (_url, _init) =>
   new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
 
 mock.module('$', () => ({

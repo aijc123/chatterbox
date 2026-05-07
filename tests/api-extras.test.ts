@@ -64,7 +64,8 @@ interface FetchCall {
 }
 
 const fetchCalls: FetchCall[] = []
-let fetchImpl: (url: string, init: RequestInit) => Promise<Response> = async () => jsonResponse({ code: 0, data: {} })
+let fetchImpl: (url: string, init: RequestInit) => Promise<Response> = async (_url, _init) =>
+  jsonResponse({ code: 0, data: {} })
 
 let localEchoName = ''
 let spmPrefix = ''

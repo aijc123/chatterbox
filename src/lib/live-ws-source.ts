@@ -271,6 +271,7 @@ function bindEvents(roomId: number, live: LiveWS): void {
     const uid = String(user[0])
     const userLevel = Number(level?.[0] ?? 0)
     if (uid === (getDedeUid() ?? '')) {
+      // skipcq: JS-0002 — diagnostic trace; intentionally bypasses appendLogQuiet so test assertions on the log buffer stay deterministic
       console.log(`[CB][WS-SELF] t=${Date.now()} text="${text}" uid=${uid} room=${roomId}`)
     }
     rememberWsDanmaku(text, uid)

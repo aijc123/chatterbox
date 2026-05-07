@@ -25,7 +25,7 @@ let fetchImpl: (url: string, init?: RequestInit) => Promise<Response>
 
 beforeEach(() => {
   captured.length = 0
-  fetchImpl = async () => new Response('{"data":[]}', { status: 200 })
+  fetchImpl = async (_url, _init) => new Response('{"data":[]}', { status: 200 })
   ;(globalThis as { fetch: typeof fetch }).fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
     captured.push({ url, init })

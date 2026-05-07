@@ -101,8 +101,8 @@ function matchesCustomChatEchoEvent(event: CustomChatEvent, target: string, uid:
 function matchesDomEchoEvent(event: DanmakuEvent, target: string, uid: string | null, selfUid: string | null): boolean {
   if (event.text.trim() !== target) return false
   if (uid && event.uid && event.uid !== uid) return false
-  if (selfUid && event.uid === selfUid) return false // see findRecentDomDanmakuSource
-  return true
+  // see findRecentDomDanmakuSource
+  return !(selfUid && event.uid === selfUid)
 }
 
 // DOM observer is lazily attached on first `waitForSentEcho` call so that
@@ -266,6 +266,7 @@ export async function verifyBroadcast(input: VerifyBroadcastInput): Promise<Echo
   const uid = getDedeUid() ?? null
   const effectiveTimeout = input.timeoutMs ?? echoTimeoutOverride ?? undefined
   const source = await waitForSentEcho(input.text, uid, input.sinceTs, effectiveTimeout)
+  // skipcq: JS-0002 — diagnostic trace; intentionally bypasses appendLogQuiet so test assertions on the log buffer stay deterministic
   console.log(`[CB][VERIFY] t=${Date.now()} text="${input.text}" source=${source} wsStatus=${currentWsStatus}`)
   if (source === 'ws' || source === 'dom') return source
 

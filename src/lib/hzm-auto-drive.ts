@@ -196,8 +196,7 @@ export function buildCandidatePool(opts: {
   return opts.memes.filter(m => {
     if (!m.content) return false
     if (recent.has(m.content)) return false
-    if (m.tags.some(t => blacklist.has(t.name))) return false
-    return true
+    return !m.tags.some(t => blacklist.has(t.name))
   })
 }
 

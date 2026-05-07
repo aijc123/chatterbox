@@ -50,7 +50,7 @@ describe('meme-sources registry', () => {
   test('returns null for unregistered rooms', () => {
     expect(getMemeSourceForRoom(999999)).toBeNull()
     expect(getMemeSourceForRoom(null)).toBeNull()
-    expect(hasMemeSourceForRoom(undefined)).toBe(false)
+    expect(hasMemeSourceForRoom(undefined)).toBe(false) // skipcq: JS-W1042
   })
 })
 
