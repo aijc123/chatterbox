@@ -3,7 +3,7 @@
 // @name:zh-CN         B站独轮车直播间插件 + 自动跟车
 // @name:en            Bilibili Live Wheel Auto Follow
 // @namespace          https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version            2.11.5
+// @version            2.11.6
 // @author             aijc123
 // @description        B站独轮车直播间插件，给 B 站/哔哩哔哩直播间用的 Tampermonkey 弹幕助手：支持独轮车循环发送、自动跟车、弹幕自动发送、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @description:zh-CN  B站独轮车直播间插件，给 B 站/哔哩哔哩直播间用的 Tampermonkey 弹幕助手：支持独轮车循环发送、自动跟车、弹幕自动发送、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
