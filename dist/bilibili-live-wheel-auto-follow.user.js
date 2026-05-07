@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.11.9
+// @version      2.11.10
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -61,7 +61,7 @@
 System.addImportMap({ imports: {"@soniox/speech-to-text-web":"user:@soniox/speech-to-text-web"} });
 System.set("user:@soniox/speech-to-text-web", (()=>{const _=SonioxSpeechToTextWeb;('default' in _)||(_.default=_);return _})());
 
-System.register("./__entry.js", ['./__monkey.entry-CaxlL4QA.js'], (function (exports, module) {
+System.register("./__entry.js", ['./__monkey.entry-BPdHNX6X.js'], (function (exports, module) {
 	'use strict';
 	return {
 		setters: [null],
@@ -73,7 +73,7 @@ System.register("./__entry.js", ['./__monkey.entry-CaxlL4QA.js'], (function (exp
 	};
 }));
 
-System.register("./__monkey.entry-CaxlL4QA.js", ['@soniox/speech-to-text-web'], (function (exports, module) {
+System.register("./__monkey.entry-BPdHNX6X.js", ['@soniox/speech-to-text-web'], (function (exports, module) {
   'use strict';
   var SonioxClient;
   return {
@@ -14756,7 +14756,7 @@ u$2("label", { htmlFor: "persistSendState", children: "保持当前直播间独�
         bumpDailyLlmCalls(roomId);
         try {
           const chooser = opts?.chooser ?? (await __vitePreload(async () => {
-            const { chooseMemeWithLLM } = await module.import('./llm-driver-CcHFw_vJ-CITb1Z_4.js');
+            const { chooseMemeWithLLM } = await module.import('./llm-driver-BHfLEB1i-BVN-ObtL.js');
             return { chooseMemeWithLLM };
           }, true ? void 0 : void 0)).chooseMemeWithLLM;
           const chosenContent = await chooser({
@@ -15013,7 +15013,7 @@ u$2("label", { htmlFor: "persistSendState", children: "保持当前直播间独�
           testError.value = "";
           try {
             const { testLLMConnection } = await __vitePreload(async () => {
-              const { testLLMConnection: testLLMConnection2 } = await module.import('./llm-driver-CcHFw_vJ-CITb1Z_4.js');
+              const { testLLMConnection: testLLMConnection2 } = await module.import('./llm-driver-BHfLEB1i-BVN-ObtL.js');
               return { testLLMConnection: testLLMConnection2 };
             }, true ? void 0 : void 0);
             const r2 = await testLLMConnection({
@@ -20193,34 +20193,38 @@ u$2("button", { type: "button", onClick: () => void enumerateMics(), style: { wh
                     ]
                   }
                 ),
-u$2("div", { className: "cb-row", style: { display: "flex", alignItems: "center", marginBottom: ".25em" }, children: u$2("span", { children: "语言提示：" }) }),
 u$2(
                   "div",
                   {
                     className: "cb-row",
-                    style: { display: "flex", gap: ".5em", alignItems: "center", flexWrap: "wrap", marginBottom: ".5em" },
-                    children: ["zh", "en", "ja", "ko"].map((lang) => {
-                      const labels = { zh: "中文", en: "English", ja: "日本語", ko: "한국어" };
-                      return u$2(
-                        "span",
-                        {
-                          className: "cb-switch-row",
-                          style: { display: "inline-flex", alignItems: "center", gap: ".25em" },
-                          children: [
+                    style: { display: "flex", gap: ".4em", alignItems: "center", flexWrap: "wrap", marginBottom: ".5em" },
+                    children: [
+u$2("span", { children: "语言：" }),
+                      ["zh", "en", "ja", "ko"].map((lang) => {
+                        const labels = { zh: "中", en: "EN", ja: "日", ko: "한" };
+                        const fullNames = { zh: "中文", en: "English", ja: "日本語", ko: "한국어" };
+                        return u$2(
+                          "span",
+                          {
+                            className: "cb-switch-row",
+                            style: { display: "inline-flex", alignItems: "center", gap: ".2em" },
+                            title: fullNames[lang],
+                            children: [
 u$2(
-                              "input",
-                              {
-                                type: "checkbox",
-                                checked: hints.includes(lang),
-                                onChange: (e2) => updateLangHints(lang, e2.currentTarget.checked)
-                              }
-                            ),
+                                "input",
+                                {
+                                  type: "checkbox",
+                                  checked: hints.includes(lang),
+                                  onChange: (e2) => updateLangHints(lang, e2.currentTarget.checked)
+                                }
+                              ),
 u$2("label", { htmlFor: lang, children: labels[lang] })
-                          ]
-                        },
-                        lang
-                      );
-                    })
+                            ]
+                          },
+                          lang
+                        );
+                      })
+                    ]
                   }
                 ),
 u$2(
@@ -21011,7 +21015,7 @@ u$2(AlertDialog, {})
   };
 }));
 
-System.register("./llm-driver-CcHFw_vJ-CITb1Z_4.js", ['./__monkey.entry-CaxlL4QA.js', '@soniox/speech-to-text-web'], (function (exports, module) {
+System.register("./llm-driver-BHfLEB1i-BVN-ObtL.js", ['./__monkey.entry-BPdHNX6X.js', '@soniox/speech-to-text-web'], (function (exports, module) {
   'use strict';
   var appendLog, gmFetch, BASE_URL;
   return {

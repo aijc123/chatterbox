@@ -431,20 +431,25 @@ export function SttTab() {
             刷新
           </button>
         </div>
-        <div className='cb-row' style={{ display: 'flex', alignItems: 'center', marginBottom: '.25em' }}>
-          <span>语言提示：</span>
-        </div>
         <div
           className='cb-row'
-          style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.5em' }}
+          style={{ display: 'flex', gap: '.4em', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.5em' }}
         >
+          <span>语言：</span>
           {(['zh', 'en', 'ja', 'ko'] as const).map(lang => {
-            const labels: Record<string, string> = { zh: '中文', en: 'English', ja: '日本語', ko: '한국어' }
+            // Short labels keep the row compact in a 320px panel — full
+            // names "中文 / English / 日本語 / 한국어" + the "语言提示：" label
+            // span ~316px which is over the section content width and forces
+            // an awkward wrap. The `title` attribute keeps the full name
+            // discoverable on hover.
+            const labels: Record<string, string> = { zh: '中', en: 'EN', ja: '日', ko: '한' }
+            const fullNames: Record<string, string> = { zh: '中文', en: 'English', ja: '日本語', ko: '한국어' }
             return (
               <span
                 key={lang}
                 className='cb-switch-row'
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '.2em' }}
+                title={fullNames[lang]}
               >
                 <input
                   type='checkbox'
