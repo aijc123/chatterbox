@@ -42,6 +42,11 @@ export interface CustomChatEvent {
    * emoticon packages — that fallback misses room-specific stickers.
    */
   emoticonImage?: { url: string; alt: string; width?: number; height?: number }
+  /**
+   * 去重折叠的合并次数。仅运行时使用，不持久化、不参与 normalize；>1 时渲染
+   * `×N` 徽章。`undefined` 与 `1` 等价。
+   */
+  mergeCount?: number
 }
 
 export type CustomChatWsStatus = 'off' | 'connecting' | 'live' | 'error' | 'closed'

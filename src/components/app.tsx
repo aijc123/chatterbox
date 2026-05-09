@@ -15,7 +15,15 @@ import { guardRoomLiveDeskSessionId } from '../lib/guard-room-live-desk-state'
 import { startLiveDeskSync, stopLiveDeskSync } from '../lib/live-desk-sync'
 import { startLiveWsSource, stopLiveWsSource } from '../lib/live-ws-source'
 import { loop } from '../lib/loop'
-import { autoBlendEnabled, customChatEnabled, customChatUseWs, danmakuDirectMode, optimizeLayout } from '../lib/store'
+import { startNativeChatFold, stopNativeChatFold } from '../lib/native-chat-fold'
+import {
+  autoBlendEnabled,
+  customChatEnabled,
+  customChatUseWs,
+  danmakuDirectMode,
+  nativeChatFoldMode,
+  optimizeLayout,
+} from '../lib/store'
 import { startUserBlacklistHijack, stopUserBlacklistHijack } from '../lib/user-blacklist'
 import { Configurator } from './configurator'
 import { ErrorBoundary } from './error-boundary'
@@ -55,6 +63,15 @@ export function App() {
     }
     return () => stopDanmakuDirect()
   }, [danmakuDirectMode.value])
+
+  useEffect(() => {
+    if (nativeChatFoldMode.value) {
+      startNativeChatFold()
+    } else {
+      stopNativeChatFold()
+    }
+    return () => stopNativeChatFold()
+  }, [nativeChatFoldMode.value])
 
   useEffect(() => {
     if (autoBlendEnabled.value) {

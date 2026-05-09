@@ -34,9 +34,11 @@ export const ANCHOR_OFFSET = 4
  * chat panel), fall back to below when the viewport top doesn't have enough
  * headroom for `PICKER_H + PICKER_GAP`.
  *
- * Horizontal: align right edges so the popup grows leftward off the button.
- * If that would clip the left viewport edge (anchor too far left), flip to
- * align left edges instead.
+ * Horizontal: anchor the picker's CENTER on the trigger button's center, then
+ * clamp into the viewport with PICKER_GAP padding. Earlier we right-aligned
+ * the picker to the trigger so it grew leftward — that put the popup ~300 px
+ * away from the trigger when the trigger sat in a narrow right-edge panel,
+ * making it look unrelated to the button you just clicked.
  *
  * Returned values are CSS pixel offsets ready to drop into `style.top` etc.
  * `top`/`bottom` are mutually exclusive, as are `left`/`right`.
@@ -49,10 +51,12 @@ export function computePos(rect: PickerRect | null, viewportWidth: number, viewp
   } else {
     pos.top = rect.bottom + ANCHOR_OFFSET
   }
-  if (rect.right - PICKER_W >= PICKER_GAP) {
-    pos.right = Math.max(PICKER_GAP, viewportWidth - rect.right)
-  } else {
-    pos.left = Math.max(PICKER_GAP, rect.left)
-  }
+  // Center horizontally on the anchor, then clamp to viewport. This keeps
+  // the picker visually attached to whatever button opened it, regardless of
+  // whether the panel sits in the page center or hugs the right edge.
+  const anchorCenter = (rect.left + rect.right) / 2
+  const idealLeft = anchorCenter - PICKER_W / 2
+  const maxLeft = viewportWidth - PICKER_W - PICKER_GAP
+  pos.left = Math.max(PICKER_GAP, Math.min(maxLeft, idealLeft))
   return pos
 }

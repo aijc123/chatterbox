@@ -1,7 +1,7 @@
-import { danmakuDirectAlwaysShow, danmakuDirectConfirm, danmakuDirectMode } from '../../lib/store'
+import { danmakuDirectAlwaysShow, danmakuDirectConfirm, danmakuDirectMode, nativeChatFoldMode } from '../../lib/store'
 
 export function DanmakuDirectSection({ query = '' }: { query?: string }) {
-  const visible = !query || '偷弹幕 +1 发送 确认 按钮'.toLowerCase().includes(query)
+  const visible = !query || '偷弹幕 +1 发送 确认 按钮 原生 折叠 合并 重复 独轮车 ×N'.toLowerCase().includes(query)
   if (!visible) return null
 
   return (
@@ -67,6 +67,25 @@ export function DanmakuDirectSection({ query = '' }: { query?: string }) {
               总是显示偷/+1按钮
             </label>
           </span>
+        </div>
+        <div
+          className='cb-setting-block'
+          style={{ marginTop: '.5em', paddingTop: '.5em', borderTop: '1px dashed var(--Ga2, #eee)' }}
+        >
+          <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
+            <input
+              id='nativeChatFoldMode'
+              type='checkbox'
+              checked={nativeChatFoldMode.value}
+              onInput={e => {
+                nativeChatFoldMode.value = e.currentTarget.checked
+              }}
+            />
+            <label htmlFor='nativeChatFoldMode'>B 站原生聊天框去重折叠（合并 9 秒内的重复弹幕，显示 ×N）</label>
+          </span>
+          <div className='cb-note' style={{ paddingLeft: '1.5em', marginTop: '.25em' }}>
+            和 Chatterbox Chat 那侧的"去重折叠"互不影响：这条改的是 B 站原生右侧聊天列表。
+          </div>
         </div>
       </div>
     </details>

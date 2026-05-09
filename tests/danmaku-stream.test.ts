@@ -198,6 +198,18 @@ describe('isValidDanmakuNode', () => {
     n.className = 'chat-item danmaku-item gift-item'
     expect(isValidDanmakuNode(n)).toBe(false)
   })
+
+  test('emoticon sticker without bubble (chat-emoticon bulge-emoticon, 4 classes) → valid', () => {
+    const n = document.createElement('div')
+    n.className = 'chat-item danmaku-item chat-emoticon bulge-emoticon'
+    expect(isValidDanmakuNode(n)).toBe(true)
+  })
+
+  test('emoticon sticker with colorful bubble (6 classes) → valid', () => {
+    const n = document.createElement('div')
+    n.className = 'chat-item danmaku-item chat-colorful-bubble has-bubble chat-emoticon bulge-emoticon'
+    expect(isValidDanmakuNode(n)).toBe(true)
+  })
 })
 
 describe('extractDanmakuInfo', () => {

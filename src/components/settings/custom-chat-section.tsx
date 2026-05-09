@@ -5,6 +5,7 @@ import { MILK_GREEN_IMESSAGE_CSS } from '../../lib/custom-chat-presets'
 import {
   customChatCss,
   customChatEnabled,
+  customChatFoldMode,
   customChatHideNative,
   customChatPerfDebug,
   customChatTheme,
@@ -29,7 +30,9 @@ export function CustomChatSection({ query = '' }: { query?: string }) {
     return () => clearTimeout(timer)
   }, [cssDraft.value])
 
-  const visible = !query || 'Chatterbox Chat 评论区 WS DOM 主题 CSS'.toLowerCase().includes(query)
+  const visible =
+    !query ||
+    'Chatterbox Chat 评论区 WS DOM 主题 CSS 去重 折叠 合并 重复 独轮车 防刷屏 ×N'.toLowerCase().includes(query)
   if (!visible) return null
 
   return (
@@ -158,6 +161,20 @@ export function CustomChatSection({ query = '' }: { query?: string }) {
               </div>
             </div>
           </details>
+          <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
+            <input
+              id='customChatFoldMode'
+              type='checkbox'
+              checked={customChatFoldMode.value}
+              disabled={!customChatEnabled.value}
+              onInput={e => {
+                customChatFoldMode.value = e.currentTarget.checked
+              }}
+            />
+            <label htmlFor='customChatFoldMode' style={{ color: customChatEnabled.value ? undefined : '#999' }}>
+              去重折叠（合并 9 秒内的重复弹幕，显示 ×N）
+            </label>
+          </span>
           <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
             <input
               id='customChatPerfDebug'

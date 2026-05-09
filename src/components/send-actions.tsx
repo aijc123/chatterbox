@@ -1,7 +1,6 @@
 import { useSignal } from '@preact/signals'
 import { useRef } from 'preact/hooks'
 
-import { notifyUser } from '../lib/log'
 import { EmotePicker } from './emote-picker'
 
 interface SendActionsProps {
@@ -23,14 +22,14 @@ const iconBtnStyle = {
   justifyContent: 'center',
 } as const
 
-// TODO: real like + SuperChat support
-// 点赞: api.live.bilibili.com/xlive/app-ucenter/v1/like_info_v3/Like
-//   或 web 端 likeReportV3 RPC，参数: anti_token / csrf / room_id / click_time。
-//   建议放 src/lib/api.ts 的 sendLike(roomId)；anti_token 由页面
-//   __BILI_LIKE_INFO__ 或 fetch-hijack 拦截获取，每次会轮换。
-// SC: xlive/revenue/v1/order/createOrder → 拿到二维码 URL → 弹窗显示 →
-//   轮询订单状态。要求账号有钱包余额且通过支付宝/微信扫码，无法做成
-//   「一键」体验。占位先 toast，后续可改成原生 Bilibili 对话框或自建确认 modal。
+// TODO: 点赞 / 醒目留言（SC）的「即将上线」占位按钮删了——它们之前以 opacity 40%
+// 灰显在 composer 上，但点了只 toast「即将上线」，纯属 UI 噪声。等真正接入
+// `xlive/app-ucenter/v1/like_info_v3/Like` 和 `xlive/revenue/v1/order/createOrder`
+// 后再放回 composer，不要先 ship 占位。
+//
+// 历史接入笔记：
+//   - 点赞 anti_token 由页面 __BILI_LIKE_INFO__ 或 fetch-hijack 拿，每次轮换
+//   - SC 拿二维码 URL → 弹窗 → 轮询订单状态；不能做成「一键」体验
 
 export function SendActions({ onSend }: SendActionsProps) {
   const open = useSignal(false)
@@ -48,24 +47,6 @@ export function SendActions({ onSend }: SendActionsProps) {
         style={iconBtnStyle}
       >
         😀
-      </button>
-      <button
-        type='button'
-        title='点赞 — 即将上线'
-        onClick={() => notifyUser('info', '点赞功能即将上线')}
-        style={{ ...iconBtnStyle, opacity: 0.4, cursor: 'not-allowed' }}
-        aria-disabled='true'
-      >
-        👍
-      </button>
-      <button
-        type='button'
-        title='醒目留言 SC — 即将上线'
-        onClick={() => notifyUser('info', '醒目留言 (SC) 功能即将上线')}
-        style={{ ...iconBtnStyle, opacity: 0.4, cursor: 'not-allowed' }}
-        aria-disabled='true'
-      >
-        💰
       </button>
       <EmotePicker
         open={open}

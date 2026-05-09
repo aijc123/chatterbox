@@ -52,37 +52,33 @@ describe('emote picker positioning (computePos)', () => {
     expect(pos.bottom).toBeUndefined()
   })
 
-  test('right-aligns the picker under a button that has room to its left', () => {
-    // Anchor's right edge well past PICKER_W from the viewport left.
+  test('centers the picker on the anchor when there is room on both sides', () => {
+    // Anchor's center at 1714 (1700 + 14). Picker width 320 → ideal left = 1554.
     const pos = computePos(rect(1700, 1000), VW, VH)
-    expect(pos.right).toBe(VW - 1728)
-    expect(pos.left).toBeUndefined()
-  })
-
-  test('flips to left-align when the anchor sits too close to the left edge', () => {
-    // Anchor near left → right-aligning would push the popup off-screen.
-    const pos = computePos(rect(40, 1000), VW, VH)
+    expect(pos.left).toBe(1700 + 14 - PICKER_W / 2)
     expect(pos.right).toBeUndefined()
-    expect(pos.left).toBe(40)
   })
 
-  test('uses right-align exactly at the horizontal threshold', () => {
-    // rect.right === PICKER_W + PICKER_GAP — boundary uses >= so right wins.
-    const pos = computePos(rect(PICKER_W + PICKER_GAP - 28, 1000, 28, 28), VW, VH)
-    expect(pos.right).toBeDefined()
-    expect(pos.left).toBeUndefined()
+  test('clamps the picker into the viewport when the anchor sits near the right edge', () => {
+    // Anchor center near right edge → ideal left would push past viewport right.
+    const pos = computePos(rect(VW - 50, 1000), VW, VH)
+    // Should clamp to (vw - PICKER_W - PICKER_GAP).
+    expect(pos.left).toBe(VW - PICKER_W - PICKER_GAP)
   })
 
-  test('clamps right offset to PICKER_GAP when the anchor extends past the viewport', () => {
-    // Anchor's right edge past viewport right (e.g. zoom / scroll edge case).
-    const pos = computePos(rect(VW - 10, 1000), VW, VH)
-    expect(pos.right ?? -1).toBeGreaterThanOrEqual(PICKER_GAP)
+  test('clamps the picker into the viewport when the anchor sits near the left edge', () => {
+    // Anchor center near left edge → ideal left would be negative.
+    const pos = computePos(rect(20, 1000), VW, VH)
+    expect(pos.left).toBe(PICKER_GAP)
   })
 
-  test('clamps left offset to PICKER_GAP when the anchor sits past the left edge', () => {
-    // Anchor's left edge slightly negative (overflow scrolled).
-    const pos = computePos(rect(-5, 1000), VW, VH)
-    expect(pos.left ?? -1).toBeGreaterThanOrEqual(PICKER_GAP)
+  test('always returns left (never right) — picker is always positioned by left edge after center-anchoring', () => {
+    const cases: PickerRect[] = [rect(20, 1000), rect(960, 1000), rect(1700, 1000), rect(VW - 10, 1000)]
+    for (const r of cases) {
+      const pos = computePos(r, VW, VH)
+      expect(pos.right).toBeUndefined()
+      expect(pos.left).toBeDefined()
+    }
   })
 
   test('top + bottom never coexist; left + right never coexist', () => {
@@ -90,7 +86,7 @@ describe('emote picker positioning (computePos)', () => {
     for (const r of cases) {
       const pos = computePos(r, VW, VH)
       expect(pos.top !== undefined && pos.bottom !== undefined).toBe(false)
-      expect(pos.left !== undefined && pos.right !== undefined).toBe(false)
+      // Center-anchoring uses `left` exclusively now; we still guarantee one side is set.
       expect(pos.top !== undefined || pos.bottom !== undefined).toBe(true)
       expect(pos.left !== undefined || pos.right !== undefined).toBe(true)
     }

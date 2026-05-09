@@ -296,7 +296,13 @@ export function EmotePicker({ open, anchorRef, onSend, onClose }: EmotePickerPro
               <img
                 src={emo.url}
                 alt={emo.emoji}
-                loading='lazy'
+                /* eager + no-referrer：用户点开 picker 就期望立刻看到表情；lazy
+                   会等到 button 进入 viewport 才加载，但 picker 是 portal-render
+                   的 popup，浏览器有时识别不出 viewport 关系导致空白格。
+                   referrer-policy 防 B 站 CDN 把跨域请求当盗链拒掉。 */
+                loading='eager'
+                decoding='async'
+                referrerpolicy='no-referrer'
                 style={{
                   maxWidth: '44px',
                   maxHeight: '44px',

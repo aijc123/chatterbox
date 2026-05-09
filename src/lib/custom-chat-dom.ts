@@ -36,6 +36,7 @@ import {
   resolveAvatarUrl,
   shouldScanNativeEventNode,
   usefulBadgeText,
+  wheelFoldKey,
 } from './custom-chat-native-adapter'
 import { formatMilliyuanAmount } from './custom-chat-pricing'
 import {
@@ -57,6 +58,7 @@ import { mountSendActionsIsland } from './emote-picker-mount'
 import { hasRecentWsDanmaku } from './live-ws-source'
 import {
   customChatCss,
+  customChatFoldMode,
   customChatHideNative,
   customChatPerfDebug,
   customChatShowDanmaku,
@@ -74,8 +76,12 @@ const STYLE_ID = 'laplace-custom-chat-style'
 const USER_STYLE_ID = 'laplace-custom-chat-user-style'
 const MAX_MESSAGES = CUSTOM_CHAT_MAX_MESSAGES
 const VIRTUAL_OVERSCAN = 7
-const DEFAULT_ROW_HEIGHT = 62
-const LITE_ROW_HEIGHT = 42
+// Action row 改成 absolute 后，普通弹幕一条不再有第二行 grid，估算行高
+// 从 62 降到 48（avatar 32 + meta+bubble 实际 ~14+18 + padding ~4）。
+// `measureRenderedRows` 会在首次渲染后把每行真实高度回填到 `rowHeights` Map，
+// 估算只决定首次填充和 spacer 高度，差几像素无所谓。
+const DEFAULT_ROW_HEIGHT = 48
+const LITE_ROW_HEIGHT = 36
 const CARD_ROW_HEIGHT = 96
 const CRITICAL_CARD_ROW_HEIGHT = 108
 const COMPACT_CARD_ROW_HEIGHT = 70
@@ -141,6 +147,10 @@ const eventKeyByMessage = new WeakMap<CustomChatEvent, string>()
 // lookup in `messageIndexByEvent`. The array index is recovered via indexOf
 // only on the (rare) duplicate-hit path.
 const messageByEventKey = new Map<string, CustomChatEvent>()
+// 去重折叠：跨用户的 (kind, compactText) 键。仅 danmaku 用，
+// 与 messageByEventKey 平行，不替换它。
+const messageByCardKey = new Map<string, CustomChatEvent>()
+const recentCardKeys = new Map<string, number>()
 // Cap on how many entries we keep in the dedup TTL map before forcing GC.
 const RECENT_EVENT_KEYS_GC_THRESHOLD = 512
 const renderQueue: CustomChatEvent[] = []
@@ -293,6 +303,18 @@ function messageKey(event: Pick<CustomChatEvent, 'source' | 'id'>): string {
 function gcRecentEventKeys(now: number): void {
   for (const [key, ts] of recentEventKeys) {
     if (now - ts > 9000) recentEventKeys.delete(key)
+  }
+}
+
+function cardKey(event: Pick<CustomChatEvent, 'kind' | 'text'>): string {
+  // wheelFoldKey 把「666」「6666」「66666」/「哈哈」「哈哈哈」归一化成同一把键，
+  // 让独轮车的不同长度版本能合并到一张卡。slice(80) 防止极长弹幕拖慢键比较。
+  return `${event.kind}:${wheelFoldKey(event.text).slice(0, 80)}`
+}
+
+function gcRecentCardKeys(now: number): void {
+  for (const [key, ts] of recentCardKeys) {
+    if (now - ts > 9000) recentCardKeys.delete(key)
   }
 }
 
@@ -767,6 +789,11 @@ function updateMatchCount(): void {
   matchCountEl.style.display = ''
 }
 
+/** 大于 99 的未读消息显示为 "99+"，避免 pill 被超长数字撑开。 */
+function formatUnread(n: number): string {
+  return n > 99 ? '99+' : String(n)
+}
+
 function updateUnread(): void {
   if (pauseBtn) {
     const frozen = !isFollowing()
@@ -782,7 +809,7 @@ function updateUnread(): void {
     } else {
       unreadBtn.textContent =
         unread > 0
-          ? `${unread} 条新消息，点击回到底部`
+          ? `${formatUnread(unread)} 条新消息，点击回到底部`
           : followMode === 'frozenByButton'
             ? '已手动暂停跟随'
             : '正在浏览历史'
@@ -798,7 +825,7 @@ function updateUnread(): void {
     } else {
       jumpBottomBtn.style.display = ''
       jumpBottomBtn.dataset.unread = unread > 0 ? 'true' : 'false'
-      jumpBottomBtn.textContent = unread > 0 ? `新消息 ${unread} ↓` : '回到最新 ↓'
+      jumpBottomBtn.textContent = unread > 0 ? `新消息 ${formatUnread(unread)} ↓` : '回到最新 ↓'
       jumpBottomBtn.title = '回到底部并恢复自动跟随'
     }
   }
@@ -827,9 +854,23 @@ function syncAutoFollowFromScroll(): void {
 
 function scrollToBottom(behavior: ScrollBehavior = 'auto'): void {
   if (!listEl) return
-  const top = Math.max(0, virtualContentHeight() - listEl.clientHeight)
+  let top = Math.max(0, virtualContentHeight() - listEl.clientHeight)
   listEl.scrollTo({ top, behavior })
-  if (behavior === 'auto') renderVirtualWindow()
+  if (behavior !== 'auto') return
+  // After the first scroll, the bottom rows that were never previously
+  // rendered get rendered + measured here. Their actual heights routinely
+  // differ from estimatedRowHeight (long danmaku that wrap to extra lines,
+  // gift / SC cards, …), so virtualContentHeight() grows. Without iterating,
+  // a single click lands on the *estimated* bottom — measured live in the
+  // browser, the gap was 250+ px after one pass — and the user has to click
+  // "回到最新 ↓" / "新消息 99+ ↓" repeatedly while the target keeps moving.
+  for (let attempts = 0; attempts < 4; attempts++) {
+    renderVirtualWindow()
+    const nextTop = Math.max(0, virtualContentHeight() - listEl.clientHeight)
+    if (Math.abs(nextTop - top) < 1) break
+    top = nextTop
+    listEl.scrollTo({ top, behavior: 'auto' })
+  }
 }
 
 function scrollListByWheel(event: WheelEvent): void {
@@ -859,6 +900,13 @@ function pruneMessages(): void {
     const ek = eventKeyByMessage.get(message)
     if (ek !== undefined && messageByEventKey.get(ek) === message) {
       messageByEventKey.delete(ek)
+    }
+    if (message.kind === 'danmaku') {
+      const ck = cardKey(message)
+      if (messageByCardKey.get(ck) === message) {
+        messageByCardKey.delete(ck)
+        recentCardKeys.delete(ck)
+      }
     }
   }
   updatePerfDebug()
@@ -942,6 +990,14 @@ function createMessageRow(message: CustomChatEvent, animate = false, virtualInde
 
   if (message.kind !== 'danmaku') meta.append(kind)
   meta.append(name, time)
+  const mergeCount = message.mergeCount ?? 1
+  if (mergeCount > 1) {
+    const mergeBadge = document.createElement('span')
+    mergeBadge.className = 'lc-chat-merge-count'
+    mergeBadge.textContent = `×${mergeCount}`
+    mergeBadge.title = `近 9 秒内同一弹幕共出现 ${mergeCount} 次`
+    meta.append(mergeBadge)
+  }
   if (message.isReply) {
     const reply = document.createElement('span')
     reply.className = 'lc-chat-reply'
@@ -1392,10 +1448,14 @@ function createRoot(): HTMLElement {
   const toolbar = document.createElement('div')
   toolbar.className = 'lc-chat-toolbar'
 
-  const spacer = document.createElement('span')
-  spacer.className = 'lc-chat-icon'
-  spacer.setAttribute('aria-hidden', 'true')
-  spacer.style.visibility = 'hidden'
+  // 工具栏左侧的搜索快捷按钮：之前 search input 藏在 ⋯ 菜单里，用户根本找不到。
+  // 这里加一个 🔍 直接打开菜单 + 聚焦 search input，把搜索做得「1 次点击就能用」。
+  const searchBtn = makeButton('lc-chat-icon', '🔍', '搜索消息（按 / 也行）', () => {
+    panel?.classList.add('lc-chat-menu-open')
+    // 等 menu 显示后再聚焦——CSS 是 `display:none → block`，立即聚焦会被忽略。
+    requestAnimationFrame(() => searchInput?.focus())
+  })
+  searchBtn.setAttribute('aria-label', '搜索消息')
 
   const title = document.createElement('div')
   title.className = 'lc-chat-title'
@@ -1414,10 +1474,14 @@ function createRoot(): HTMLElement {
       enterFrozenMode('frozenByButton')
       return
     }
-    resumeFollowing()
+    // 'auto' (instant) — not 'smooth'. On a busy room the smooth animation
+    // gets cancelled by the constant spacer / virtual-items DOM mutations
+    // from incoming messages, so the smooth scroll never actually moves
+    // scrollTop. Verified in-page on live.bilibili.com/21452505.
+    resumeFollowing('auto')
   })
   unreadBtn = makeButton('lc-chat-pill lc-chat-unread', '', '恢复自动跟随并跳到底部', () => {
-    resumeFollowing()
+    resumeFollowing('auto')
   })
   unreadBtn.style.display = 'none'
   matchCountEl = document.createElement('span')
@@ -1495,7 +1559,7 @@ function createRoot(): HTMLElement {
   filterRow.append(filterLabel, filterbar)
 
   menu.append(searchRow, controlRow, filterRow, statusRow, perfEl)
-  toolbar.append(spacer, title, menuBtn)
+  toolbar.append(searchBtn, title, menuBtn)
 
   debugEl = document.createElement('div')
   debugEl.className = 'lc-chat-event-debug'
@@ -1585,7 +1649,7 @@ function createRoot(): HTMLElement {
   disposeActionsIsland = mountSendActionsIsland(actionsHost, msg => void sendManualDanmaku(msg))
 
   jumpBottomBtn = makeButton('lc-chat-jump-bottom', '回到最新 ↓', '回到底部并恢复自动跟随', () => {
-    resumeFollowing()
+    resumeFollowing('auto')
   })
   jumpBottomBtn.style.display = 'none'
   composer.append(jumpBottomBtn, inputWrap, sendRow)
@@ -1814,6 +1878,43 @@ function addDomMessage(ev: DanmakuEvent): void {
 
 function addEvent(event: CustomChatEvent): void {
   if (!isReliableEvent(event)) return
+
+  // 去重折叠：跨用户文本相同的 danmaku 合并到一张卡片上，递增 ×N 徽章。
+  // 9 秒窗口外或卡片已被 prune，则走正常入队流程，重新成卡。
+  if (customChatFoldMode.value && event.kind === 'danmaku') {
+    const ck = cardKey(event)
+    const now = Date.now()
+    if (recentCardKeys.size > RECENT_EVENT_KEYS_GC_THRESHOLD) gcRecentCardKeys(now)
+    const lastSeen = recentCardKeys.get(ck)
+    const existing = messageByCardKey.get(ck)
+    if (existing && lastSeen !== undefined && now - lastSeen <= 9000) {
+      const idx = messages.indexOf(existing)
+      if (idx >= 0) {
+        // 折叠卡上 +1 应该发**最新**的那一条原文（独轮车的不同长度版本——666 vs
+        // 6666——按 wheelFoldKey 都进同一张卡，但用户期望 +1 跟最新一条同款）。
+        // 把 sendText / text / time 也滚到最新事件，meta（uid、uname）保留首条
+        // 不变，避免 UI 闪烁。
+        const next: CustomChatEvent = {
+          ...existing,
+          text: event.text,
+          sendText: event.sendText ?? existing.sendText,
+          time: event.time,
+          mergeCount: (existing.mergeCount ?? 1) + 1,
+        }
+        replaceMessage(idx, next)
+        messageByCardKey.set(ck, next)
+        recentCardKeys.set(ck, now)
+        // 同时刷新 recentEventKeys，避免旧的 9 秒窗口在折叠模式关闭后立刻把
+        // 同一文本的下一条扔掉。
+        recentEventKeys.set(eventKey(next), now)
+        return
+      }
+      // 索引不在数组里（理论不会发生），清理悬挂条目走兜底。
+      messageByCardKey.delete(ck)
+    }
+    // 第一次见这条卡片，落到下面的正常入队流程；登记后由 push 路径接管。
+  }
+
   const duplicateIndex = messageIndexByEvent(event)
   if (duplicateIndex >= 0) {
     const merged = mergeDuplicateEvent(messages[duplicateIndex], event)
@@ -1830,6 +1931,11 @@ function addEvent(event: CustomChatEvent): void {
   messages.push(event)
   messageKeys.add(key)
   messageByEventKey.set(ek, event)
+  if (customChatFoldMode.value && event.kind === 'danmaku') {
+    const ck = cardKey(event)
+    messageByCardKey.set(ck, event)
+    recentCardKeys.set(ck, Date.now())
+  }
   pruneMessages()
   scheduleRender(event)
 }

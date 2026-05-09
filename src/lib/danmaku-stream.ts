@@ -83,7 +83,13 @@ export function isValidDanmakuNode(node: HTMLElement): boolean {
   if (count === 2) return true
   if (node.classList.contains('chat-colorful-bubble') && node.classList.contains('has-bubble') && count === 4)
     return true
-  return node.classList.contains('has-bubble') && count === 3
+  if (node.classList.contains('has-bubble') && count === 3) return true
+  // 表情贴纸（"哈哈"/"NICE"/"[xxx 表情包]" 等）：dataset.danmaku 是表情名，可参与 +1、
+  // 自动跟车、去重折叠。形状有 `chat-emoticon bulge-emoticon`（4 类）以及加了气泡装饰
+  // `chat-colorful-bubble has-bubble chat-emoticon bulge-emoticon`（6 类）。放宽到只要
+  // 同时含 chat-emoticon + bulge-emoticon 即接受，避免数 class 数量被 B 站新装饰打破。
+  if (node.classList.contains('chat-emoticon') && node.classList.contains('bulge-emoticon')) return true
+  return false
 }
 
 function cleanInlineText(value: string | null | undefined): string {

@@ -259,11 +259,13 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   overflow-x: hidden;
   overscroll-behavior: contain;
   overflow-anchor: none;
-  padding: 13px 10px 14px;
+  padding: 6px 10px 14px;
   scrollbar-width: thin;
   scroll-behavior: auto;
-  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 18px, #000 100%);
-  mask-image: linear-gradient(to bottom, transparent, #000 18px, #000 100%);
+  /* 顶端 6px 软渐变——之前是 18px，把第一行的人名/牌子吃掉了大半。
+     6px 够给新消息一点淡入感，但不会再剪掉第一行的元数据。 */
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 6px, #000 100%);
+  mask-image: linear-gradient(to bottom, transparent, #000 6px, #000 100%);
 }
 #${ROOT_ID} .lc-chat-virtual-items {
   min-width: 0;
@@ -581,6 +583,20 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
 #${ROOT_ID} .lc-chat-reply {
   color: var(--lc-chat-accent);
 }
+#${ROOT_ID} .lc-chat-merge-count {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--lc-chat-chip);
+  color: var(--lc-chat-chip-text);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.45;
+  white-space: nowrap;
+  user-select: none;
+  opacity: .85;
+}
 #${ROOT_ID} .lc-chat-badge {
   flex: 0 1 auto;
   border-radius: 999px;
@@ -726,21 +742,31 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   background: linear-gradient(180deg, rgba(255, 159, 10, .92), rgba(255, 69, 58, .86));
   color: #fff;
 }
+/* 之前 .lc-chat-actions 在 grid 里占第 2 列一整行，opacity:0 仅隐藏不脱布局，
+   每条消息因此白白多出 ~20px 高度。改成 absolute 浮在气泡右下角，
+   只在 hover/selected 时显形，每条消息直接省 20px。 */
 #${ROOT_ID} .lc-chat-actions {
-  grid-column: 2 / 3;
-  justify-self: start;
+  position: absolute;
+  bottom: 2px;
+  right: 4px;
+  z-index: 2;
   display: flex;
   gap: 4px;
-  margin: 0 0 0 4px;
+  padding: 2px 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--lc-chat-panel) 86%, transparent);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--lc-chat-bg) 36%, transparent);
   opacity: 0;
-  transform: translateY(-2px);
-  transition: opacity .12s;
-  max-width: 100%;
-  overflow: hidden;
+  transform: translateY(2px);
+  transition: opacity .12s, transform .12s;
   pointer-events: none;
+  max-width: 70%;
+  overflow: hidden;
 }
 #${ROOT_ID} .lc-chat-message:hover .lc-chat-actions,
-#${ROOT_ID} .lc-chat-message.lc-chat-selected .lc-chat-actions {
+#${ROOT_ID} .lc-chat-message.lc-chat-selected .lc-chat-actions,
+#${ROOT_ID} .lc-chat-message:focus-within .lc-chat-actions {
   opacity: 1;
   transform: translateY(0);
   pointer-events: auto;

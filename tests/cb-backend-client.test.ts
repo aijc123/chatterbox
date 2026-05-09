@@ -13,7 +13,7 @@
 // project's preferred DI seam — see src/lib/gm-fetch.ts:50). We never use
 // mock.module on internal modules.
 
-import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 
 import { installGmStoreMock } from './_gm-store'
 

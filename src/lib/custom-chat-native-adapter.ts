@@ -26,6 +26,50 @@ export function compactText(value: string): string {
   return value.replace(/\s+/g, ' ').trim()
 }
 
+/**
+ * 用于「去重折叠」的归一化键。在 compactText + 小写之上做三件事：
+ *  1. 单字符连续重复折成 1 个 ——「666」「6666」 → "6"；「哈哈哈」「哈哈」 → "哈"。
+ *  2. 整串周期性重复折成 1 份 ——「晚安晚安晚安」「你好你好」「[doge][doge]」
+ *     → "晚安" / "你好" / "[doge]"。这是独轮车换长度刷屏的典型规避手法
+ *     （直接发 "晚安" 容易触发 B 站去重，于是改发 "晚安晚安"、"晚安晚安晚安" …
+ *     每条文本都不一样，骗过简单等值合并）。我们对完整字符串做最小周期检测，把
+ *     这一族变种全归到同一把卡键。
+ *  3. 全部小写 ——「NICE」「nice」算同一条。
+ *
+ * 非周期串和单字仍保持原样：「wow」「你好啊」「abc」「[doge]」 不会被错误折叠。
+ */
+export function wheelFoldKey(value: string): string {
+  const compacted = compactText(value)
+    .replace(/(.)\1+/g, '$1')
+    .toLowerCase()
+  return collapseRepeatedString(compacted)
+}
+
+/**
+ * 把 `unit.repeat(n)` 形态的串折回 `unit`。线性扫描，找最小可行周期；不是严格周期
+ * 的字符串（含尾巴 / 噪声）保持原样返回。
+ *
+ * 例：「晚安晚安晚安」(n=6, k=2) → "晚安"；「abcabc」(n=6, k=3) → "abc"；
+ *    「晚安啊」无周期 → "晚安啊"。
+ */
+function collapseRepeatedString(s: string): string {
+  const n = s.length
+  if (n < 2) return s
+  for (let k = 1; k * 2 <= n; k++) {
+    if (n % k !== 0) continue
+    const unit = s.slice(0, k)
+    let matches = true
+    for (let i = k; i < n; i += k) {
+      if (s.slice(i, i + k) !== unit) {
+        matches = false
+        break
+      }
+    }
+    if (matches) return unit
+  }
+  return s
+}
+
 export function parseBadgeLevel(raw: string): number | null {
   const text = compactText(raw)
   const match = text.match(/^(?:UL|LV)\s*(\d{1,3})$/i) ?? text.match(/^用户等级[:：]?\s*(\d{1,3})$/)
