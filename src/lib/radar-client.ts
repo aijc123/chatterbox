@@ -22,7 +22,7 @@
  * 据此生成 `// @connect`。
  */
 
-import { BASE_URL } from './const'
+import { BASE_URL, VERSION } from './const'
 import { type GmFetchResponse, gmFetch } from './gm-fetch'
 import { appendLog } from './log'
 import { radarBackendUrlOverride } from './store-radar'
@@ -257,47 +257,77 @@ function isAmplifierSummary(x: unknown): x is AmplifierSummary {
   return typeof r.channelUid === 'number' && typeof r.amplificationCount24h === 'number'
 }
 
-// ─── /radar/report (Week 9-10 才上线) ───────────────────────────────────────
+// ─── /radar/report ──────────────────────────────────────────────────────────
 
 /**
- * 双源数据上报:把本房间窗口内的聚合观察值送给 radar。
- *
- * !! endpoint 在 radar Worker 上还没实现 — 计划在 Week 9-10 上线 !!
- * 在那之前打开 radarReportEnabled 也只会拿到 404 然后被静默吞掉。
+ * 单个 5 分钟桶的上报内容,字段名与 server validation 一致(见
+ * live-meme-radar/server/src/routes/radar-public.ts 第 ~755 行的 validateBucket)。
+ */
+export interface RadarReportBucket {
+  /** epoch 秒,必须是 300 的倍数(对齐 5 分钟桶) */
+  bucket_ts: number
+  /** 直播间号 */
+  room_id: number
+  /** 主播自身公开 uid */
+  channel_uid: number
+  /** 桶内观察到的弹幕条数 */
+  msg_count: number
+  /** 桶内 distinct 发送者 uid 数,server 会拒掉 distinct_uid_count > msg_count */
+  distinct_uid_count: number
+}
+
+/**
+ * 双源数据上报:把本房间多个 5 分钟桶的聚合计数送给 radar。
  *
  * 隐私契约:
- *  - sampledTexts 是本房间窗口内 dedupe 后的文本数组(每条已经在 ws 流里被
- *    至少 N 个不同 uid 说过 — 调用方负责保证),不带逐条 timestamp/uid
- *  - 调用方如果一定要传 uid,先 SHA-256(salt + uid),不传明文
- *  - 失败一律静默(fire-and-forget),不能影响 auto-blend 主流程
+ *  - reporter_uid 是登录观众自身的公开 bilibili uid;server 端会先经
+ *    `hashUid(reporter_uid, IP_HASH_SALT)` 哈希再落 D1,raw 不进库。
+ *  - 桶内只发计数(msg_count, distinct_uid_count),不发任何文本 / 单条
+ *    timestamp / sender uid。
+ *  - 失败一律静默(fire-and-forget),不能影响 auto-blend 主流程。
+ *
+ * 调用方(`radar-report.ts`)负责保证:
+ *  - reporter_uid 来自 `cachedSelfUid`(DedeUserID cookie 解析)而非 sender
+ *  - bucket_ts 是 300 秒对齐的整数 epoch 秒
+ *  - 单次 ≤100 个桶(server `REPORT_MAX_BUCKETS`),否则 server 整批 400
  */
 export interface RadarReportPayload {
-  roomId: number
-  channelUid: number
-  /** 已 dedupe 的样本短文本(单条不超过 200 字),建议 ≤30 条 */
-  sampledTexts: string[]
-  windowStartTs: number
-  windowEndTs: number
+  reporter_uid: number
+  buckets: RadarReportBucket[]
 }
 
 export async function reportRadarObservation(payload: RadarReportPayload): Promise<void> {
   const base = getRadarBackendBaseUrl()
   if (!base) return
-  if (!Number.isFinite(payload.roomId) || payload.roomId <= 0) return
-  if (!Array.isArray(payload.sampledTexts) || payload.sampledTexts.length === 0) return
+  if (!Number.isFinite(payload.reporter_uid) || payload.reporter_uid <= 0) return
+  if (!Array.isArray(payload.buckets) || payload.buckets.length === 0) return
 
-  // 客户端兜底裁剪 — 哪怕调用方忘了,也不让大 payload 滚出去。
-  const sampled = payload.sampledTexts
-    .filter(s => typeof s === 'string' && s.trim().length > 0 && s.length <= 200)
-    .slice(0, 30)
-  if (sampled.length === 0) return
+  // Client-side guards — server returns 400 on any single-bucket validation
+  // failure (whole-batch reject) so it's worth filtering before paying the
+  // round-trip. Only keep buckets that match the server's validateBucket
+  // contract: 300-aligned bucket_ts, positive room_id/channel_uid,
+  // distinct_uid_count <= msg_count, both non-negative ints.
+  const filtered = payload.buckets.filter(b => {
+    if (!b || typeof b !== 'object') return false
+    if (!Number.isInteger(b.bucket_ts) || b.bucket_ts % 300 !== 0) return false
+    if (!Number.isInteger(b.room_id) || b.room_id <= 0) return false
+    if (!Number.isInteger(b.channel_uid) || b.channel_uid <= 0) return false
+    if (!Number.isInteger(b.msg_count) || b.msg_count < 0) return false
+    if (!Number.isInteger(b.distinct_uid_count) || b.distinct_uid_count < 0) return false
+    if (b.distinct_uid_count > b.msg_count) return false
+    return true
+  })
+  if (filtered.length === 0) return
+
+  // Server cap is 100 — slice if the caller fed more. Keep the most recent
+  // (higher bucket_ts) on the assumption that older buckets are likely past
+  // the rate-limit window anyway.
+  const buckets = filtered.length > 100 ? filtered.slice(-100) : filtered
 
   const body = {
-    roomId: payload.roomId,
-    channelUid: payload.channelUid,
-    sampledTexts: sampled,
-    windowStartTs: payload.windowStartTs,
-    windowEndTs: payload.windowEndTs,
+    reporter_uid: payload.reporter_uid,
+    client_version: VERSION,
+    buckets,
   }
 
   try {
@@ -307,7 +337,7 @@ export async function reportRadarObservation(payload: RadarReportPayload): Promi
       body: JSON.stringify(body),
       timeoutMs: 8_000,
     })
-    // 完全不看结果:endpoint 还没上线时一律 404,正确实现后我们也不需要回执。
+    // 完全不看结果:endpoint 401/429/400 时一律静默,fire-and-forget 模型。
   } catch {
     // 静默
   }
