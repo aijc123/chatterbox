@@ -4,13 +4,19 @@ on:
   pull_request:
     branches: [master]
   push:
-    branches-ignore: [master]
+    branches: ['**']
 
 permissions:
   contents: read
 
 jobs:
   validate:
+    # Skip on Release commits to master — those are tag-driven and covered by
+    # release.yml (which runs the same release:check). Without this guard the
+    # badge would still get stamped, but we'd waste a full CI run per release.
+    # On non-master branches the head commit is never a Release commit, so this
+    # condition is effectively a no-op there.
+    if: ${{ !startsWith(github.event.head_commit.message, 'Release ') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

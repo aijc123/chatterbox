@@ -250,7 +250,7 @@ const { aiEvasion } = await import('../src/lib/store-send')
 const { autoLearnShadowRules, shadowBanMode, shadowBanObservations } = await import('../src/lib/store-shadow-learn')
 const { localRoomRules, replacementMap } = await import('../src/lib/store-replacement')
 
-function makeDanmuMsg(text: string, uid: number, uname = 'U' + uid): { info: unknown[]; cmd: string } {
+function makeDanmuMsg(text: string, uid: number, uname = `U${uid}`): { info: unknown[]; cmd: string } {
   const info0 = [0, 0, 0, 0, Date.now(), 0, 0, '', 0, 0, 0, '', 0]
   return {
     info: [info0, text, [uid, uname, 0], [], [5, 0, 0, 0, 0, 0]],
