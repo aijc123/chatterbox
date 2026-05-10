@@ -20,12 +20,9 @@ mock.module('$', () => ({
 const { exportSettings, importSettings } = await import('../src/lib/backup')
 const { flushPendingWrites, isValidImportedValue } = await import('../src/lib/gm-signal')
 const { msgSendInterval, randomColor, msgTemplates } = await import('../src/lib/store')
-const {
-  autoBlendUserBlacklist,
-  autoBlendCooldownAuto,
-  autoBlendAvoidRepeat,
-  lastAppliedPresetBaseline,
-} = await import('../src/lib/store-auto-blend')
+const { autoBlendUserBlacklist, autoBlendCooldownAuto, autoBlendAvoidRepeat, lastAppliedPresetBaseline } = await import(
+  '../src/lib/store-auto-blend'
+)
 
 describe('isValidImportedValue', () => {
   test('accepts values matching the in-memory typeof', () => {
