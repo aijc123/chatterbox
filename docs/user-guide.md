@@ -157,6 +157,7 @@ bun run build
 - 直播间保安室：完全可选，只同步摘要或选定规则，不上传 cookie、csrf、localStorage 或完整接口响应。
 - 烂梗库梗源（`sbhzm.cn`、`chatterbox-cloud.aijc-eric.workers.dev`）：仅在打开烂梗库或社区贡献时拉取梗列表，可在设置里改成自部署地址或关闭。
 - LLM 智能辅助驾驶（`api.anthropic.com`、`api.openai.com`，以及你自填的 OpenAI 兼容 base URL）：仅在你填入 API key 并主动开启 AI 规避/改写时才会调用。
+- **live-meme-radar 趋势上报** (`radarReportEnabled`,可在『设置 → 工具』开启,默认关闭): 脚本会按 60 秒一批向 live-meme-radar 后端上报本房间命中已知 trending 簇的去重弹幕样本(单批 ≤30 条,单条 ≤200 字),帮助改进跨房间热门梗检测。仅含房间号 / 主播公开 ID / 样本文本 / 窗口起止时间戳,不含观众或发送者 uid / uname / 头像 / 单条时间戳。切房间或关 toggle 立即丢未发的 buffer。
 - GitHub Pages、Greasy Fork、unpkg：用于官网、安装和依赖资源加载。
 
 反馈问题时不要公开 cookie、csrf token、账号密钥、localStorage dump、私人规则或私有同步地址。

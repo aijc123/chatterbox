@@ -132,6 +132,8 @@ userscript 把雷达数据用作烂梗库的辅助标记：打开烂梗库面板
 
 请求走 `GM_xmlhttpRequest`（绕开浏览器 CORS），失败一律静默。当前版本不会把本房间任何数据上传到 radar；本地 userscript 只读取雷达发布的聚合统计。更多 radar 项目细节、自部署指南、API 形态请见：<https://live-meme-radar.pages.dev>。
 
+开启『设置 → 工具 → live-meme-radar 趋势上报』(`radarReportEnabled`, 默认关闭) 后,脚本会按 60 秒一批向 `/radar/report` 上报本房间命中已知 trending 簇的去重弹幕样本(单批 ≤30 条,单条 ≤200 字),仅含房间号 / 主播公开 ID / 样本文本 / 窗口起止时间戳,不含任何观众或发送者 uid / uname / 头像 / 单条时间戳。切房间或关掉 toggle 立即丢未发的 buffer。
+
 ## 常见问题和排障
 
 - 看不到 `弹幕助手` 按钮：确认脚本已安装并启用，然后刷新 `https://live.bilibili.com/...` 直播间页面。
