@@ -6,7 +6,7 @@ import {
   type SendDanmakuResult,
   setRandomDanmakuColor,
 } from './api'
-import { isAutoBlendBlacklistedUid } from './auto-blend-blacklist'
+import { isAutoBlendBlacklistedText, isAutoBlendBlacklistedUid } from './auto-blend-blacklist'
 import { logAutoBlend, logAutoBlendSendResult } from './auto-blend-events'
 import {
   formatAutoBlendCandidate,
@@ -18,7 +18,13 @@ import {
 import { detectTrend, type TrendEvent } from './auto-blend-trend'
 import { subscribeCustomChatEvents } from './custom-chat-events'
 import { subscribeDanmaku } from './danmaku-stream'
-import { formatLockedEmoticonReject, isEmoticonUnique, isLockedEmoticon } from './emoticon'
+import {
+  formatLockedEmoticonReject,
+  formatUnavailableEmoticonReject,
+  isEmoticonUnique,
+  isLockedEmoticon,
+  isUnavailableEmoticon,
+} from './emoticon'
 import { classifyRiskEvent, syncGuardRoomRiskEvent } from './guard-room-sync'
 import { startLiveWsSource, stopLiveWsSource } from './live-ws-source'
 import { clearMemeSession, recordMemeCandidate } from './meme-contributor'
@@ -188,8 +194,13 @@ export function _getCpmWindowSizeForTests(): number {
 }
 
 /** Test-only: directly invoke recordDanmaku without setting up subscriptions. */
-export function _recordDanmakuForTests(rawText: string, uid: string | null, isReply: boolean): void {
-  recordDanmaku(rawText, uid, isReply)
+export function _recordDanmakuForTests(
+  rawText: string,
+  uid: string | null,
+  isReply: boolean,
+  hasLargeEmote = false
+): void {
+  recordDanmaku(rawText, uid, isReply, hasLargeEmote)
 }
 
 /** Test-only: seed lastAutoSentText for avoid-repeat tests. */
@@ -453,7 +464,7 @@ function maybeScheduleBurstFromCurrentTrends(): void {
   if (chosen !== null) scheduleBurstSend(chosen)
 }
 
-function recordDanmaku(rawText: string, uid: string | null, isReply: boolean): void {
+function recordDanmaku(rawText: string, uid: string | null, isReply: boolean, hasLargeEmote: boolean): void {
   if (!autoBlendEnabled.value) return
 
   // 自身回声:在 CPM 跟踪之前过滤,免得自动跟车的发送被回灌进 CPM,
@@ -472,7 +483,21 @@ function recordDanmaku(rawText: string, uid: string | null, isReply: boolean): v
   if (isReply && !autoBlendIncludeReply.value) return
 
   if (isAutoBlendBlacklistedUid(uid)) return
+  // 文本黑名单(精确 trim 后匹配):"666"、"+1"、"哈哈哈" 这种万能水
+  // 即使触发达标也不要跟。提前到这里,既不进 trendMap,也不出现在候选榜
+  // 进度里,UI 上彻底看不到,语义和 UID 黑名单完全对称。
+  if (isAutoBlendBlacklistedText(text)) return
   if (isLockedEmoticon(text)) return
+  // 跨房间表情 unique ID(`room_<别人房间>_<id>` 等):看着像 ID,但不在
+  // 当前房间的表情包内,直接发会被 B 站当成纯文本回显,出现"乱码刷屏"。
+  // 与 isLockedEmoticon 同位置过滤——不让这种 trend 进入候选榜,避免
+  // 触发后 triggerSend 才发现没法发,白白吃掉一个冷却。
+  if (isUnavailableEmoticon(text)) return
+  // fan-club 大表情(bulge-emoticon)的 `data-danmaku` 是显示名,不是
+  // emoticon_unique。让它累积成 trend → 触发 → 因为 isEmoticonUnique
+  // 返回 false → 走纯文本路径 → 屏幕上出现"应援"两个字而不是别人看到
+  // 的大表情图。早期硬丢,与 locked 表情同档处理。
+  if (hasLargeEmote) return
 
   // 不重复上次自动发送:在计数前丢弃,所以被屏蔽的句子也不会进候选榜——
   // 仍能命中的,必然是我们刚刚自己发出去的那条。
@@ -634,6 +659,12 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
       const { text: originalText, uniqueUsers, totalCount } = targets[ti]
       if (isLockedEmoticon(originalText)) {
         logAutoBlend(formatLockedEmoticonReject(originalText, '自动跟车(表情)'), 'warning')
+        continue
+      }
+      // Safety net: 同 recordDanmaku 处的同位过滤,但表情缓存如果在累积期内
+      // 才加载(罕见竞态),早期过滤没赶上;到这里时缓存已稳定可靠,再补一刀。
+      if (isUnavailableEmoticon(originalText)) {
+        logAutoBlend(formatUnavailableEmoticonReject(originalText, '自动跟车(表情)'), 'warning')
         continue
       }
       // 记录"正在动手发的这一句",让 autoBlendAvoidRepeat 在内层重发循环里、
@@ -804,12 +835,14 @@ export function startAutoBlend(): void {
   autoBlendLastActionText.value = '暂无'
 
   unsubscribe = subscribeDanmaku({
-    onMessage: ev => recordDanmaku(ev.text, ev.uid, ev.isReply),
+    onMessage: ev => recordDanmaku(ev.text, ev.uid, ev.isReply, ev.hasLargeEmote),
   })
   startLiveWsSource()
   unsubscribeWsDanmaku = subscribeCustomChatEvents(event => {
     if (event.kind !== 'danmaku' || event.source !== 'ws') return
-    recordDanmaku(event.text, event.uid, event.isReply)
+    // WS 协议没有 bulge-emoticon DOM marker;大表情判定只在 DOM 流上有效。
+    // WS 流统一传 false——若 DOM 流后续观察到同一条会自然命中过滤。
+    recordDanmaku(event.text, event.uid, event.isReply, false)
   })
 
   if (cleanupTimer === null) {

@@ -24,6 +24,13 @@ export interface DanmakuEvent {
   avatarUrl?: string
   /** Whether `data-replymid` is non-zero (i.e. a reply danmaku). */
   isReply: boolean
+  /**
+   * 是否是 fan-club 大表情（bulge-emoticon DOM marker）。这种表情的
+   * `data-danmaku` 是显示名（如"应援"、"干杯"），不是 `emoticon_unique`，
+   * 没法当成 unique ID 重新发出去——会变成纯文字"应援"两个字落进聊天。
+   * 自动跟车 / 智驾应该一律丢弃，永远跟不动。
+   */
+  hasLargeEmote: boolean
 }
 
 export interface DanmakuSubscription {
@@ -165,6 +172,10 @@ export function extractDanmakuInfo(node: HTMLElement): DanmakuEvent | null {
     badges: extractBadges(node, text),
     avatarUrl: extractAvatar(node),
     isReply: replymid !== '0',
+    // bulge-emoticon 这层 class 在 isValidDanmakuNode 里已经被白名单接受
+    // (line ~91)。这里只是把同样的判定结果作为字段透传给订阅方，让自动
+    // 跟车 / 智驾不用再去翻 DOM 就能识别大表情。
+    hasLargeEmote: node.classList.contains('bulge-emoticon'),
   }
 }
 

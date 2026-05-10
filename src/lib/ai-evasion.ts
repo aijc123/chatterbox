@@ -1,7 +1,12 @@
 import { signal } from '@preact/signals'
 
 import { BASE_URL } from './const'
-import { formatLockedEmoticonReject, isLockedEmoticon } from './emoticon'
+import {
+  formatLockedEmoticonReject,
+  formatUnavailableEmoticonReject,
+  isLockedEmoticon,
+  isUnavailableEmoticon,
+} from './emoticon'
 import { appendLog } from './log'
 import { enqueueDanmaku, SendPriority } from './send-queue'
 import { aiEvasion } from './store'
@@ -221,6 +226,11 @@ export async function tryAiEvasion(
     if (isLockedEmoticon(evadedMessage)) {
       const error = 'AI规避结果是锁定表情'
       appendLog(formatLockedEmoticonReject(evadedMessage, `${logPrefix}AI规避表情`))
+      return { success: false, evadedMessage, error }
+    }
+    if (isUnavailableEmoticon(evadedMessage)) {
+      const error = 'AI规避结果是跨房间表情ID'
+      appendLog(formatUnavailableEmoticonReject(evadedMessage, `${logPrefix}AI规避表情`))
       return { success: false, evadedMessage, error }
     }
 

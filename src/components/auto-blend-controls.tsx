@@ -18,6 +18,7 @@ import {
   autoBlendEnabled,
   autoBlendIncludeReply,
   autoBlendLastActionText,
+  autoBlendMessageBlacklist,
   autoBlendMinDistinctUsers,
   autoBlendPanelOpen,
   autoBlendPreset,
@@ -199,6 +200,115 @@ function BlacklistPanel() {
             value={addUname.value}
             onInput={e => {
               addUname.value = e.currentTarget.value
+            }}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !e.isComposing) {
+                e.preventDefault()
+                handleAdd()
+              }
+            }}
+          />
+          <button type='button' onClick={handleAdd} style={{ whiteSpace: 'nowrap' }}>
+            添加
+          </button>
+        </div>
+      </div>
+    </details>
+  )
+}
+
+/**
+ * Text-based blacklist (parallel to BlacklistPanel which is UID-based). Exact
+ * trim() match against incoming danmaku. 用来挡 "666"、"+1"、"哈哈哈"
+ * 这种万能水——已经达标也不要跟。Object.hasOwn 在过滤函数里防原型链
+ * 误命中，UI 这边只管增删。
+ */
+function MessageBlacklistPanel() {
+  const addText = useSignal('')
+  const list = autoBlendMessageBlacklist.value
+  const entries = Object.keys(list)
+
+  const handleAdd = () => {
+    const text = addText.value.trim()
+    if (!text) return
+    if (Object.hasOwn(list, text)) {
+      appendLog(`⚠️ 文本"${text}"已在融入文本黑名单中`)
+      return
+    }
+    autoBlendMessageBlacklist.value = { ...list, [text]: true }
+    appendLog(`🚲 已加入融入文本黑名单：${text}`)
+    addText.value = ''
+  }
+
+  const handleRemove = (text: string) => {
+    const next = { ...list }
+    delete next[text]
+    autoBlendMessageBlacklist.value = next
+    appendLog(`🚲 已解除融入文本黑名单：${text}`)
+  }
+
+  return (
+    <details style={{ marginTop: '.5em' }}>
+      <summary style={{ cursor: 'pointer', userSelect: 'none' }}>
+        融入文本黑名单
+        {entries.length > 0 && <span className='cb-soft'> ({entries.length})</span>}
+      </summary>
+
+      <div style={{ margin: '.5em 0', display: 'grid', gap: '.35em' }}>
+        <div className='cb-note'>
+          黑名单中的弹幕(精确匹配,trim 后)永远不会触发自动跟车。适合屏蔽 "666"、"+1"、"哈哈哈" 这类无意义高频水弹幕。
+        </div>
+
+        {entries.length > 0 ? (
+          <div style={{ maxHeight: '150px', overflowY: 'auto', display: 'grid', gap: '.25em' }}>
+            {entries.map(text => (
+              <div
+                key={text}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '.5em',
+                  padding: '2px 4px',
+                  borderRadius: '3px',
+                  background: 'rgba(0,0,0,.04)',
+                }}
+              >
+                <span
+                  style={{
+                    flex: 1,
+                    fontSize: '12px',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    wordBreak: 'break-all',
+                  }}
+                  title={text}
+                >
+                  {text}
+                </span>
+                <button
+                  type='button'
+                  className='cb-rule-remove'
+                  style={{ minHeight: 'unset', padding: '1px 6px', fontSize: '11px' }}
+                  onClick={() => handleRemove(text)}
+                >
+                  删除
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className='cb-empty'>暂无文本黑名单</div>
+        )}
+
+        <div style={{ display: 'flex', gap: '.35em', alignItems: 'center', flexWrap: 'wrap' }}>
+          <input
+            type='text'
+            placeholder='要屏蔽的弹幕原文(精确匹配)'
+            style={{ flex: 1, minWidth: '60px' }}
+            value={addText.value}
+            onInput={e => {
+              addText.value = e.currentTarget.value
             }}
             onKeyDown={e => {
               if (e.key === 'Enter' && !e.isComposing) {
@@ -733,6 +843,7 @@ export function AutoBlendControls() {
         )}
 
         <BlacklistPanel />
+        <MessageBlacklistPanel />
       </details>
     </details>
   )

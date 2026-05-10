@@ -2,7 +2,13 @@ import { showConfirm } from '../components/ui/alert-dialog'
 import { tryAiEvasion } from './ai-evasion'
 import { ensureRoomId, getCsrfToken } from './api'
 import { copyTextToClipboard } from './clipboard'
-import { formatLockedEmoticonReject, isEmoticonUnique, isLockedEmoticon } from './emoticon'
+import {
+  formatLockedEmoticonReject,
+  formatUnavailableEmoticonReject,
+  isEmoticonUnique,
+  isLockedEmoticon,
+  isUnavailableEmoticon,
+} from './emoticon'
 import { classifyRiskEvent, syncGuardRoomRiskEvent } from './guard-room-sync'
 import { appendLog } from './log'
 import { applyReplacements } from './replacement'
@@ -112,6 +118,10 @@ export async function repeatDanmaku(
       appendLog(formatLockedEmoticonReject(processed, '+1 表情'))
       return
     }
+    if (isUnavailableEmoticon(processed)) {
+      appendLog(formatUnavailableEmoticonReject(processed, '+1 表情'))
+      return
+    }
     const result = await enqueueDanmaku(processed, roomId, csrfToken, SendPriority.MANUAL)
     const display = msg !== processed ? `${msg} → ${processed}` : processed
     appendLog(result, '+1', display)
@@ -143,6 +153,10 @@ export async function sendManualDanmaku(originalMessage: string): Promise<boolea
   const isEmote = isEmoticonUnique(trimmed)
   if (isLockedEmoticon(trimmed)) {
     appendLog(formatLockedEmoticonReject(trimmed, '手动表情'))
+    return false
+  }
+  if (isUnavailableEmoticon(trimmed)) {
+    appendLog(formatUnavailableEmoticonReject(trimmed, '手动表情'))
     return false
   }
   const processedMessage = isEmote ? trimmed : applyReplacements(trimmed)

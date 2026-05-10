@@ -17,9 +17,15 @@ mock.module('$', () => ({
   },
 }))
 
-const { importSettings } = await import('../src/lib/backup')
-const { isValidImportedValue } = await import('../src/lib/gm-signal')
+const { exportSettings, importSettings } = await import('../src/lib/backup')
+const { flushPendingWrites, isValidImportedValue } = await import('../src/lib/gm-signal')
 const { msgSendInterval, randomColor, msgTemplates } = await import('../src/lib/store')
+const {
+  autoBlendUserBlacklist,
+  autoBlendCooldownAuto,
+  autoBlendAvoidRepeat,
+  lastAppliedPresetBaseline,
+} = await import('../src/lib/store-auto-blend')
 
 describe('isValidImportedValue', () => {
   test('accepts values matching the in-memory typeof', () => {
@@ -148,5 +154,33 @@ describe('importSettings', () => {
     expect(result.ok).toBe(true)
     expect(result.skipped).toBeUndefined()
     expect(result.unknownKeys).toBeUndefined()
+  })
+
+  // Round-trip the auto-blend signals that were missing from EXPORT_KEYS until
+  // recently — exporting and re-importing should restore them, not silently
+  // drop them on the floor.
+  test('round-trips newly-allowlisted auto-blend gmSignal keys', () => {
+    autoBlendUserBlacklist.value = { '12345': 'spammer', '67890': 'bot' }
+    autoBlendCooldownAuto.value = true
+    autoBlendAvoidRepeat.value = true
+    lastAppliedPresetBaseline.value = 'hot'
+    // gmSignal writes are debounced 150ms; force-persist before exporting
+    // so exportSettings (which reads from GM storage) sees the new values.
+    flushPendingWrites()
+
+    const json = exportSettings()
+
+    autoBlendUserBlacklist.value = {}
+    autoBlendCooldownAuto.value = false
+    autoBlendAvoidRepeat.value = false
+    lastAppliedPresetBaseline.value = 'normal'
+
+    const result = importSettings(json)
+    expect(result.ok).toBe(true)
+    expect(result.skipped).toBeUndefined()
+    expect(autoBlendUserBlacklist.value).toEqual({ '12345': 'spammer', '67890': 'bot' })
+    expect(autoBlendCooldownAuto.value).toBe(true)
+    expect(autoBlendAvoidRepeat.value).toBe(true)
+    expect(lastAppliedPresetBaseline.value).toBe('hot')
   })
 })

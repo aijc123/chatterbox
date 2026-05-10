@@ -4,7 +4,12 @@ import { useEffect, useRef } from 'preact/hooks'
 
 import { tryAiEvasion } from '../lib/ai-evasion'
 import { ensureRoomId, getCsrfToken } from '../lib/api'
-import { formatLockedEmoticonReject, isLockedEmoticon } from '../lib/emoticon'
+import {
+  formatLockedEmoticonReject,
+  formatUnavailableEmoticonReject,
+  isLockedEmoticon,
+  isUnavailableEmoticon,
+} from '../lib/emoticon'
 import { appendLog } from '../lib/log'
 import { applyReplacements } from '../lib/replacement'
 import { enqueueDanmaku, SendPriority } from '../lib/send-queue'
@@ -112,6 +117,10 @@ export function SttTab() {
       }
       if (isLockedEmoticon(segment)) {
         appendLog(formatLockedEmoticonReject(segment, '同传表情'))
+        return
+      }
+      if (isUnavailableEmoticon(segment)) {
+        appendLog(formatUnavailableEmoticonReject(segment, '同传表情'))
         return
       }
       const result = await enqueueDanmaku(segment, roomId, csrfToken, SendPriority.STT)
