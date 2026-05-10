@@ -11,8 +11,10 @@ import {
   removeShadowBanObservation,
 } from '../../lib/shadow-learn'
 import { autoLearnShadowRules, shadowBanMode, shadowBanObservations } from '../../lib/store'
+import { showConfirm } from '../ui/alert-dialog'
+import { matchesSearchQuery } from './search'
 
-const SECTION_KEYWORDS = '影子屏蔽 屏蔽观察 自动学习 shadow ban 改写 候选'
+const SECTION_KEYWORDS = '影子屏蔽 屏蔽观察 自动学习 shadow ban 改写 候选 隐形 invisible kou 空格'
 
 function formatRelative(ts: number): string {
   const diff = Date.now() - ts
@@ -75,10 +77,9 @@ function CandidateRow({ candidate }: { candidate: ShadowBypassCandidate }) {
 }
 
 export function ShadowObservationSection({ query = '' }: { query?: string }) {
-  const visible = !query || SECTION_KEYWORDS.toLowerCase().includes(query)
   const replaceTo = useSignal<Record<string, string>>({})
 
-  if (!visible) return null
+  if (!matchesSearchQuery(SECTION_KEYWORDS, query)) return null
 
   const sorted = [...shadowBanObservations.value].sort((a, b) => b.count - a.count || b.ts - a.ts)
   const top = sorted.slice(0, 50)
@@ -155,8 +156,14 @@ export function ShadowObservationSection({ query = '' }: { query?: string }) {
               type='button'
               className='cb-button-text'
               style={{ float: 'right', fontSize: '0.85em' }}
-              onClick={() => {
-                if (!confirm('确定清空所有影子封禁观察记录吗？')) return
+              onClick={async () => {
+                const ok = await showConfirm({
+                  title: '确定清空所有影子封禁观察记录吗？',
+                  body: '此操作不可撤销。已经晋升为本地规则的不会受影响。',
+                  confirmText: '清空',
+                  cancelText: '取消',
+                })
+                if (!ok) return
                 clearShadowBanObservations()
                 appendLog('🧹 已清空影子封禁观察列表')
               }}

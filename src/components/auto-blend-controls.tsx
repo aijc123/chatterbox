@@ -5,7 +5,6 @@ import { computeAutoCooldownSec, getCurrentCpm } from '../lib/auto-blend'
 import { AUTO_BLEND_PRESETS } from '../lib/auto-blend-preset-config'
 import { applyAutoBlendPreset } from '../lib/auto-blend-presets'
 import { decideAutoBlendToggle } from '../lib/auto-blend-toggle'
-import { describeLlmGap } from '../lib/llm-polish'
 import { appendLog } from '../lib/log'
 import {
   autoBlendAdvancedOpen,
@@ -40,6 +39,8 @@ import {
   msgSendInterval,
 } from '../lib/store'
 import { PromptPicker } from './prompt-picker'
+import { showConfirm } from './ui/alert-dialog'
+import { YoloCallout } from './yolo-callout'
 
 function NumberInput({
   value,
@@ -454,20 +455,34 @@ export function AutoBlendControls() {
         ? '#1677ff'
         : '#0a7f55'
 
-  const toggleEnabled = () => {
+  const toggleEnabled = async () => {
+    // 第一步：纯函数判定要不要弹 confirm（保留可单元测试的决策点）。
+    // 第二步：用 showConfirm() 而不是 native confirm()——后者在浏览器里会被
+    // anti-popup 抑制 / 不参与暗色模式 / 没法做样式与 dialog 一致。同样的
+    // 安全护栏要用同一种 UI primitive。
+    let confirmed = true
+    let markConfirmedAfter = false
     const decision = decideAutoBlendToggle(
       {
         currentlyEnabled: autoBlendEnabled.value,
         dryRun: autoBlendDryRun.value,
         hasConfirmedRealFire: hasConfirmedAutoBlendRealFire.value,
       },
-      () =>
-        confirm(
-          '自动跟车将会以你的账号真实发送弹幕（试运行已关闭）。\n\n建议先打开「试运行」观察一段时间。是否继续直接开启？'
-        )
+      // sync stub —— 实际 confirm 在外面做。返回 true 让 helper 走"用户已确认"
+      // 分支，proceed/markConfirmed 我们自己再决定。
+      () => true
     )
-    if (!decision.proceed) return
-    if (decision.markConfirmed) hasConfirmedAutoBlendRealFire.value = true
+    if (decision.markConfirmed) {
+      confirmed = await showConfirm({
+        title: '自动跟车将以你的账号真实发送弹幕',
+        body: '试运行已关闭。建议先打开「试运行」观察一段时间。是否继续直接开启？',
+        confirmText: '我已了解，开始跟车',
+        cancelText: '取消',
+      })
+      markConfirmedAfter = confirmed
+    }
+    if (!confirmed || !decision.proceed) return
+    if (markConfirmedAfter) hasConfirmedAutoBlendRealFire.value = true
     autoBlendEnabled.value = !autoBlendEnabled.value
   }
 
@@ -488,7 +503,7 @@ export function AutoBlendControls() {
           条件满足时，会以你的账号自动发送弹幕。第一次开启建议先打开下方的「试运行」观察效果。
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '.5em', alignItems: 'center' }}>
-          <button type='button' className={isOn ? 'cb-danger' : 'cb-primary'} onClick={toggleEnabled}>
+          <button type='button' className={isOn ? 'cb-danger' : 'cb-primary'} onClick={() => void toggleEnabled()}>
             {isOn ? '停止跟车' : '开始跟车'}
           </button>
           <span
@@ -774,7 +789,7 @@ export function AutoBlendControls() {
             />
             <label
               htmlFor='autoBlendYolo'
-              title='YOLO：触发后用 LLM 把要发的文本润色一遍再发。LLM 配置复用「智能辅助驾驶」面板。'
+              title='YOLO：触发后用 LLM 把要发的文本润色一遍再发。LLM 凭证在「设置 → LLM」里集中配置。'
             >
               🤖 YOLO（LLM 润色后再发）
             </label>
@@ -791,12 +806,11 @@ export function AutoBlendControls() {
               disabled={!autoBlendYolo.value}
             />
           </span>
-          {autoBlendYolo.value && (
-            <div className='cb-note' style={{ color: '#666', fontSize: '0.85em', paddingLeft: '1.4em' }}>
-              {describeLlmGap('autoBlend') ??
-                '已就绪：触发后会先用 LLM 润色再发。每条触发都会调用一次 LLM（产生 token 消耗）。'}
-            </div>
-          )}
+          <YoloCallout
+            feature='autoBlend'
+            enabled={autoBlendYolo.value}
+            readyText='已就绪：触发后会先用 LLM 润色再发。每条触发都会调用一次 LLM（产生 token 消耗）。'
+          />
 
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
             <input

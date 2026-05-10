@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>chatterbox UI preview</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+        background: #f0f0f3;
+        padding: 16px;
+      }
+      .preview-frame {
+        border: 1px dashed #999;
+        position: relative;
+        min-height: 600px;
+        background: #fff;
+      }
+      .preview-frame::after {
+        content: "← 这条虚线右边就是面板真实最大宽度 (320px)";
+        position: absolute;
+        top: 8px;
+        right: -260px;
+        color: #999;
+        font-size: 12px;
+      }
+      .controls {
+        margin-bottom: 12px;
+        font-size: 13px;
+      }
+      .controls button {
+        margin-right: 8px;
+        padding: 4px 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>chatterbox UI 预览（用于 panel 宽度回归）</h2>
+    <p>面板挂载位置 fixed bottom-right；这里只画 320px 的窗口让你能看到滚动 + 溢出。</p>
+    <div class="controls">
+      <button id="btn-open" type="button">打开面板</button>
+      <button id="btn-settings" type="button">跳到 设置 tab</button>
+      <button id="btn-fasong" type="button">跳到 发送 tab</button>
+    </div>
+    <div class="preview-frame" id="preview-frame"></div>
+    <script type="module" src="/dev/preview.tsx"></script>
+  </body>
+</html>

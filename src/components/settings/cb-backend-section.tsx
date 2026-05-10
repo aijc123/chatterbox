@@ -6,8 +6,9 @@ import {
   cbBackendHealthState,
   cbBackendUrlOverride,
 } from '../../lib/store-meme'
+import { matchesSearchQuery } from './search'
 
-const SECTION_KEYWORDS = '梗库后端 chatterbox cloud cb 后端 自建 backend localhost'
+const SECTION_KEYWORDS = '梗库后端 chatterbox cloud cb 后端 自建 backend localhost url 烂梗 LAPLACE SBHZM'
 
 /**
  * "梗库后端 (chatterbox-cloud)" 设置区块。
@@ -48,8 +49,7 @@ function statusLabel(state: typeof cbBackendHealthState.value): string {
 }
 
 export function CbBackendSection({ query = '' }: { query?: string }) {
-  const visible = !query || SECTION_KEYWORDS.toLowerCase().includes(query)
-  if (!visible) return null
+  if (!matchesSearchQuery(SECTION_KEYWORDS, query)) return null
 
   async function handleProbe() {
     await probeAndUpdateCbBackendHealth()

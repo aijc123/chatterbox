@@ -315,6 +315,11 @@ const PANEL_STYLE = `
 
       #laplace-chatterbox-dialog .cb-stack {
         display: grid;
+        /* minmax(0, 1fr) 而不是默认 auto——后者会用 max-content 撑大列，
+           当 cb-stack 的子元素是 PromptManager / textarea / 长 select 时，
+           整个 stack 会被撑出 cb-section 边界（实测 347 vs 291 px），
+           导致面板水平滚动 / 内容被截。 */
+        grid-template-columns: minmax(0, 1fr);
         gap: 6px;
       }
 

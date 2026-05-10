@@ -1,4 +1,3 @@
-import { describeLlmGap } from '../lib/llm-polish'
 import { appendLog } from '../lib/log'
 import { cancelLoop } from '../lib/loop'
 import {
@@ -19,6 +18,7 @@ import {
 } from '../lib/store'
 import { getGraphemes, processMessages, trimText } from '../lib/utils'
 import { PromptPicker } from './prompt-picker'
+import { YoloCallout } from './yolo-callout'
 
 function getPreview(template: string): string {
   const firstLine = (template.split('\n')[0] ?? '').trim()
@@ -204,7 +204,10 @@ export function AutoSendControls() {
                 autoSendYolo.value = e.currentTarget.checked
               }}
             />
-            <label htmlFor='autoSendYolo' title='YOLO：循环里每条非表情消息发出前先送 LLM 润色。配置不全会自动停车。'>
+            <label
+              htmlFor='autoSendYolo'
+              title='YOLO：循环里每条非表情消息发出前先送 LLM 润色。配置不全会自动停车。LLM 凭证在「设置 → LLM」里集中配置。'
+            >
               🤖 YOLO（LLM 润色后再发）
             </label>
             <PromptPicker
@@ -220,11 +223,11 @@ export function AutoSendControls() {
               disabled={!autoSendYolo.value}
             />
           </span>
-          {autoSendYolo.value && (
-            <div className='cb-note' style={{ color: '#666', fontSize: '0.85em', paddingLeft: '1.4em' }}>
-              {describeLlmGap('autoSend') ?? '已就绪：每条非表情消息会用 LLM 润色一次（产生 token 消耗）。'}
-            </div>
-          )}
+          <YoloCallout
+            feature='autoSend'
+            enabled={autoSendYolo.value}
+            readyText='已就绪：每条非表情消息会用 LLM 润色一次（产生 token 消耗）。'
+          />
         </div>
       </div>
     </details>

@@ -12,6 +12,7 @@ import {
   llmPromptsNormalSend,
 } from '../lib/store-llm'
 import { EmoteIds } from './emote-ids'
+import { LlmApiConfigPanel } from './llm-api-config'
 import { PromptManager } from './prompt-manager'
 import { BackupSection } from './settings/backup-section'
 import { CbBackendSection } from './settings/cb-backend-section'
@@ -25,6 +26,7 @@ import {
   LocalGlobalReplacementSection,
   LocalRoomReplacementSection,
 } from './settings/replacement-section'
+import { matchesSearchQuery } from './settings/search'
 import { ShadowObservationSection } from './settings/shadow-observation-section'
 
 function GroupHeading({ children, query }: { children: string; query: string }) {
@@ -60,7 +62,7 @@ export function SettingsTab() {
           id='settingsSearch'
           type='search'
           value={settingsSearch.value}
-          placeholder='输入关键词，例如：表情、保安室、CSS、备份'
+          placeholder='输入关键词（可空格分隔多词），例如：表情、粉丝牌、CSS、API key、备份'
           style={{ width: '100%' }}
           onInput={e => {
             settingsSearch.value = e.currentTarget.value
@@ -72,7 +74,7 @@ export function SettingsTab() {
       <CustomChatSection query={query} />
       <DanmakuDirectSection query={query} />
       <LayoutSection query={query} />
-      {(!query || '表情 emote emoji ID 复制'.toLowerCase().includes(query)) && (
+      {matchesSearchQuery('表情 emote emoji 表情包 ID 复制 表情ID 表情ids', query) && (
         <details className='cb-settings-accordion' open>
           <summary>表情</summary>
           <div
@@ -95,17 +97,20 @@ export function SettingsTab() {
       <LocalRoomReplacementSection query={query} />
       <ShadowObservationSection query={query} />
 
-      <GroupHeading query={query}>LLM</GroupHeading>
+      <GroupHeading query={query}>LLM（智驾选梗 + YOLO 润色共用）</GroupHeading>
+      <LlmApiSection query={query} />
       <LlmPromptsSection query={query} />
 
+      {/* 工具组：把粉丝牌巡检放在最前面（最常用），其它按使用频率次序。 */}
       <GroupHeading query={query}>工具</GroupHeading>
       <MedalCheckSection query={query} />
       <CbBackendSection query={query} />
       <RadarSection query={query} />
-      <BackupSection query={query} />
 
       <GroupHeading query={query}>系统</GroupHeading>
-      {(!query || '日志设置 日志 行数 调试 debug'.toLowerCase().includes(query)) && (
+      {/* 备份/恢复在用户心智里属于"系统"，不属于"工具"。 */}
+      <BackupSection query={query} />
+      {matchesSearchQuery('日志设置 日志 行数 调试 debug log lines', query) && (
         <details className='cb-settings-accordion'>
           <summary>日志设置</summary>
           <div className='cb-section cb-stack' style={{ margin: '.5em 0', paddingBottom: '1em' }}>
@@ -159,23 +164,47 @@ export function SettingsTab() {
 }
 
 /**
+ * LLM API 凭证（provider / key / model / baseURL）。
+ *
+ * 这个 section 必须在所有房间都可见——之前 LLM 凭证嵌在「智能辅助驾驶」面板里，
+ * 而 HZM 面板只对注册了梗源的房间渲染（目前仅灰泽满），导致别的房间用户开了
+ * YOLO 三档却找不到地方填 API key。把它搬到设置里、永远可见。
+ *
+ * 同一份 signal 既给智能辅助驾驶选梗用，也给 YOLO 三档润色用——配置一次两用。
+ */
+function LlmApiSection({ query }: { query: string }) {
+  const KEYWORDS =
+    'llm api key model 模型 anthropic openai deepseek moonshot openrouter ollama 智能辅助驾驶 智驾 yolo 润色 base url 凭证 token 选梗'
+  if (!matchesSearchQuery(KEYWORDS, query)) return null
+  return (
+    <details className='cb-settings-accordion' open>
+      <summary>LLM API 配置（智驾选梗 + YOLO 润色共用）</summary>
+      <div className='cb-section cb-stack' style={{ margin: '.5em 0', paddingBottom: '1em', gap: '.75em' }}>
+        <div className='cb-note' style={{ color: '#666', fontSize: '0.85em' }}>
+          填一次，「智能辅助驾驶」选梗 与「自动跟车 / 独轮车 / 常规发送」的 YOLO 润色都能用。
+        </div>
+        <LlmApiConfigPanel showTestConnection />
+      </div>
+    </details>
+  )
+}
+
+/**
  * LLM 提示词管理（YOLO 用）。
  *
- * - **不在这里出现 API 设置**——LLM 凭证（provider / key / model / baseURL）一律
- *   复用「智能辅助驾驶」面板里那一份。设置一次，meme picker 与 YOLO 共享。
- * - 全局基线 + 三个功能特定的 PromptManager。getActiveLlmPrompt 在调用时会把
- *   全局拼到功能前面（详见 `src/lib/prompts.ts`）。
- * - 设计参考自 upstream chatterbox 0c8706f / 090bd1e。
+ * 全局基线 + 三个功能特定的 PromptManager。getActiveLlmPrompt 在调用时会把
+ * 全局拼到功能前面（详见 `src/lib/prompts.ts`）。
+ * 设计参考自 upstream chatterbox 0c8706f / 090bd1e。
  */
 function LlmPromptsSection({ query }: { query: string }) {
-  const KEYWORDS = 'llm 提示词 prompt yolo 润色 ai openai anthropic'
-  if (query && !KEYWORDS.includes(query)) return null
+  const KEYWORDS = 'llm 提示词 prompt yolo 润色 ai openai anthropic 全局基线 常规发送 自动跟车 独轮车 system prompt'
+  if (!matchesSearchQuery(KEYWORDS, query)) return null
   return (
     <details className='cb-settings-accordion'>
       <summary>LLM 提示词（YOLO 用）</summary>
       <div className='cb-section cb-stack' style={{ margin: '.5em 0', paddingBottom: '1em', gap: '.75em' }}>
         <div className='cb-note' style={{ color: '#666', fontSize: '0.85em' }}>
-          LLM 凭证（API key / 模型 / base URL）复用「发送 → 智能辅助驾驶」面板里那一份。这里只管理 YOLO 用的提示词。
+          这里只管理 YOLO 用的提示词。API 凭证（key / 模型 / base URL）在上面的「LLM API 配置」section 里填一次。
         </div>
 
         <div>

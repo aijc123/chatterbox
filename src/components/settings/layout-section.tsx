@@ -1,8 +1,8 @@
 import { forceScrollDanmaku, optimizeLayout, unlockForbidLive, unlockSpaceBlock } from '../../lib/store'
+import { matchesSearchQuery } from './search'
 
 export function LayoutSection({ query = '' }: { query?: string }) {
-  const visible = !query || '直播间布局 优化布局 滚动 拉黑 解锁 空间'.toLowerCase().includes(query)
-  if (!visible) return null
+  if (!matchesSearchQuery('直播间布局 优化布局 layout 滚动 scroll 拉黑 forbidLive 解锁 unlock 空间', query)) return null
 
   return (
     <details className='cb-settings-accordion'>

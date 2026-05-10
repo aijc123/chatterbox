@@ -7,6 +7,8 @@ import { isInfrastructureError } from '../../lib/moderation'
 import { fetchRemoteKeywords } from '../../lib/remote-keywords-fetch'
 import { buildReplacementMap } from '../../lib/replacement'
 import { cachedRoomId, localGlobalRules, localRoomRules, remoteKeywords, remoteKeywordsLastSync } from '../../lib/store'
+import { showConfirm } from '../ui/alert-dialog'
+import { matchesSearchQuery } from './search'
 
 const SYNC_INTERVAL = 10 * 60 * 1000
 
@@ -108,7 +110,7 @@ export function CloudReplacementSection({ query = '' }: { query?: string }) {
   const syncing = useSignal(false)
   const testingRemote = useSignal(false)
 
-  const visible = !query || '云端规则替换 远程 规则 同步 替换'.toLowerCase().includes(query)
+  const visible = matchesSearchQuery('云端规则替换 远程 规则 同步 替换 LAPLACE remote keyword cloud', query)
 
   const updateRemoteStatus = () => {
     const rk = remoteKeywords.value
@@ -209,12 +211,13 @@ export function CloudReplacementSection({ query = '' }: { query?: string }) {
   }
 
   const testRemote = async () => {
-    if (
-      !confirm(
-        '即将测试当前直播间的云端替换词，请避免在当前直播间正在直播时进行测试，否则可能会给主播造成困扰，是否继续？'
-      )
-    )
-      return
+    const ok = await showConfirm({
+      title: '即将测试当前直播间的云端替换词',
+      body: '请避免在当前直播间正在直播时测试，否则可能给主播造成困扰。是否继续？',
+      confirmText: '继续测试',
+      cancelText: '取消',
+    })
+    if (!ok) return
     testingRemote.value = true
     try {
       const roomId = await ensureRoomId()
@@ -344,7 +347,7 @@ export function LocalGlobalReplacementSection({ query = '' }: { query?: string }
   const globalReplaceFrom = useSignal('')
   const globalReplaceTo = useSignal('')
 
-  const visible = !query || '本地全局规则 替换 规则'.toLowerCase().includes(query)
+  const visible = matchesSearchQuery('本地全局规则 替换 规则 local global rules 全局', query)
 
   const testKeywordPair = async (
     original: string,
@@ -400,8 +403,13 @@ export function LocalGlobalReplacementSection({ query = '' }: { query?: string }
   }
 
   const testLocal = async () => {
-    if (!confirm('即将测试本地替换词，请避免在当前直播间正在直播时进行测试，否则可能会给主播造成困扰，是否继续？'))
-      return
+    const ok = await showConfirm({
+      title: '即将测试本地替换词',
+      body: '请避免在当前直播间正在直播时测试，否则可能给主播造成困扰。是否继续？',
+      confirmText: '继续测试',
+      cancelText: '取消',
+    })
+    if (!ok) return
     testingLocal.value = true
     try {
       const roomId = await ensureRoomId()
@@ -531,7 +539,7 @@ export function LocalRoomReplacementSection({ query = '' }: { query?: string }) 
   const editingRoomId = useSignal(cachedRoomId.value !== null ? String(cachedRoomId.value) : '')
   const newRoomId = useSignal('')
 
-  const visible = !query || '本地直播间规则 房间 规则 替换'.toLowerCase().includes(query)
+  const visible = matchesSearchQuery('本地直播间规则 房间 规则 替换 local room rules', query)
 
   // cachedRoomId is resolved lazily; sync to editor once available
   useEffect(() => {

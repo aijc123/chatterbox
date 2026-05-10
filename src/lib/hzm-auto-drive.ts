@@ -43,16 +43,13 @@ import {
   hzmDriveMode,
   hzmDriveStatusText,
   hzmDryRun,
-  hzmLlmApiKey,
-  hzmLlmBaseURL,
-  hzmLlmModel,
-  hzmLlmProvider,
   hzmLlmRatio,
   hzmPauseKeywordsOverride,
   hzmRateLimitPerMin,
   hzmStrictHeuristic,
   pushRecentSent,
 } from './store-hzm'
+import { llmApiKey, llmBaseURL, llmModel, llmProvider } from './store-llm'
 import { maxLength } from './store-send'
 import { splitTextSmart } from './utils'
 
@@ -339,7 +336,7 @@ export async function pickByLLM(
     chooser?: LlmChooser
   }
 ): Promise<LlmPickResult> {
-  const apiKey = hzmLlmApiKey.value.trim()
+  const apiKey = llmApiKey.value.trim()
   if (!apiKey) return { kind: 'error' }
   const all = opts?.getMemes?.() ?? memesProvider?.() ?? []
   const pool = buildCandidatePool({ roomId, memes: all }).slice(0, 30)
@@ -349,10 +346,10 @@ export async function pickByLLM(
   try {
     const chooser = opts?.chooser ?? (await import('./llm-driver')).chooseMemeWithLLM
     const chosenContent = await chooser({
-      provider: hzmLlmProvider.value,
+      provider: llmProvider.value,
       apiKey,
-      model: hzmLlmModel.value,
-      baseURL: hzmLlmBaseURL.value.trim() || undefined,
+      model: llmModel.value,
+      baseURL: llmBaseURL.value.trim() || undefined,
       roomName: source.name,
       recentChat: opts?.recentChat ?? getRecentDanmuTexts().slice(-30),
       candidates: pool.map(m => ({ id: String(m.id), content: m.content, tags: m.tags.map(t => t.name) })),
@@ -449,8 +446,7 @@ async function tick(): Promise<void> {
     heuristicTickCount++
     let meme: LaplaceMemeWithSource | null = null
     const llmRatio = Math.max(1, hzmLlmRatio.value)
-    const useLLM =
-      hzmDriveMode.value === 'llm' && hzmLlmApiKey.value.trim() !== '' && heuristicTickCount % llmRatio === 0
+    const useLLM = hzmDriveMode.value === 'llm' && llmApiKey.value.trim() !== '' && heuristicTickCount % llmRatio === 0
     if (useLLM) {
       const result = await pickByLLM(activeRoomId, activeSource)
       if (result.kind === 'abstain') {

@@ -8,10 +8,23 @@
  * 房间号统一以字符串作为 key（与 store-meme.ts 等已有模块一致）。
  */
 
-import { effect, signal } from '@preact/signals'
+import { signal } from '@preact/signals'
 
-import { GM_deleteValue, GM_getValue, GM_setValue } from '$'
+import { GM_getValue, GM_setValue } from '$'
 import { gmSignal } from './gm-signal'
+
+// 兼容老 import 路径：API 凭证已搬到 store-llm.ts，但有测试 / 上下游代码仍按
+// `hzmLlm*` 名字 import。提供 deprecated 别名，避免破坏外部消费方。新代码请
+// 直接 import 自 ./store-llm。
+export {
+  clearLlmApiKey as clearHzmLlmApiKey,
+  type LlmProvider as HzmLlmProvider,
+  llmApiKey as hzmLlmApiKey,
+  llmApiKeyPersist as hzmLlmApiKeyPersist,
+  llmBaseURL as hzmLlmBaseURL,
+  llmModel as hzmLlmModel,
+  llmProvider as hzmLlmProvider,
+} from './store-llm'
 
 // ---------------------------------------------------------------------------
 // 全局
@@ -104,69 +117,6 @@ export const hzmActivityMinDistinctUsers = gmSignal<number>('hzmActivityMinDisti
  * - false：保留旧行为——以上都没中就从全候选池随机选一条。
  */
 export const hzmStrictHeuristic = gmSignal<boolean>('hzmStrictHeuristic', true)
-
-export type HzmLlmProvider = 'anthropic' | 'openai' | 'openai-compat'
-const VALID_PROVIDERS: HzmLlmProvider[] = ['anthropic', 'openai', 'openai-compat']
-const isValidProvider = (v: unknown): v is HzmLlmProvider =>
-  typeof v === 'string' && (VALID_PROVIDERS as string[]).includes(v)
-
-/** LLM provider。默认 anthropic（推荐 Haiku 4.5 做选梗）。 */
-export const hzmLlmProvider = gmSignal<HzmLlmProvider>('hzmLlmProvider', 'anthropic', { validate: isValidProvider })
-
-/**
- * 是否把 API key 持久化到 GM 存储。
- *
- * 默认开（保持老用户既有行为）。关掉后切换为"仅本会话"——key 留在内存，刷新页
- * 面后清空，且 GM 存储里的旧值立即抹掉。这是缓解 GM 存储明文风险的用户级开关：
- * 共用电脑、备份导出、其它扩展都不再能从盘上读到。
- */
-export const hzmLlmApiKeyPersist = gmSignal<boolean>('hzmLlmApiKeyPersist', true)
-
-/**
- * API key（运行时 signal）。
- *
- * 不直接用 gmSignal，因为持久化由 hzmLlmApiKeyPersist 决定。冷启动时若上次
- * 选了"持久"就从 GM 读回；否则从空字符串起步（用户需手动重新粘贴）。
- */
-export const hzmLlmApiKey = signal<string>(
-  GM_getValue<boolean>('hzmLlmApiKeyPersist', true) ? GM_getValue<string>('hzmLlmApiKey', '') : ''
-)
-
-// 唯一会写盘的地方——持久模式下落盘；切到非持久模式立刻删除 GM 里的旧值，
-// 这样用户从持久切到非持久时不会留下一个孤儿副本。
-let _isFirstPersistEffectRun = true
-effect(() => {
-  const persist = hzmLlmApiKeyPersist.value
-  const key = hzmLlmApiKey.value
-  if (_isFirstPersistEffectRun) {
-    _isFirstPersistEffectRun = false
-    return
-  }
-  if (persist) {
-    GM_setValue('hzmLlmApiKey', key)
-  } else {
-    GM_deleteValue('hzmLlmApiKey')
-  }
-})
-
-/**
- * 显式清空 API key（运行时 + GM 存储）。
- * UI 的"清除"按钮调用这个，避免 UI 自己直接 setValue('')。
- */
-export function clearHzmLlmApiKey(): void {
-  hzmLlmApiKey.value = ''
-  GM_deleteValue('hzmLlmApiKey')
-}
-
-/** 模型名。默认 Haiku 4.5（最便宜的 Anthropic 选梗模型）。 */
-export const hzmLlmModel = gmSignal<string>('hzmLlmModel', 'claude-haiku-4-5-20251001')
-
-/**
- * OpenAI 兼容 base URL（仅 provider='openai-compat' 时使用）。
- * 例如 DeepSeek `https://api.deepseek.com`、Moonshot `https://api.moonshot.cn`。
- * 第三方域可能不在 @connect 列表，Tampermonkey 会弹窗确认；UI 上提示。
- */
-export const hzmLlmBaseURL = gmSignal<string>('hzmLlmBaseURL', '')
 
 /**
  * 暂停关键词（每行一条），匹配时 60s 内不发智驾弹幕。

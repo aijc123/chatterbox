@@ -1,8 +1,9 @@
 import { danmakuDirectAlwaysShow, danmakuDirectConfirm, danmakuDirectMode, nativeChatFoldMode } from '../../lib/store'
+import { matchesSearchQuery } from './search'
 
 export function DanmakuDirectSection({ query = '' }: { query?: string }) {
-  const visible = !query || '偷弹幕 +1 发送 确认 按钮 原生 折叠 合并 重复 独轮车 ×N'.toLowerCase().includes(query)
-  if (!visible) return null
+  if (!matchesSearchQuery('偷弹幕 偷 +1 加一 steal 复制 copy 发送 确认 按钮 原生 折叠 合并 重复 独轮车 ×N', query))
+    return null
 
   return (
     <details className='cb-settings-accordion'>

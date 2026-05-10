@@ -15,7 +15,7 @@
  * release 预算），不值得。
  */
 
-import type { HzmLlmProvider } from './store-hzm'
+import type { LlmProvider } from './store-llm'
 
 import { BASE_URL } from './const'
 import { gmFetch } from './gm-fetch'
@@ -35,7 +35,7 @@ export interface LlmCandidate {
 export const LLM_CANDIDATES_HARD_CAP = 256
 
 export interface ChooseMemeOptions {
-  provider: HzmLlmProvider
+  provider: LlmProvider
   apiKey: string
   model: string
   /** 仅 provider='openai-compat' 时使用。例如 `https://api.deepseek.com`。可带或不带尾斜线。 */
@@ -196,7 +196,7 @@ async function callOpenAI(opts: ChooseMemeOptions, urlOverride?: string): Promis
  * 给 UI 用：API key 配好后用户点「测试连接」会调用这个。
  */
 export async function testLLMConnection(opts: {
-  provider: HzmLlmProvider
+  provider: LlmProvider
   apiKey: string
   model: string
   baseURL?: string
@@ -293,7 +293,7 @@ export async function chooseMemeWithLLM(opts: ChooseMemeOptions): Promise<string
 // ---------------------------------------------------------------------------
 
 export interface ChatCompletionOptions {
-  provider: HzmLlmProvider
+  provider: LlmProvider
   apiKey: string
   model: string
   /** Only used when provider='openai-compat'. */

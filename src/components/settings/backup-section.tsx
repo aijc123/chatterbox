@@ -3,13 +3,14 @@ import { useSignal } from '@preact/signals'
 import { exportSettings, importSettings } from '../../lib/backup'
 import { copyTextToClipboard } from '../../lib/clipboard'
 import { notifyUser } from '../../lib/log'
+import { matchesSearchQuery } from './search'
 
 export function BackupSection({ query = '' }: { query?: string }) {
   const importOpen = useSignal(false)
   const importText = useSignal('')
   const importMsg = useSignal('')
-  const visible = !query || '配置备份 恢复 导出 导入 JSON 复制 backup export import'.toLowerCase().includes(query)
-  if (!visible) return null
+  if (!matchesSearchQuery('配置备份 恢复 导出 导入 JSON 复制 backup export import 设置导出 设置导入', query))
+    return null
 
   function handleExport() {
     const json = exportSettings()

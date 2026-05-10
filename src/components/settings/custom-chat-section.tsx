@@ -11,6 +11,7 @@ import {
   customChatTheme,
   customChatUseWs,
 } from '../../lib/store'
+import { matchesSearchQuery } from './search'
 
 export function CustomChatSection({ query = '' }: { query?: string }) {
   const cssDraft = useSignal(customChatCss.value)
@@ -30,10 +31,13 @@ export function CustomChatSection({ query = '' }: { query?: string }) {
     return () => clearTimeout(timer)
   }, [cssDraft.value])
 
-  const visible =
-    !query ||
-    'Chatterbox Chat 评论区 WS DOM 主题 CSS 去重 折叠 合并 重复 独轮车 防刷屏 ×N'.toLowerCase().includes(query)
-  if (!visible) return null
+  if (
+    !matchesSearchQuery(
+      'Chatterbox Chat 评论区 WS DOM 主题 theme iMessage Compact bubble 浅色 深色 dark light CSS 自定义样式 去重 折叠 合并 重复 独轮车 防刷屏 ×N gift sc 礼物 同传',
+      query
+    )
+  )
+    return null
 
   return (
     <details className='cb-settings-accordion' open>

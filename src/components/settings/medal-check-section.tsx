@@ -23,6 +23,7 @@ import {
   guardRoomSyncKey,
   guardRoomWebsiteControlEnabled,
 } from '../../lib/store'
+import { matchesSearchQuery } from './search'
 
 type MedalCheckFilter = 'issues' | 'restricted' | 'unknown' | 'deactivated' | 'ok' | 'all'
 
@@ -256,10 +257,13 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
     medalCheckFilterByUid.value = { ...medalCheckFilterByUid.value, [uid]: val }
   }
 
-  const visible =
-    !query ||
-    '粉丝牌禁言巡检 禁言 粉丝牌 直播间 巡检 保安室 guard room 同步 账号 登录 uid'.toLowerCase().includes(query)
-  if (!visible) return null
+  if (
+    !matchesSearchQuery(
+      '粉丝牌禁言巡检 禁言 粉丝牌 直播间 巡检 medal 保安室 guard room sync 同步 账号 登录 uid 风控 moderation',
+      query
+    )
+  )
+    return null
 
   const checkMedalRooms = async () => {
     // Capture the UID at start so all writes from this run land in the slot

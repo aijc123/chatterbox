@@ -2,9 +2,8 @@
  * YOLO 文本润色高层入口。
  *
  * 把三层胶起来：
- *   - 持久化的 LLM 配置 (`store-hzm.ts` 的 hzmLlmProvider/key/model/baseURL，
- *     YOLO 复用这一份；用户在「智能辅助驾驶」面板里设置过的话，YOLO 不需要
- *     再配一次)
+ *   - 持久化的 LLM 配置 (`store-llm.ts` 的 llmProvider/key/model/baseURL；同一套
+ *     凭证既给智能辅助驾驶选梗用，也给 YOLO 润色用，配置一次两用)
  *   - 提示词访问 (`prompts.ts`)
  *   - 调用层 (`llm-driver.ts` 的 `chatCompletionViaLlm`)
  *
@@ -12,13 +11,12 @@
  * 接 YOLO，而无需各自重复"读 signal + 拼提示词 + 调 LLM + 清洗结果"的胶水。
  *
  * 设计参考自 upstream chatterbox 3914ec6（llm-tasks.ts 的 polishWithLlm + isLlmReady
- * + describeLlmGap 三件套），但本 fork 复用 HZM 的 LLM 配置而不是引入 llmApiBase 等
- * 并行字段。
+ * + describeLlmGap 三件套）。
  */
 
 import { chatCompletionViaLlm } from './llm-driver'
 import { getActiveLlmPrompt, type LlmPromptFeature } from './prompts'
-import { hzmLlmApiKey, hzmLlmBaseURL, hzmLlmModel, hzmLlmProvider } from './store-hzm'
+import { llmApiKey, llmBaseURL, llmModel, llmProvider } from './store-llm'
 
 // 注：llm-driver 同时也被 hzm-auto-drive 通过 `await import(...)` 懒加载用作智驾
 // 选梗。这里改用静态导入,与 send 路径一并打进主 chunk——vite-plugin-monkey 把
@@ -71,9 +69,9 @@ const FEATURE_LABELS: Record<LlmPromptFeature, string> = {
  * 缺失"作为可恢复的状态展示，而不是把整个面板灰掉。
  */
 export function isLlmApiConfigured(): boolean {
-  if (!hzmLlmApiKey.value.trim()) return false
-  if (!hzmLlmModel.value.trim()) return false
-  if (hzmLlmProvider.value === 'openai-compat' && !hzmLlmBaseURL.value.trim()) return false
+  if (!llmApiKey.value.trim()) return false
+  if (!llmModel.value.trim()) return false
+  if (llmProvider.value === 'openai-compat' && !llmBaseURL.value.trim()) return false
   return true
 }
 
@@ -86,13 +84,13 @@ export function isLlmApiConfigured(): boolean {
  * 面板修好配置后，这里返回的字符串会自动更新。
  */
 export function describeLlmGap(feature: LlmPromptFeature): string | null {
-  if (!hzmLlmApiKey.value.trim()) return '请先在「智能辅助驾驶 → API key」中配置 LLM 凭证'
-  if (!hzmLlmModel.value.trim()) return '请先在「智能辅助驾驶 → 模型」中选择模型'
-  if (hzmLlmProvider.value === 'openai-compat' && !hzmLlmBaseURL.value.trim()) {
-    return '请先在「智能辅助驾驶 → base URL」中填入 openai-compat 的接口地址'
+  if (!llmApiKey.value.trim()) return '请先在「设置 → LLM → API key」中配置 LLM 凭证'
+  if (!llmModel.value.trim()) return '请先在「设置 → LLM → 模型」中选择模型'
+  if (llmProvider.value === 'openai-compat' && !llmBaseURL.value.trim()) {
+    return '请先在「设置 → LLM → base URL」中填入 openai-compat 的接口地址'
   }
   if (!getActiveLlmPrompt(feature).trim()) {
-    return `请先在「设置 → LLM 提示词 → ${FEATURE_LABELS[feature]}」中配置提示词`
+    return `请先在「设置 → LLM → 提示词 · ${FEATURE_LABELS[feature]}」中配置提示词`
   }
   return null
 }
@@ -127,10 +125,10 @@ export async function polishWithLlm(
   if (!trimmedUser) throw new Error('输入内容为空')
 
   const response = await chatCompletionViaLlm({
-    provider: hzmLlmProvider.value,
-    apiKey: hzmLlmApiKey.value,
-    model: hzmLlmModel.value,
-    baseURL: hzmLlmBaseURL.value,
+    provider: llmProvider.value,
+    apiKey: llmApiKey.value,
+    model: llmModel.value,
+    baseURL: llmBaseURL.value,
     systemPrompt,
     userText: trimmedUser,
     signal: opts.signal,

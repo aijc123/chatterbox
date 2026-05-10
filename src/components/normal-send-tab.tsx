@@ -1,5 +1,4 @@
 import { sendManualDanmaku } from '../lib/danmaku-actions'
-import { describeLlmGap } from '../lib/llm-polish'
 import {
   aiEvasion,
   customChatEnabled,
@@ -10,6 +9,7 @@ import {
 } from '../lib/store'
 import { PromptPicker } from './prompt-picker'
 import { SendActions } from './send-actions'
+import { YoloCallout } from './yolo-callout'
 
 export function NormalSendTab() {
   if (customChatEnabled.value) return null
@@ -106,7 +106,7 @@ export function NormalSendTab() {
             />
             <label
               htmlFor='normalSendYolo'
-              title='YOLO：手动发送的文本先送 LLM 润色再发。失败时回退原文。LLM 配置复用「智能辅助驾驶」。'
+              title='YOLO：手动发送的文本先送 LLM 润色再发。失败时回退原文。LLM 凭证在「设置 → LLM」里集中配置。'
             >
               🤖 YOLO（LLM 润色后再发）
             </label>
@@ -123,11 +123,11 @@ export function NormalSendTab() {
               disabled={!normalSendYolo.value}
             />
           </span>
-          {normalSendYolo.value && (
-            <div className='cb-note' style={{ color: '#666', fontSize: '0.85em', paddingLeft: '1.4em' }}>
-              {describeLlmGap('normalSend') ?? '已就绪：手动发送的文本会先用 LLM 润色（产生 token 消耗）。'}
-            </div>
-          )}
+          <YoloCallout
+            feature='normalSend'
+            enabled={normalSendYolo.value}
+            readyText='已就绪：手动发送的文本会先用 LLM 润色（产生 token 消耗）。'
+          />
         </div>
       </div>
     </details>

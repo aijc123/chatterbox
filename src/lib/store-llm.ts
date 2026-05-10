@@ -1,21 +1,100 @@
 /**
- * YOLO（AI 润色弹幕）相关持久状态。
+ * LLM 相关持久状态——既给「智能辅助驾驶」选梗用，也给 YOLO 文本润色用。
  *
  * 设计要点：
- * - **复用智能辅助驾驶（HZM）的 LLM 配置**（provider/key/model/baseURL），不再做
- *   一份并行的 API 设置 UI。同一台 LLM 既能选梗又能润色，配置一次即可两用。
- * - 提示词独立管理：每个使用 LLM 的功能（常规发送 / 自动跟车 / 独轮车）有
- *   各自的提示词列表 + 当前选中索引，配合一个共享的"全局提示词"作为基线。
- * - YOLO 三个开关分别驻留在自己的功能里，默认 off——必须显式打开 + LLM 配好
- *   才会走 LLM 路径，避免新用户误开就开始烧 token。
+ * - **API 凭证（provider / key / model / baseURL）放在这里**，而不是绑死在
+ *   `store-hzm.ts` 里的「智能辅助驾驶」面板。原因：HZM 面板只对注册了梗源的房间
+ *   渲染（目前仅灰泽满 1713546334），意味着别的房间用户根本看不到 API 配置入口
+ *   ——而 YOLO 三档（自动跟车 / 独轮车 / 常规发送）在所有房间都可见、可启用。
+ *   把凭证抽到通用 LLM 域，让 Settings → LLM 永远可见，HZM 面板只是其中一个
+ *   消费方。
+ * - **GM 存储 key 仍用 `hzmLlm*` 老前缀**——老用户已经粘贴过 API key 的，升级后
+ *   要直接读到原值，不能让他们重新配。`gmSignal('hzmLlmApiKey', ...)` 跑出来
+ *   的对外名字是 `llmApiKey`，但落盘的 key 名不变。
+ * - YOLO 三档开关 + 提示词依旧在这里维护：每个使用 LLM 的功能各有独立的提示词
+ *   列表 + 当前选中索引，配合一个共享的"全局基线"。
  *
- * 设计参考自 upstream chatterbox 0c8706f / 090bd1e / 3914ec6（提示词模型 + YOLO 三档开关），
- * 但本 fork 不再引入并行的 `llmApiBase/llmApiKey/llmModel`——直接复用 HZM 的
- * `hzmLlmProvider` / `hzmLlmApiKey` / `hzmLlmModel` / `hzmLlmBaseURL`。
+ * 设计参考自 upstream chatterbox 0c8706f / 090bd1e / 3914ec6（提示词模型 + YOLO 三档开关）。
  */
 
-import { GM_getValue, GM_setValue } from '$'
+import { effect, signal } from '@preact/signals'
+
+import { GM_deleteValue, GM_getValue, GM_setValue } from '$'
 import { gmSignal } from './gm-signal'
+
+// ---------------------------------------------------------------------------
+// LLM API 凭证（provider / key / model / baseURL）
+// ---------------------------------------------------------------------------
+//
+// 历史包袱说明：这些 signal 之前住在 `store-hzm.ts`，名字带 `hzm` 前缀，是
+// 因为最早只有"智能辅助驾驶"用 LLM。YOLO 上线后这套配置被两方复用，再叫 hzm
+// 已经名不副实，且把唯一可见的"配置入口"绑在 HZM 面板上让非灰泽满房间的
+// YOLO 用户陷入死局（看得到开关、配不了 key）。这次把它们搬到 LLM 域。
+//
+// GM 存储 key 保留 `hzmLlm*` 前缀以兼容老用户的持久数据——只改变量名/导出名。
+
+export type LlmProvider = 'anthropic' | 'openai' | 'openai-compat'
+const VALID_PROVIDERS: LlmProvider[] = ['anthropic', 'openai', 'openai-compat']
+const isValidProvider = (v: unknown): v is LlmProvider =>
+  typeof v === 'string' && (VALID_PROVIDERS as string[]).includes(v)
+
+/** LLM provider。默认 anthropic（推荐 Haiku 4.5 做选梗 / 润色）。 */
+export const llmProvider = gmSignal<LlmProvider>('hzmLlmProvider', 'anthropic', { validate: isValidProvider })
+
+/**
+ * 是否把 API key 持久化到 GM 存储。
+ *
+ * 默认开（保持老用户既有行为）。关掉后切换为"仅本会话"——key 留在内存，刷新页
+ * 面后清空，且 GM 存储里的旧值立即抹掉。这是缓解 GM 存储明文风险的用户级开关：
+ * 共用电脑、备份导出、其它扩展都不再能从盘上读到。
+ */
+export const llmApiKeyPersist = gmSignal<boolean>('hzmLlmApiKeyPersist', true)
+
+/**
+ * API key（运行时 signal）。
+ *
+ * 不直接用 gmSignal，因为持久化由 llmApiKeyPersist 决定。冷启动时若上次
+ * 选了"持久"就从 GM 读回；否则从空字符串起步（用户需手动重新粘贴）。
+ */
+export const llmApiKey = signal<string>(
+  GM_getValue<boolean>('hzmLlmApiKeyPersist', true) ? GM_getValue<string>('hzmLlmApiKey', '') : ''
+)
+
+// 唯一会写盘的地方——持久模式下落盘；切到非持久模式立刻删除 GM 里的旧值，
+// 这样用户从持久切到非持久时不会留下一个孤儿副本。
+let _isFirstPersistEffectRun = true
+effect(() => {
+  const persist = llmApiKeyPersist.value
+  const key = llmApiKey.value
+  if (_isFirstPersistEffectRun) {
+    _isFirstPersistEffectRun = false
+    return
+  }
+  if (persist) {
+    GM_setValue('hzmLlmApiKey', key)
+  } else {
+    GM_deleteValue('hzmLlmApiKey')
+  }
+})
+
+/**
+ * 显式清空 API key（运行时 + GM 存储）。
+ * UI 的"清除"按钮调用这个，避免 UI 自己直接 setValue('')。
+ */
+export function clearLlmApiKey(): void {
+  llmApiKey.value = ''
+  GM_deleteValue('hzmLlmApiKey')
+}
+
+/** 模型名。默认 Haiku 4.5（最便宜的 Anthropic 选梗模型）。 */
+export const llmModel = gmSignal<string>('hzmLlmModel', 'claude-haiku-4-5-20251001')
+
+/**
+ * OpenAI 兼容 base URL（仅 provider='openai-compat' 时使用）。
+ * 例如 DeepSeek `https://api.deepseek.com`、Moonshot `https://api.moonshot.cn`。
+ * 第三方域可能不在 @connect 列表，Tampermonkey 会弹窗确认；UI 上提示。
+ */
+export const llmBaseURL = gmSignal<string>('hzmLlmBaseURL', '')
 
 // ---------------------------------------------------------------------------
 // YOLO 模式开关（每个功能一个）

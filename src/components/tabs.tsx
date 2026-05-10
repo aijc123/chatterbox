@@ -1,4 +1,4 @@
-import { activeTab, autoBlendEnabled, liveWsStatus, sendMsg, sttRunning } from '../lib/store'
+import { activeTab, autoBlendEnabled, hzmDriveEnabled, liveWsStatus, sendMsg, sttRunning } from '../lib/store'
 
 const TABS = [
   { id: 'fasong', label: '发送' },
@@ -31,6 +31,7 @@ export function Tabs() {
           {tab.label}
           {tab.id === 'fasong' && sendMsg.value ? ' · 车' : ''}
           {tab.id === 'fasong' && autoBlendEnabled.value ? ' · 跟' : ''}
+          {tab.id === 'fasong' && hzmDriveEnabled.value ? ' · 智' : ''}
           {tab.id === 'fasong' && wsDegraded ? ' ⚠️' : ''}
           {tab.id === 'tongchuan' && sttRunning.value ? ' · 开' : ''}
         </button>

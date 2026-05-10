@@ -1,6 +1,7 @@
 import { radarReportEnabled } from '../../lib/store-radar'
+import { matchesSearchQuery } from './search'
 
-const SECTION_KEYWORDS = 'radar 雷达 跨房间 meme 上报 report 观察'
+const SECTION_KEYWORDS = 'radar 雷达 跨房间 meme 上报 report 观察 trending 隐私'
 
 /**
  * "live-meme-radar 观察上报" 设置区块。
@@ -13,8 +14,7 @@ const SECTION_KEYWORDS = 'radar 雷达 跨房间 meme 上报 report 观察'
  * 不发观众 uid(明文或哈希都不发),不发逐条 timestamp。失败一律静默。
  */
 export function RadarSection({ query = '' }: { query?: string }) {
-  const visible = !query || SECTION_KEYWORDS.toLowerCase().includes(query)
-  if (!visible) return null
+  if (!matchesSearchQuery(SECTION_KEYWORDS, query)) return null
 
   return (
     <details className='cb-settings-accordion'>

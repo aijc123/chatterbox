@@ -5,14 +5,13 @@ import type { MemeSource } from '../lib/meme-sources'
 import { startHzmAutoDrive, stopHzmAutoDrive } from '../lib/hzm-auto-drive'
 import { getMemeSourceForRoom } from '../lib/meme-sources'
 import {
+  activeTab,
   cachedRoomId,
-  clearHzmLlmApiKey,
   currentMemesList,
   getBlacklistTags,
   getDailyStats,
   getSelectedTags,
   type HzmDriveMode,
-  type HzmLlmProvider,
   hasConfirmedHzmRealFire,
   hzmActivityMinDanmu,
   hzmActivityMinDistinctUsers,
@@ -22,21 +21,19 @@ import {
   hzmDriveMode,
   hzmDriveStatusText,
   hzmDryRun,
-  hzmLlmApiKey,
-  hzmLlmApiKeyPersist,
-  hzmLlmBaseURL,
-  hzmLlmModel,
-  hzmLlmProvider,
   hzmLlmRatio,
   hzmPanelOpen,
   hzmPauseKeywordsOverride,
   hzmRateLimitPerMin,
   hzmStrictHeuristic,
+  llmApiKey,
   sendMsg,
   setBlacklistTags,
   setSelectedTags,
 } from '../lib/store'
 import { extractRoomNumber } from '../lib/utils'
+import { LlmApiConfigSummary } from './llm-api-config'
+import { showConfirm } from './ui/alert-dialog'
 
 /**
  * 智能辅助驾驶（灰泽满烂梗库）独立面板。
@@ -50,12 +47,6 @@ import { extractRoomNumber } from '../lib/utils'
  *  - LLM 配置 折叠（仅 mode=llm 时显示）
  */
 
-const PROVIDER_LABEL: Record<HzmLlmProvider, string> = {
-  anthropic: 'Anthropic',
-  openai: 'OpenAI',
-  'openai-compat': 'OpenAI 兼容',
-}
-
 const MODE_LABEL: Record<HzmDriveMode, string> = {
   heuristic: '启发式',
   llm: 'LLM 智驾',
@@ -64,13 +55,6 @@ const MODE_LABEL: Record<HzmDriveMode, string> = {
 const MODE_HINT: Record<HzmDriveMode, string> = {
   heuristic: '关键词触发，按 tag 命中本地梗库',
   llm: '由 LLM 阅读弹幕选梗，需要 API key',
-}
-
-/** 把 API key 显示成 `sk-1234...abcd` 这种半遮罩形态。 */
-function maskKey(k: string): string {
-  const trimmed = k.trim()
-  if (trimmed.length <= 8) return trimmed ? `${trimmed[0]}***${trimmed.at(-1)}` : ''
-  return `${trimmed.slice(0, 4)}…${trimmed.slice(-4)}`
 }
 
 function modeButtonStyle(active: boolean) {
@@ -127,11 +111,7 @@ export function HzmDrivePanel({ source }: { source: MemeSource }) {
     return [...set].sort((a, b) => a.localeCompare(b))
   })()
 
-  // 测试连接状态
-  const testStatus = useSignal<'idle' | 'testing' | 'ok' | 'fail'>('idle')
-  const testError = useSignal<string>('')
   const advancedOpen = useSignal(false)
-  const llmConfigOpen = useSignal(false)
 
   const statusText = hzmDriveStatusText.value
   const statusColor = !isOn
@@ -142,46 +122,27 @@ export function HzmDrivePanel({ source }: { source: MemeSource }) {
         ? '#1677ff'
         : '#0a7f55'
 
-  const toggleEnabled = () => {
+  const toggleEnabled = async () => {
     if (isOn) {
       hzmDriveEnabled.value = false
       stopHzmAutoDrive()
       return
     }
-    // 关 → 开：非试运行且未确认过，先弹一次提示
+    // 关 → 开：非试运行且未确认过，先弹一次提示。用 showConfirm 替代 native confirm()
+    // ——后者在浏览器里会被 anti-popup 抑制 / 不参与暗色模式 / 没法做样式与 dialog
+    // 一致。同样的安全护栏要用同一种 UI primitive。
     if (!hzmDryRun.value && !hasConfirmedHzmRealFire.value) {
-      const ok = confirm(
-        '智能辅助驾驶将会以你的账号真实发送弹幕（试运行已关闭）。\n\n建议先打开「试运行」观察一段时间。是否继续直接开车？'
-      )
+      const ok = await showConfirm({
+        title: '智能辅助驾驶将以你的账号真实发送弹幕',
+        body: '试运行已关闭。建议先打开「试运行」观察一段时间。是否继续直接开车？',
+        confirmText: '我已了解，开车',
+        cancelText: '取消',
+      })
       if (!ok) return
       hasConfirmedHzmRealFire.value = true
     }
     hzmDriveEnabled.value = true
     void startHzmAutoDrive({ source, getMemes: () => currentMemesList.value })
-  }
-
-  const handleTestLLM = async () => {
-    if (testStatus.value === 'testing') return
-    testStatus.value = 'testing'
-    testError.value = ''
-    try {
-      const { testLLMConnection } = await import('../lib/llm-driver')
-      const r = await testLLMConnection({
-        provider: hzmLlmProvider.value,
-        apiKey: hzmLlmApiKey.value,
-        model: hzmLlmModel.value,
-        baseURL: hzmLlmBaseURL.value.trim() || undefined,
-      })
-      if (r.ok) {
-        testStatus.value = 'ok'
-      } else {
-        testStatus.value = 'fail'
-        testError.value = r.error ?? '未知错误'
-      }
-    } catch (err) {
-      testStatus.value = 'fail'
-      testError.value = err instanceof Error ? err.message : String(err)
-    }
   }
 
   const toggleSelectedTag = (tag: string) => {
@@ -194,7 +155,6 @@ export function HzmDrivePanel({ source }: { source: MemeSource }) {
     setBlacklistTags(roomId, blacklist.includes(tag) ? blacklist.filter(t => t !== tag) : [...blacklist, tag])
   }
 
-  const apiKeyConfigured = hzmLlmApiKey.value.trim().length > 0
   const pauseDefault = (source.pauseKeywords ?? []).join(' / ')
 
   return (
@@ -206,7 +166,7 @@ export function HzmDrivePanel({ source }: { source: MemeSource }) {
     >
       <summary style={{ cursor: 'pointer', userSelect: 'none', fontWeight: 'bold' }}>
         <span>智能辅助驾驶（{source.name}）</span>
-        {isOn && <span className='cb-soft'>已开</span>}
+        {isOn && <span className='cb-soft'>运行中</span>}
       </summary>
 
       <div className='cb-body cb-stack'>
@@ -215,7 +175,7 @@ export function HzmDrivePanel({ source }: { source: MemeSource }) {
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '.5em', alignItems: 'center' }}>
-          <button type='button' className={isOn ? 'cb-danger' : 'cb-primary'} onClick={toggleEnabled}>
+          <button type='button' className={isOn ? 'cb-danger' : 'cb-primary'} onClick={() => void toggleEnabled()}>
             {isOn ? '停车' : '开车'}
           </button>
           <span
@@ -238,7 +198,6 @@ export function HzmDrivePanel({ source }: { source: MemeSource }) {
                 aria-pressed={mode === m}
                 onClick={() => {
                   hzmDriveMode.value = m
-                  testStatus.value = 'idle'
                 }}
                 style={modeButtonStyle(mode === m)}
                 title={MODE_HINT[m]}
@@ -477,149 +436,13 @@ export function HzmDrivePanel({ source }: { source: MemeSource }) {
       </details>
 
       {mode === 'llm' && (
-        <details
-          open={llmConfigOpen.value}
-          onToggle={e => {
-            llmConfigOpen.value = e.currentTarget.open
-          }}
-          style={{ marginTop: '.5em' }}
-        >
-          <summary style={{ cursor: 'pointer', userSelect: 'none' }}>
-            LLM 配置
-            <span className='cb-soft' style={{ marginLeft: '.4em' }}>
-              {apiKeyConfigured ? '已配置' : '未配置'}
-            </span>
-          </summary>
-
-          <div className='cb-stack' style={{ margin: '.5em 0' }}>
-            <div className='cb-row'>
-              <span style={{ minWidth: '4em' }}>Provider</span>
-              <div className='cb-segment' style={{ flex: 1, minWidth: 0 }}>
-                {(['anthropic', 'openai', 'openai-compat'] as const).map(p => (
-                  <button
-                    key={p}
-                    type='button'
-                    aria-pressed={hzmLlmProvider.value === p}
-                    style={modeButtonStyle(hzmLlmProvider.value === p)}
-                    onClick={() => {
-                      hzmLlmProvider.value = p
-                      testStatus.value = 'idle'
-                    }}
-                  >
-                    {PROVIDER_LABEL[p]}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className='cb-row'>
-              <span style={{ minWidth: '4em' }}>API Key</span>
-              <input
-                type='password'
-                value={hzmLlmApiKey.value}
-                onInput={e => {
-                  hzmLlmApiKey.value = e.currentTarget.value
-                  testStatus.value = 'idle'
-                }}
-                placeholder='sk-... 或 anthropic key'
-                style={{ flex: 1, minWidth: 0, boxSizing: 'border-box' }}
-              />
-              <span className='cb-soft' style={{ whiteSpace: 'nowrap' }}>
-                {apiKeyConfigured ? maskKey(hzmLlmApiKey.value) : '未配置'}
-              </span>
-              <button
-                type='button'
-                disabled={!apiKeyConfigured}
-                onClick={() => {
-                  clearHzmLlmApiKey()
-                  testStatus.value = 'idle'
-                }}
-                title='把 key 从内存和 GM 存储里都抹掉'
-              >
-                清除
-              </button>
-            </div>
-            <div className='cb-row'>
-              <span style={{ minWidth: '4em' }} />
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em', flex: 1 }}>
-                <input
-                  id='hzmLlmApiKeyPersist'
-                  type='checkbox'
-                  checked={hzmLlmApiKeyPersist.value}
-                  onInput={e => {
-                    hzmLlmApiKeyPersist.value = e.currentTarget.checked
-                  }}
-                />
-                <label
-                  htmlFor='hzmLlmApiKeyPersist'
-                  title='不勾：key 仅留在内存，刷新页面就清空，GM 存储里的旧值也立即抹掉'
-                >
-                  保存到 GM 存储（关闭后仅本次会话有效）
-                </label>
-              </span>
-            </div>
-
-            <div className='cb-row'>
-              <span style={{ minWidth: '4em' }}>模型</span>
-              <input
-                type='text'
-                value={hzmLlmModel.value}
-                onInput={e => {
-                  hzmLlmModel.value = e.currentTarget.value
-                  testStatus.value = 'idle'
-                }}
-                placeholder='例：claude-haiku-4-5-20251001'
-                title='Anthropic 推荐 claude-haiku-4-5-20251001；OpenAI 推荐 gpt-4o-mini；DeepSeek 用 deepseek-chat'
-                style={{ flex: 1, minWidth: 0, boxSizing: 'border-box' }}
-              />
-            </div>
-
-            {hzmLlmProvider.value === 'openai-compat' && (
-              <div className='cb-row'>
-                <span style={{ minWidth: '4em' }}>Base URL</span>
-                <input
-                  type='text'
-                  value={hzmLlmBaseURL.value}
-                  onInput={e => {
-                    hzmLlmBaseURL.value = e.currentTarget.value
-                    testStatus.value = 'idle'
-                  }}
-                  placeholder='https://api.deepseek.com（带不带 /v1 都行，自动补全到 /v1/chat/completions）'
-                  title='DeepSeek=https://api.deepseek.com / Moonshot=https://api.moonshot.cn / OpenRouter=https://openrouter.ai/api / 小米 mimo=https://token-plan-sgp.xiaomimimo.com/v1'
-                  style={{ flex: 1, minWidth: 0, boxSizing: 'border-box' }}
-                />
-              </div>
-            )}
-
-            <div className='cb-row'>
-              <button
-                type='button'
-                disabled={!apiKeyConfigured || testStatus.value === 'testing'}
-                onClick={() => void handleTestLLM()}
-                title='发一个最小请求验证 key/路由能跑通；不消耗你的实际智驾配额'
-              >
-                {testStatus.value === 'testing' ? '测试中…' : '测试连接'}
-              </button>
-              {testStatus.value === 'ok' && (
-                <span className='cb-soft' style={{ color: '#0a7f55' }}>
-                  连接成功
-                </span>
-              )}
-              {testStatus.value === 'fail' && (
-                <span style={{ color: '#c00', fontSize: '11px', wordBreak: 'break-all' }}>
-                  连接失败：{testError.value}
-                </span>
-              )}
-            </div>
-
-            <div className='cb-note' style={{ color: '#a15c00' }}>
-              {hzmLlmApiKeyPersist.value
-                ? 'Key 明文保存在浏览器 GM 存储；共用电脑或备份导出会暴露。担心可关掉「保存到 GM 存储」改为仅本会话。'
-                : 'Key 仅留在内存，刷新页面后清空。'}
-              openai-compat 自定义域首次调用时 Tampermonkey 会弹权限确认，需手动允许。
-            </div>
-          </div>
-        </details>
+        <div style={{ marginTop: '.5em' }}>
+          <LlmApiConfigSummary
+            onJumpToSettings={() => {
+              activeTab.value = 'settings'
+            }}
+          />
+        </div>
       )}
     </details>
   )
