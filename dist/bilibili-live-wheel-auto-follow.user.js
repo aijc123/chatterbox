@@ -61,7 +61,7 @@
 System.addImportMap({ imports: {"@soniox/speech-to-text-web":"user:@soniox/speech-to-text-web"} });
 System.set("user:@soniox/speech-to-text-web", (()=>{const _=SonioxSpeechToTextWeb;('default' in _)||(_.default=_);return _})());
 
-System.register("./__entry.js", ['./__monkey.entry-C1BdSK6x.js'], (function (exports, module) {
+System.register("./__entry.js", ['./__monkey.entry-BuZC4rZz.js'], (function (exports, module) {
 	'use strict';
 	return {
 		setters: [null],
@@ -73,7 +73,7 @@ System.register("./__entry.js", ['./__monkey.entry-C1BdSK6x.js'], (function (exp
 	};
 }));
 
-System.register("./__monkey.entry-C1BdSK6x.js", ['@soniox/speech-to-text-web'], (function (exports, module) {
+System.register("./__monkey.entry-BuZC4rZz.js", ['@soniox/speech-to-text-web'], (function (exports, module) {
   'use strict';
   var SonioxClient;
   return {
@@ -2093,7 +2093,7 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
         hzmDailyStatsByRoom.value = { ...hzmDailyStatsByRoom.value, [key]: next };
       }
       gmSignal("radarConsultEnabled", false);
-      gmSignal("radarReportEnabled", false);
+      const radarReportEnabled = gmSignal("radarReportEnabled", false);
       const radarBackendUrlOverride = gmSignal("radarBackendUrlOverride", "");
       (() => {
         const old = _GM_getValue("replacementRules", []);
@@ -3428,7 +3428,7 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
       let pollTimer = null;
       let healthTimer = null;
       let attached = null;
-      let flushTimer$1 = null;
+      let flushTimer$2 = null;
       const pendingNodes = new Set();
       const OBSERVER_DEBOUNCE_MS = 16;
       const USER_SELECTORS = [
@@ -3568,7 +3568,7 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
         attached = container;
         for (const sub of subscriptions) notifyAttach(container, sub);
         const flushPendingNodes = () => {
-          flushTimer$1 = null;
+          flushTimer$2 = null;
           for (const node of pendingNodes) {
             pendingNodes.delete(node);
             if (!node.isConnected || !isValidDanmakuNode(node)) continue;
@@ -3584,8 +3584,8 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
           }
         };
         const scheduleFlush = () => {
-          if (flushTimer$1) return;
-          flushTimer$1 = setTimeout(flushPendingNodes, OBSERVER_DEBOUNCE_MS);
+          if (flushTimer$2) return;
+          flushTimer$2 = setTimeout(flushPendingNodes, OBSERVER_DEBOUNCE_MS);
         };
         observer = new MutationObserver((mutations) => {
           for (const m2 of mutations) {
@@ -3622,9 +3622,9 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
           clearInterval(healthTimer);
           healthTimer = null;
         }
-        if (flushTimer$1) {
-          clearTimeout(flushTimer$1);
-          flushTimer$1 = null;
+        if (flushTimer$2) {
+          clearTimeout(flushTimer$2);
+          flushTimer$2 = null;
         }
         pendingNodes.clear();
         if (observer) {
@@ -3682,19 +3682,19 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
         }
         return result;
       }
-      const cutBuffer = (buffer) => {
+      const cutBuffer = (buffer2) => {
         const bufferPacks = [];
-        const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+        const view = new DataView(buffer2.buffer, buffer2.byteOffset, buffer2.byteLength);
         let size;
-        for (let i2 = 0; i2 < buffer.length; i2 += size) {
+        for (let i2 = 0; i2 < buffer2.length; i2 += size) {
           size = view.getInt32(i2);
-          bufferPacks.push(buffer.slice(i2, i2 + size));
+          bufferPacks.push(buffer2.slice(i2, i2 + size));
         }
         return bufferPacks;
       };
       const makeDecoder = ({ inflateAsync: inflateAsync2, brotliDecompressAsync: brotliDecompressAsync2 }) => {
-        const decoder = async (buffer) => {
-          return (await Promise.all(cutBuffer(buffer).map(async (buf) => {
+        const decoder = async (buffer2) => {
+          return (await Promise.all(cutBuffer(buffer2).map(async (buf) => {
             const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
             const body = buf.slice(16);
             const protocol = view.getInt16(6);
@@ -3725,14 +3725,14 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
         const encoded = typeof body === "string" ? body : JSON.stringify(body);
         const head = new Uint8Array(16);
         const headView = new DataView(head.buffer, head.byteOffset, head.byteLength);
-        const buffer = textEncoder.encode(encoded);
-        headView.setInt32(0, buffer.length + head.length);
+        const buffer2 = textEncoder.encode(encoded);
+        headView.setInt32(0, buffer2.length + head.length);
         headView.setInt16(4, 16);
         headView.setInt16(6, 1);
         if (type === "heartbeat") headView.setInt32(8, 2);
         if (type === "join") headView.setInt32(8, 7);
         headView.setInt32(12, 1);
-        return concatUint8Arrays([head, buffer]);
+        return concatUint8Arrays([head, buffer2]);
       };
       var Live = class extends LaplaceEventTarget {
 roomid;
@@ -3760,8 +3760,8 @@ close;
           };
           const decode = makeDecoder(inflates2);
           this.addEventListener("message", async (e2) => {
-            const buffer = e2.data;
-            (await decode(buffer)).forEach(({ type, data }) => {
+            const buffer2 = e2.data;
+            (await decode(buffer2)).forEach(({ type, data }) => {
               if (type === "welcome") {
                 this.live = true;
                 this.dispatchEvent(new Event("live"));
@@ -5516,7 +5516,7 @@ ws;
         return metaTag?.getAttribute("content") ?? "444.8";
       }
       let liveConnection = null;
-      let started = false;
+      let started$1 = false;
       let consumerCount = 0;
       let reconnectTimer = null;
       let lastStartupFailure = "";
@@ -5840,14 +5840,14 @@ ws;
         });
       }
       async function connect() {
-        if (!started) return;
+        if (!started$1) return;
         reconnectTimer = null;
         const serial = ++connectionSerial;
         try {
           emitCustomChatWsStatus("connecting");
           const roomId = await ensureRoomId();
           const info = await fetchDanmuInfo(roomId);
-          if (!started || serial !== connectionSerial) return;
+          if (!started$1 || serial !== connectionSerial) return;
           const address = info.addresses[addressIndex % info.addresses.length];
           addressIndex += 1;
           const uid = parseAuthUid(getDedeUid());
@@ -5887,7 +5887,7 @@ ws;
           });
           live.addEventListener("close", () => {
             connectionHealthy = false;
-            if (!started || liveConnection !== live) return;
+            if (!started$1 || liveConnection !== live) return;
             const suffix = lastWsCloseDetail ? ` (${lastWsCloseDetail})` : "";
             appendStartupFailure(live.live ? `connection closed${suffix}` : `closed before room entered${suffix}`);
             const delay = computeReconnectDelay(reconnectAttempt);
@@ -5910,7 +5910,7 @@ ws;
         document.addEventListener("visibilitychange", () => {
           if (!shouldForceImmediateReconnect({
             visibilityState: document.visibilityState,
-            started,
+            started: started$1,
             connectionHealthy
           })) {
             return;
@@ -5925,8 +5925,8 @@ ws;
       }
       function startLiveWsSource() {
         consumerCount += 1;
-        if (started) return;
-        started = true;
+        if (started$1) return;
+        started$1 = true;
         ensureVisibilityRecoveryWired();
         emitCustomChatWsStatus("connecting");
         void connect();
@@ -5934,7 +5934,7 @@ ws;
       function stopLiveWsSource() {
         consumerCount = Math.max(0, consumerCount - 1);
         if (consumerCount > 0) return;
-        started = false;
+        started$1 = false;
         connectionSerial += 1;
         connectionHealthy = false;
         emitCustomChatWsStatus("off");
@@ -6879,9 +6879,9 @@ _clearForTests() {
       }
       const COPY_DEBOUNCE_MS = 800;
       let pendingCopies = [];
-      let flushTimer = null;
+      let flushTimer$1 = null;
       async function flushCopies() {
-        flushTimer = null;
+        flushTimer$1 = null;
         const batch = pendingCopies;
         pendingCopies = [];
         if (batch.length === 0) return;
@@ -6922,8 +6922,8 @@ _clearForTests() {
         if (!base) return null;
         return new Promise((resolve) => {
           pendingCopies.push({ id: memeId, resolve });
-          if (flushTimer === null) {
-            flushTimer = setTimeout(() => void flushCopies(), COPY_DEBOUNCE_MS);
+          if (flushTimer$1 === null) {
+            flushTimer$1 = setTimeout(() => void flushCopies(), COPY_DEBOUNCE_MS);
           }
         });
       }
@@ -8789,21 +8789,21 @@ _clearForTests() {
         }
         const fragment = document.createDocumentFragment();
         let cursor = 0;
-        let buffer = "";
+        let buffer2 = "";
         while (cursor < text.length) {
           const token = matchingEmoticonToken(text, cursor);
           if (!token) {
-            buffer += text[cursor];
+            buffer2 += text[cursor];
             cursor += 1;
             continue;
           }
-          if (buffer) {
-            fragment.append(buffer);
-            buffer = "";
+          if (buffer2) {
+            fragment.append(buffer2);
+            buffer2 = "";
           }
           const emoticon = emoticonCache.get(token);
           if (!emoticon?.url) {
-            buffer += token;
+            buffer2 += token;
             cursor += token.length;
             continue;
           }
@@ -8817,7 +8817,7 @@ _clearForTests() {
           fragment.append(img);
           cursor += token.length;
         }
-        if (buffer) fragment.append(buffer);
+        if (buffer2) fragment.append(buffer2);
         el.replaceChildren(fragment);
       }
       function prepareChatButton(button, title) {
@@ -11118,7 +11118,7 @@ u$2(
       const CARD_ROW_HEIGHT = 96;
       const CRITICAL_CARD_ROW_HEIGHT = 108;
       const COMPACT_CARD_ROW_HEIGHT = 70;
-      let unsubscribeDom = null;
+      let unsubscribeDom$1 = null;
       let unsubscribeEvents = null;
       let unsubscribeWsStatus = null;
       let disposeSettings = null;
@@ -12664,7 +12664,7 @@ u$2(
       }
       const BILIBILI_NOFACE_URL = "https://i0.hdslb.com/bfs/face/member/noface.jpg";
       function startCustomChatDom() {
-        if (unsubscribeDom) return;
+        if (unsubscribeDom$1) return;
         ensureStyles();
         ensureAvatarPreconnect();
         prewarmAvatar(BILIBILI_NOFACE_URL);
@@ -12680,7 +12680,7 @@ u$2(
         disposeComposer = j$1(syncComposerFromStore);
         unsubscribeEvents = subscribeCustomChatEvents(addEvent);
         unsubscribeWsStatus = subscribeCustomChatWsStatus(updateWsStatus);
-        unsubscribeDom = subscribeDanmaku({
+        unsubscribeDom$1 = subscribeDanmaku({
           onAttach: mount$1,
           onMessage: addDomMessage,
           emitExisting: true
@@ -12692,9 +12692,9 @@ u$2(
           clearTimeout(fallbackMountTimer);
           fallbackMountTimer = null;
         }
-        if (unsubscribeDom) {
-          unsubscribeDom();
-          unsubscribeDom = null;
+        if (unsubscribeDom$1) {
+          unsubscribeDom$1();
+          unsubscribeDom$1 = null;
         }
         if (unsubscribeEvents) {
           unsubscribeEvents();
@@ -13549,6 +13549,225 @@ emitExisting: false
           badge.remove();
         }
         foldByKey.clear();
+      }
+      function normalizeRadarBackendUrl(input) {
+        const trimmed = input.trim().replace(/\/+$/, "");
+        if (!trimmed) return "";
+        let parsed;
+        try {
+          parsed = new URL(trimmed);
+        } catch {
+          return "";
+        }
+        if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return "";
+        if (parsed.protocol === "http:") {
+          const host = parsed.hostname;
+          const bare = host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+          const isLoopback = bare === "localhost" || bare === "127.0.0.1" || bare === "::1";
+          if (!isLoopback) return "";
+        }
+        return trimmed;
+      }
+      function getRadarBackendBaseUrl() {
+        const overrideRaw = radarBackendUrlOverride.value;
+        const overrideOk = normalizeRadarBackendUrl(overrideRaw);
+        if (overrideOk) return overrideOk;
+        return BASE_URL.RADAR_BACKEND.replace(/\/+$/, "");
+      }
+      async function fetchTodayRadar(limit = 20) {
+        const base = getRadarBackendBaseUrl();
+        if (!base) return [];
+        const n2 = Math.floor(Number(limit));
+        const safeLimit = Number.isFinite(n2) ? Math.max(1, Math.min(100, n2)) : 20;
+        const url = `${base}/radar/clusters/today?limit=${safeLimit}`;
+        try {
+          const resp = await gmFetch(url, {
+            method: "GET",
+            headers: { Accept: "application/json" },
+            timeoutMs: 8e3
+          });
+          if (!resp.ok) {
+            appendLog(`⚠️ live-meme-radar HTTP ${resp.status}(/clusters/today)`);
+            return [];
+          }
+          const body = resp.json();
+          if (!Array.isArray(body.items)) return [];
+          return body.items.filter(isRadarClusterSummary);
+        } catch (err) {
+          appendLog(`⚠️ live-meme-radar 网络错误(/clusters/today):${err instanceof Error ? err.message : String(err)}`);
+          return [];
+        }
+      }
+      function isRadarClusterSummary(x2) {
+        if (!x2 || typeof x2 !== "object") return false;
+        const r2 = x2;
+        return typeof r2.id === "number" && typeof r2.representativeText === "string" && typeof r2.memberCount === "number";
+      }
+      async function reportRadarObservation(payload) {
+        const base = getRadarBackendBaseUrl();
+        if (!base) return;
+        if (!Number.isFinite(payload.roomId) || payload.roomId <= 0) return;
+        if (!Array.isArray(payload.sampledTexts) || payload.sampledTexts.length === 0) return;
+        const sampled = payload.sampledTexts.filter((s2) => typeof s2 === "string" && s2.trim().length > 0 && s2.length <= 200).slice(0, 30);
+        if (sampled.length === 0) return;
+        const body = {
+          roomId: payload.roomId,
+          channelUid: payload.channelUid,
+          sampledTexts: sampled,
+          windowStartTs: payload.windowStartTs,
+          windowEndTs: payload.windowEndTs
+        };
+        try {
+          await gmFetch(`${base}/radar/report`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify(body),
+            timeoutMs: 8e3
+          });
+        } catch {
+        }
+      }
+      const trendingMemeKeys = y$1( new Map());
+      const TTL_MS = 10 * 60 * 1e3;
+      const FETCH_LIMIT = 50;
+      let lastFetchAt = 0;
+      let inflight = null;
+      async function refreshTrendingMemes(force = false) {
+        const now = Date.now();
+        if (!force && now - lastFetchAt < TTL_MS) return;
+        if (inflight) return inflight;
+        inflight = (async () => {
+          try {
+            const clusters = await fetchTodayRadar(FETCH_LIMIT);
+            lastFetchAt = Date.now();
+            trendingMemeKeys.value = buildTrendingMap(clusters);
+          } finally {
+            inflight = null;
+          }
+        })();
+        return inflight;
+      }
+      function buildTrendingMap(clusters) {
+        const map = new Map();
+        for (let i2 = 0; i2 < clusters.length; i2++) {
+          const c2 = clusters[i2];
+          const key = memeContentKey(c2.representativeText);
+          if (!key) continue;
+          if (!map.has(key)) {
+            map.set(key, {
+              rank: i2 + 1,
+              clusterId: c2.id,
+              heatScore: c2.heatScore,
+              slopeScore: c2.slopeScore
+            });
+          }
+        }
+        return map;
+      }
+      function lookupTrendingMatch(content) {
+        const key = memeContentKey(content);
+        if (!key) return null;
+        return trendingMemeKeys.value.get(key) ?? null;
+      }
+      const FLUSH_INTERVAL_MS = 6e4;
+      const MAX_SAMPLES = 30;
+      const MAX_TEXT_LEN = 200;
+      let buffer = null;
+      let flushTimer = null;
+      let started = false;
+      function ensureTimer() {
+        if (flushTimer !== null) return;
+        flushTimer = setInterval(flushNow, FLUSH_INTERVAL_MS);
+      }
+      function clearTimer() {
+        if (flushTimer === null) return;
+        clearInterval(flushTimer);
+        flushTimer = null;
+      }
+      function dropBuffer() {
+        buffer = null;
+      }
+      function flushNow() {
+        const b2 = buffer;
+        if (!b2 || b2.texts.size === 0) {
+          if (b2) b2.windowStartTs = Date.now();
+          return;
+        }
+        const payload = {
+          roomId: b2.roomId,
+          channelUid: b2.channelUid,
+          sampledTexts: Array.from(b2.texts),
+          windowStartTs: b2.windowStartTs,
+          windowEndTs: Date.now()
+        };
+        buffer = {
+          roomId: b2.roomId,
+          channelUid: b2.channelUid,
+          windowStartTs: payload.windowEndTs,
+          texts: new Set()
+        };
+        void reportRadarObservation(payload);
+      }
+      function noteRadarObservation(rawText) {
+        if (!radarReportEnabled.value) return;
+        const roomId = cachedRoomId.value;
+        if (roomId === null || roomId <= 0) return;
+        const channelUid = cachedStreamerUid.value;
+        if (channelUid === null || channelUid <= 0) return;
+        const text = rawText.trim();
+        if (!text || text.length > MAX_TEXT_LEN) return;
+        if (lookupTrendingMatch(text) === null) return;
+        if (buffer === null || buffer.roomId !== roomId) {
+          buffer = {
+            roomId,
+            channelUid,
+            windowStartTs: Date.now(),
+            texts: new Set()
+          };
+        }
+        if (buffer.texts.has(text)) return;
+        if (buffer.texts.size >= MAX_SAMPLES) return;
+        buffer.texts.add(text);
+      }
+      let unsubscribeDom = null;
+      let unsubscribeWs = null;
+      function attachIngest() {
+        if (unsubscribeDom !== null) return;
+        unsubscribeDom = subscribeDanmaku({
+          onMessage: (ev) => noteRadarObservation(ev.text)
+        });
+        unsubscribeWs = subscribeCustomChatEvents((event) => {
+          if (event.kind !== "danmaku" || event.source !== "ws") return;
+          noteRadarObservation(event.text);
+        });
+      }
+      function detachIngest() {
+        if (unsubscribeDom) {
+          unsubscribeDom();
+          unsubscribeDom = null;
+        }
+        if (unsubscribeWs) {
+          unsubscribeWs();
+          unsubscribeWs = null;
+        }
+      }
+      function startRadarReportLoop() {
+        if (started) return;
+        started = true;
+        j$1(() => {
+          if (radarReportEnabled.value) {
+            attachIngest();
+            ensureTimer();
+          } else {
+            detachIngest();
+            dropBuffer();
+            clearTimer();
+          }
+        });
+        j$1(() => {
+          void cachedRoomId.value;
+          if (buffer && buffer.roomId !== cachedRoomId.value) dropBuffer();
+        });
       }
       const UNAME_NOISE_RE = /通过活动|装扮|粉丝牌|用户等级|头像|复制|举报|回复|关闭/;
       const MAX_UNAME_LENGTH = 32;
@@ -14954,7 +15173,7 @@ u$2("label", { htmlFor: "persistSendState", children: "保持当前直播间独�
         bumpDailyLlmCalls(roomId);
         try {
           const chooser = opts?.chooser ?? (await __vitePreload(async () => {
-            const { chooseMemeWithLLM } = await module.import('./llm-driver-fRi4CmsU-BpHacLAp.js');
+            const { chooseMemeWithLLM } = await module.import('./llm-driver-DNrpvGKi-D7Nor-O-.js');
             return { chooseMemeWithLLM };
           }, true ? void 0 : void 0)).chooseMemeWithLLM;
           const chosenContent = await chooser({
@@ -15211,7 +15430,7 @@ u$2("label", { htmlFor: "persistSendState", children: "保持当前直播间独�
           testError.value = "";
           try {
             const { testLLMConnection } = await __vitePreload(async () => {
-              const { testLLMConnection: testLLMConnection2 } = await module.import('./llm-driver-fRi4CmsU-BpHacLAp.js');
+              const { testLLMConnection: testLLMConnection2 } = await module.import('./llm-driver-DNrpvGKi-D7Nor-O-.js');
               return { testLLMConnection: testLLMConnection2 };
             }, true ? void 0 : void 0);
             const r2 = await testLLMConnection({
@@ -16094,101 +16313,6 @@ u$2("div", { className: "cb-body", children: u$2(
         const merged = [].concat(...results);
         sortMemes(merged, sortBy);
         return merged;
-      }
-      function normalizeRadarBackendUrl(input) {
-        const trimmed = input.trim().replace(/\/+$/, "");
-        if (!trimmed) return "";
-        let parsed;
-        try {
-          parsed = new URL(trimmed);
-        } catch {
-          return "";
-        }
-        if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return "";
-        if (parsed.protocol === "http:") {
-          const host = parsed.hostname;
-          const bare = host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
-          const isLoopback = bare === "localhost" || bare === "127.0.0.1" || bare === "::1";
-          if (!isLoopback) return "";
-        }
-        return trimmed;
-      }
-      function getRadarBackendBaseUrl() {
-        const overrideRaw = radarBackendUrlOverride.value;
-        const overrideOk = normalizeRadarBackendUrl(overrideRaw);
-        if (overrideOk) return overrideOk;
-        return BASE_URL.RADAR_BACKEND.replace(/\/+$/, "");
-      }
-      async function fetchTodayRadar(limit = 20) {
-        const base = getRadarBackendBaseUrl();
-        if (!base) return [];
-        const n2 = Math.floor(Number(limit));
-        const safeLimit = Number.isFinite(n2) ? Math.max(1, Math.min(100, n2)) : 20;
-        const url = `${base}/radar/clusters/today?limit=${safeLimit}`;
-        try {
-          const resp = await gmFetch(url, {
-            method: "GET",
-            headers: { Accept: "application/json" },
-            timeoutMs: 8e3
-          });
-          if (!resp.ok) {
-            appendLog(`⚠️ live-meme-radar HTTP ${resp.status}(/clusters/today)`);
-            return [];
-          }
-          const body = resp.json();
-          if (!Array.isArray(body.items)) return [];
-          return body.items.filter(isRadarClusterSummary);
-        } catch (err) {
-          appendLog(`⚠️ live-meme-radar 网络错误(/clusters/today):${err instanceof Error ? err.message : String(err)}`);
-          return [];
-        }
-      }
-      function isRadarClusterSummary(x2) {
-        if (!x2 || typeof x2 !== "object") return false;
-        const r2 = x2;
-        return typeof r2.id === "number" && typeof r2.representativeText === "string" && typeof r2.memberCount === "number";
-      }
-      const trendingMemeKeys = y$1( new Map());
-      const TTL_MS = 10 * 60 * 1e3;
-      const FETCH_LIMIT = 50;
-      let lastFetchAt = 0;
-      let inflight = null;
-      async function refreshTrendingMemes(force = false) {
-        const now = Date.now();
-        if (!force && now - lastFetchAt < TTL_MS) return;
-        if (inflight) return inflight;
-        inflight = (async () => {
-          try {
-            const clusters = await fetchTodayRadar(FETCH_LIMIT);
-            lastFetchAt = Date.now();
-            trendingMemeKeys.value = buildTrendingMap(clusters);
-          } finally {
-            inflight = null;
-          }
-        })();
-        return inflight;
-      }
-      function buildTrendingMap(clusters) {
-        const map = new Map();
-        for (let i2 = 0; i2 < clusters.length; i2++) {
-          const c2 = clusters[i2];
-          const key = memeContentKey(c2.representativeText);
-          if (!key) continue;
-          if (!map.has(key)) {
-            map.set(key, {
-              rank: i2 + 1,
-              clusterId: c2.id,
-              heatScore: c2.heatScore,
-              slopeScore: c2.slopeScore
-            });
-          }
-        }
-        return map;
-      }
-      function lookupTrendingMatch(content) {
-        const key = memeContentKey(content);
-        if (!key) return null;
-        return trendingMemeKeys.value.get(key) ?? null;
       }
       const PROBE_INTERVAL_MS = 30 * 60 * 1e3;
       const lastProbeByEndpoint = new Map();
@@ -17656,7 +17780,7 @@ u$2("p", { style: { color: "#666", fontSize: "0.8em", margin: ".25em 0 0" }, chi
           ] })
         ] });
       }
-      const SECTION_KEYWORDS$1 = "梗库后端 chatterbox cloud cb 后端 自建 backend localhost";
+      const SECTION_KEYWORDS$2 = "梗库后端 chatterbox cloud cb 后端 自建 backend localhost";
       function statusDotColor(state) {
         switch (state) {
           case "ok":
@@ -17682,7 +17806,7 @@ u$2("p", { style: { color: "#666", fontSize: "0.8em", margin: ".25em 0 0" }, chi
         }
       }
       function CbBackendSection({ query = "" }) {
-        const visible = !query || SECTION_KEYWORDS$1.toLowerCase().includes(query);
+        const visible = !query || SECTION_KEYWORDS$2.toLowerCase().includes(query);
         if (!visible) return null;
         async function handleProbe() {
           await probeAndUpdateCbBackendHealth();
@@ -19037,6 +19161,31 @@ u$2("br", {}),
           )
         ] });
       }
+      const SECTION_KEYWORDS$1 = "radar 雷达 跨房间 meme 上报 report 观察";
+      function RadarSection({ query = "" }) {
+        const visible = !query || SECTION_KEYWORDS$1.toLowerCase().includes(query);
+        if (!visible) return null;
+        return u$2("details", { className: "cb-settings-accordion", children: [
+u$2("summary", { children: u$2("span", { className: "cb-accordion-title", children: "live-meme-radar 观察上报" }) }),
+u$2("div", { className: "cb-section cb-stack", style: { margin: ".5em 0", paddingBottom: "1em" }, children: [
+u$2("div", { className: "cb-heading", style: { fontWeight: "bold", marginBottom: ".5em" }, children: "live-meme-radar 观察上报" }),
+u$2("div", { className: "cb-note", style: { color: "#666", fontSize: "0.85em", marginBottom: ".5em" }, children: "帮助 radar 识别跨房间 meme:开启后,本房间命中已知 trending 簇的弹幕文本会按 60s 窗口聚合后批量上报。 只送 dedupe 后的短文本 + 房间 id + 主播 uid;不送观众 uid、不送逐条时间戳、失败静默。默认关闭。" }),
+u$2("label", { className: "cb-row", style: { display: "flex", gap: ".5em", alignItems: "center" }, children: [
+u$2(
+                "input",
+                {
+                  type: "checkbox",
+                  checked: radarReportEnabled.value,
+                  onChange: (e2) => {
+                    radarReportEnabled.value = e2.currentTarget.checked;
+                  }
+                }
+              ),
+u$2("span", { children: "启用观察上报(/radar/report)" })
+            ] })
+          ] })
+        ] });
+      }
       const REMOTE_KEYWORDS_MAX_GLOBAL = 1e3;
       const REMOTE_KEYWORDS_MAX_PER_ROOM = 500;
       const REMOTE_KEYWORDS_MAX_ROOMS = 200;
@@ -20007,6 +20156,7 @@ u$2(ShadowObservationSection, { query }),
 u$2(GroupHeading, { query, children: "工具" }),
 u$2(MedalCheckSection, { query }),
 u$2(CbBackendSection, { query }),
+u$2(RadarSection, { query }),
 u$2(BackupSection, { query }),
 u$2(GroupHeading, { query, children: "系统" }),
           (!query || "日志设置 日志 行数 调试 debug".toLowerCase().includes(query)) && u$2("details", { className: "cb-settings-accordion", children: [
@@ -21151,6 +21301,9 @@ u$2(
         y$2(() => startCustomChatRoomRearm(), []);
         y$2(() => startCbBackendHealthProbe(), []);
         y$2(() => {
+          startRadarReportLoop();
+        }, []);
+        y$2(() => {
           if (danmakuDirectMode.value) {
             startDanmakuDirect();
           } else {
@@ -21260,7 +21413,7 @@ u$2(AlertDialog, {})
   };
 }));
 
-System.register("./llm-driver-fRi4CmsU-BpHacLAp.js", ['./__monkey.entry-C1BdSK6x.js', '@soniox/speech-to-text-web'], (function (exports, module) {
+System.register("./llm-driver-DNrpvGKi-D7Nor-O-.js", ['./__monkey.entry-BuZC4rZz.js', '@soniox/speech-to-text-web'], (function (exports, module) {
   'use strict';
   var appendLog, gmFetch, BASE_URL;
   return {

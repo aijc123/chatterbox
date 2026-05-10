@@ -121,6 +121,7 @@ Modules are grouped by subsystem. When adding a new file, drop it next to its pe
 - `src/lib/sbhzm-client.ts` calls `sbhzm.cn` over `gm-fetch` (no CORS); pages and dedups, normalizes to LAPLACE shape with synthesized negative ids to avoid collisions, 30 min in-memory cache.
 - `src/lib/sbhzm-freshness-probe.ts` checks SBHZM upstream freshness for the chatterbox-cloud cron mirror.
 - `src/lib/cb-backend-client.ts` is the chatterbox-cloud client. Routed through `gm-fetch` for parity with `sbhzm-client` and to make local dev (`localhost:8787`) work without CORS.
+- `src/lib/radar-report.ts` — opt-in trending-cluster observation aggregator. Subscribes to danmaku-stream + custom-chat-events while `radarReportEnabled` (default off) is true; per-message gate requires roomId + channelUid + lookupTrendingMatch hit. Buffers ≤30 deduped texts, flushes every 60s fire-and-forget to `/radar/report`. Drops buffer on toggle-off or room change. Lifecycle: `startRadarReportLoop()` is called once at boot from `components/app.tsx`.
 
 #### Chatterbox Chat (`custom-chat-*`, `emote-*`)
 
