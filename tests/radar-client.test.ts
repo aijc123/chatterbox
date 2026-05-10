@@ -426,101 +426,124 @@ describe('fetchTopAmplifiers', () => {
 })
 
 describe('reportRadarObservation', () => {
+  // 5-min-aligned bucket_ts in the past (well within server's 7d horizon).
+  const BASE_BUCKET = Math.floor(Date.now() / 1000 / 300) * 300 - 600
+
   beforeEach(() => {
     radarBackendUrlOverride.value = 'https://radar.test.local'
   })
 
-  test('happy path POSTs to /radar/report', async () => {
-    responder = () => ({ status: 200, body: '{}' })
+  test('happy path POSTs to /radar/report with reporter_uid + client_version + buckets', async () => {
+    responder = () => ({ status: 200, body: '{"accepted":1,"rejected":0,"dedupedRows":0}' })
     await reportRadarObservation({
-      roomId: 12345,
-      channelUid: 67890,
-      sampledTexts: ['草', 'awsl', 'xswl'],
-      windowStartTs: 1000,
-      windowEndTs: 2000,
+      reporter_uid: 12345678,
+      buckets: [{ bucket_ts: BASE_BUCKET, room_id: 12345, channel_uid: 67890, msg_count: 7, distinct_uid_count: 4 }],
     })
     expect(captured).toHaveLength(1)
     expect(captured[0].method).toBe('POST')
     expect(captured[0].url).toMatch(/\/radar\/report$/)
     const body = JSON.parse(captured[0].body!)
-    expect(body.roomId).toBe(12345)
-    expect(body.channelUid).toBe(67890)
-    expect(body.sampledTexts).toEqual(['草', 'awsl', 'xswl'])
-    expect(body.windowStartTs).toBe(1000)
-    expect(body.windowEndTs).toBe(2000)
+    expect(body.reporter_uid).toBe(12345678)
+    expect(typeof body.client_version).toBe('string')
+    expect(body.client_version.length).toBeGreaterThan(0)
+    expect(body.client_version.length).toBeLessThanOrEqual(64)
+    expect(body.buckets).toHaveLength(1)
+    expect(body.buckets[0]).toEqual({
+      bucket_ts: BASE_BUCKET,
+      room_id: 12345,
+      channel_uid: 67890,
+      msg_count: 7,
+      distinct_uid_count: 4,
+    })
   })
 
-  test('roomId <= 0 short-circuits without HTTP', async () => {
+  test('reporter_uid <= 0 short-circuits without HTTP', async () => {
     await reportRadarObservation({
-      roomId: 0,
-      channelUid: 1,
-      sampledTexts: ['x'],
-      windowStartTs: 0,
-      windowEndTs: 1,
+      reporter_uid: 0,
+      buckets: [{ bucket_ts: BASE_BUCKET, room_id: 1, channel_uid: 1, msg_count: 1, distinct_uid_count: 1 }],
     })
     await reportRadarObservation({
-      roomId: -1,
-      channelUid: 1,
-      sampledTexts: ['x'],
-      windowStartTs: 0,
-      windowEndTs: 1,
-    })
-    expect(captured).toHaveLength(0)
-  })
-
-  test('empty sampledTexts → no HTTP', async () => {
-    await reportRadarObservation({
-      roomId: 1,
-      channelUid: 1,
-      sampledTexts: [],
-      windowStartTs: 0,
-      windowEndTs: 1,
+      reporter_uid: -1,
+      buckets: [{ bucket_ts: BASE_BUCKET, room_id: 1, channel_uid: 1, msg_count: 1, distinct_uid_count: 1 }],
     })
     expect(captured).toHaveLength(0)
   })
 
-  test('strips invalid + oversize texts and caps to 30', async () => {
+  test('empty buckets → no HTTP', async () => {
+    await reportRadarObservation({ reporter_uid: 1, buckets: [] })
+    expect(captured).toHaveLength(0)
+  })
+
+  test('client filters bucket_ts not 300-aligned', async () => {
     responder = () => ({ status: 200, body: '{}' })
-    const tooLong = 'x'.repeat(201)
-    const samples: unknown[] = []
-    for (let i = 0; i < 50; i++) samples.push(`text-${i}`)
-    samples.push('') // empty — drop
-    samples.push('   ') // whitespace — drop
-    samples.push(tooLong) // too long — drop
-    samples.push(null) // not string — drop
     await reportRadarObservation({
-      roomId: 1,
-      channelUid: 1,
-      sampledTexts: samples as string[],
-      windowStartTs: 0,
-      windowEndTs: 1,
+      reporter_uid: 1,
+      // 200 is not a multiple of 300 → filtered out, leaves 0 buckets → no HTTP
+      buckets: [{ bucket_ts: 200, room_id: 1, channel_uid: 1, msg_count: 1, distinct_uid_count: 1 }],
+    })
+    expect(captured).toHaveLength(0)
+  })
+
+  test('client filters bucket where distinct_uid_count > msg_count', async () => {
+    responder = () => ({ status: 200, body: '{}' })
+    await reportRadarObservation({
+      reporter_uid: 1,
+      // distinct=5 > msg=2 violates the server cardinality rule → filtered → no HTTP
+      buckets: [{ bucket_ts: BASE_BUCKET, room_id: 1, channel_uid: 1, msg_count: 2, distinct_uid_count: 5 }],
+    })
+    expect(captured).toHaveLength(0)
+  })
+
+  test('client caps to 100 buckets (matches server REPORT_MAX_BUCKETS)', async () => {
+    responder = () => ({ status: 200, body: '{}' })
+    const buckets: Array<{
+      bucket_ts: number
+      room_id: number
+      channel_uid: number
+      msg_count: number
+      distinct_uid_count: number
+    }> = []
+    // 105 valid buckets stepping back in 5-min increments — all 300-aligned,
+    // well within the server's 7-day past horizon.
+    for (let i = 0; i < 105; i++) {
+      buckets.push({
+        bucket_ts: BASE_BUCKET - i * 300,
+        room_id: 1,
+        channel_uid: 1,
+        msg_count: 1,
+        distinct_uid_count: 1,
+      })
+    }
+    await reportRadarObservation({ reporter_uid: 1, buckets })
+    expect(captured).toHaveLength(1)
+    const body = JSON.parse(captured[0].body!)
+    expect(body.buckets.length).toBe(100)
+  })
+
+  test('mixed valid + invalid buckets: invalid stripped, valid sent', async () => {
+    responder = () => ({ status: 200, body: '{}' })
+    await reportRadarObservation({
+      reporter_uid: 1,
+      buckets: [
+        { bucket_ts: BASE_BUCKET, room_id: 1, channel_uid: 1, msg_count: 3, distinct_uid_count: 2 }, // valid
+        { bucket_ts: 200, room_id: 1, channel_uid: 1, msg_count: 1, distinct_uid_count: 1 }, // bad align
+        { bucket_ts: BASE_BUCKET + 300, room_id: 0, channel_uid: 1, msg_count: 1, distinct_uid_count: 1 }, // bad room
+        { bucket_ts: BASE_BUCKET + 600, room_id: 1, channel_uid: 1, msg_count: 0, distinct_uid_count: 0 }, // valid (empty)
+      ],
     })
     expect(captured).toHaveLength(1)
     const body = JSON.parse(captured[0].body!)
-    expect(body.sampledTexts.length).toBe(30)
-    expect(body.sampledTexts[0]).toBe('text-0')
+    expect(body.buckets).toHaveLength(2)
+    expect(body.buckets[0].bucket_ts).toBe(BASE_BUCKET)
+    expect(body.buckets[1].bucket_ts).toBe(BASE_BUCKET + 600)
   })
 
-  test('all-invalid sampledTexts → no HTTP', async () => {
-    await reportRadarObservation({
-      roomId: 1,
-      channelUid: 1,
-      sampledTexts: ['', '   ', 'x'.repeat(201)],
-      windowStartTs: 0,
-      windowEndTs: 1,
-    })
-    expect(captured).toHaveLength(0)
-  })
-
-  test('endpoint 404 (Week 9-10 not yet shipped) is swallowed silently', async () => {
-    responder = () => ({ status: 404, body: 'Not Found' })
+  test('endpoint 400 (server validation reject) is swallowed silently', async () => {
+    responder = () => ({ status: 400, body: '{"error":"bad_bucket","index":0}' })
     await expect(
       reportRadarObservation({
-        roomId: 1,
-        channelUid: 1,
-        sampledTexts: ['x'],
-        windowStartTs: 0,
-        windowEndTs: 1,
+        reporter_uid: 1,
+        buckets: [{ bucket_ts: BASE_BUCKET, room_id: 1, channel_uid: 1, msg_count: 1, distinct_uid_count: 1 }],
       })
     ).resolves.toBeUndefined()
   })
@@ -529,11 +552,8 @@ describe('reportRadarObservation', () => {
     responder = () => ({ throwError: 'ECONNREFUSED' })
     await expect(
       reportRadarObservation({
-        roomId: 1,
-        channelUid: 1,
-        sampledTexts: ['x'],
-        windowStartTs: 0,
-        windowEndTs: 1,
+        reporter_uid: 1,
+        buckets: [{ bucket_ts: BASE_BUCKET, room_id: 1, channel_uid: 1, msg_count: 1, distinct_uid_count: 1 }],
       })
     ).resolves.toBeUndefined()
   })

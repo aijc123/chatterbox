@@ -22,6 +22,18 @@ export const cachedRoomId = signal<number | null>(null)
 export const cachedStreamerUid = signal<number | null>(null)
 
 /**
+ * 当前登录观众自身的 bilibili uid（来自 `DedeUserID` cookie），用于把
+ * /radar/report 上的 `reporter_uid` 字段填进去。匿名访问时为 `null`，雷达上报
+ * 路径在 `null` 时直接 short-circuit —— 我们不接受没有可哈希身份的观察上报，
+ * 也不想给匿名访问者捎一个伪造的"reporter"。
+ *
+ * Cookie 不会主动触发变更事件；登录 / 登出在 B 站会刷页面，所以仅在 app 启动
+ * 时读一次（见 `radar-report.ts` 的 `startRadarReportLoop`）已足够。其他 module
+ * 也可以按需写入，但不要写入零或负值 —— validation 拒掉。
+ */
+export const cachedSelfUid = signal<number | null>(null)
+
+/**
  * Reactive view of the live WebSocket connection state, mirrored from
  * `subscribeCustomChatWsStatus`. Lets UI surfaces (tab bar, settings) show
  * when the script has degraded to DOM-scrape mode without each component

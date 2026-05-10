@@ -61,7 +61,7 @@
 System.addImportMap({ imports: {"@soniox/speech-to-text-web":"user:@soniox/speech-to-text-web"} });
 System.set("user:@soniox/speech-to-text-web", (()=>{const _=SonioxSpeechToTextWeb;('default' in _)||(_.default=_);return _})());
 
-System.register("./__entry.js", ['./__monkey.entry-BuZC4rZz.js'], (function (exports, module) {
+System.register("./__entry.js", ['./__monkey.entry-Nmv9Lh5e.js'], (function (exports, module) {
 	'use strict';
 	return {
 		setters: [null],
@@ -73,7 +73,7 @@ System.register("./__entry.js", ['./__monkey.entry-BuZC4rZz.js'], (function (exp
 	};
 }));
 
-System.register("./__monkey.entry-BuZC4rZz.js", ['@soniox/speech-to-text-web'], (function (exports, module) {
+System.register("./__monkey.entry-Nmv9Lh5e.js", ['@soniox/speech-to-text-web'], (function (exports, module) {
   'use strict';
   var SonioxClient;
   return {
@@ -2141,6 +2141,7 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
       const lastSeenVersion = gmSignal("lastSeenVersion", "");
       const cachedRoomId = y$1(null);
       const cachedStreamerUid = y$1(null);
+      const cachedSelfUid = y$1(null);
       const liveWsStatus = y$1("off");
       subscribeCustomChatWsStatus((status) => {
         liveWsStatus.value = status;
@@ -3682,19 +3683,19 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
         }
         return result;
       }
-      const cutBuffer = (buffer2) => {
+      const cutBuffer = (buffer) => {
         const bufferPacks = [];
-        const view = new DataView(buffer2.buffer, buffer2.byteOffset, buffer2.byteLength);
+        const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
         let size;
-        for (let i2 = 0; i2 < buffer2.length; i2 += size) {
+        for (let i2 = 0; i2 < buffer.length; i2 += size) {
           size = view.getInt32(i2);
-          bufferPacks.push(buffer2.slice(i2, i2 + size));
+          bufferPacks.push(buffer.slice(i2, i2 + size));
         }
         return bufferPacks;
       };
       const makeDecoder = ({ inflateAsync: inflateAsync2, brotliDecompressAsync: brotliDecompressAsync2 }) => {
-        const decoder = async (buffer2) => {
-          return (await Promise.all(cutBuffer(buffer2).map(async (buf) => {
+        const decoder = async (buffer) => {
+          return (await Promise.all(cutBuffer(buffer).map(async (buf) => {
             const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
             const body = buf.slice(16);
             const protocol = view.getInt16(6);
@@ -3725,14 +3726,14 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
         const encoded = typeof body === "string" ? body : JSON.stringify(body);
         const head = new Uint8Array(16);
         const headView = new DataView(head.buffer, head.byteOffset, head.byteLength);
-        const buffer2 = textEncoder.encode(encoded);
-        headView.setInt32(0, buffer2.length + head.length);
+        const buffer = textEncoder.encode(encoded);
+        headView.setInt32(0, buffer.length + head.length);
         headView.setInt16(4, 16);
         headView.setInt16(6, 1);
         if (type === "heartbeat") headView.setInt32(8, 2);
         if (type === "join") headView.setInt32(8, 7);
         headView.setInt32(12, 1);
-        return concatUint8Arrays([head, buffer2]);
+        return concatUint8Arrays([head, buffer]);
       };
       var Live = class extends LaplaceEventTarget {
 roomid;
@@ -3760,8 +3761,8 @@ close;
           };
           const decode = makeDecoder(inflates2);
           this.addEventListener("message", async (e2) => {
-            const buffer2 = e2.data;
-            (await decode(buffer2)).forEach(({ type, data }) => {
+            const buffer = e2.data;
+            (await decode(buffer)).forEach(({ type, data }) => {
               if (type === "welcome") {
                 this.live = true;
                 this.dispatchEvent(new Event("live"));
@@ -8789,21 +8790,21 @@ _clearForTests() {
         }
         const fragment = document.createDocumentFragment();
         let cursor = 0;
-        let buffer2 = "";
+        let buffer = "";
         while (cursor < text.length) {
           const token = matchingEmoticonToken(text, cursor);
           if (!token) {
-            buffer2 += text[cursor];
+            buffer += text[cursor];
             cursor += 1;
             continue;
           }
-          if (buffer2) {
-            fragment.append(buffer2);
-            buffer2 = "";
+          if (buffer) {
+            fragment.append(buffer);
+            buffer = "";
           }
           const emoticon = emoticonCache.get(token);
           if (!emoticon?.url) {
-            buffer2 += token;
+            buffer += token;
             cursor += token.length;
             continue;
           }
@@ -8817,7 +8818,7 @@ _clearForTests() {
           fragment.append(img);
           cursor += token.length;
         }
-        if (buffer2) fragment.append(buffer2);
+        if (buffer) fragment.append(buffer);
         el.replaceChildren(fragment);
       }
       function prepareChatButton(button, title) {
@@ -13606,16 +13607,24 @@ emitExisting: false
       async function reportRadarObservation(payload) {
         const base = getRadarBackendBaseUrl();
         if (!base) return;
-        if (!Number.isFinite(payload.roomId) || payload.roomId <= 0) return;
-        if (!Array.isArray(payload.sampledTexts) || payload.sampledTexts.length === 0) return;
-        const sampled = payload.sampledTexts.filter((s2) => typeof s2 === "string" && s2.trim().length > 0 && s2.length <= 200).slice(0, 30);
-        if (sampled.length === 0) return;
+        if (!Number.isFinite(payload.reporter_uid) || payload.reporter_uid <= 0) return;
+        if (!Array.isArray(payload.buckets) || payload.buckets.length === 0) return;
+        const filtered = payload.buckets.filter((b2) => {
+          if (!b2 || typeof b2 !== "object") return false;
+          if (!Number.isInteger(b2.bucket_ts) || b2.bucket_ts % 300 !== 0) return false;
+          if (!Number.isInteger(b2.room_id) || b2.room_id <= 0) return false;
+          if (!Number.isInteger(b2.channel_uid) || b2.channel_uid <= 0) return false;
+          if (!Number.isInteger(b2.msg_count) || b2.msg_count < 0) return false;
+          if (!Number.isInteger(b2.distinct_uid_count) || b2.distinct_uid_count < 0) return false;
+          if (b2.distinct_uid_count > b2.msg_count) return false;
+          return true;
+        });
+        if (filtered.length === 0) return;
+        const buckets2 = filtered.length > 100 ? filtered.slice(-100) : filtered;
         const body = {
-          roomId: payload.roomId,
-          channelUid: payload.channelUid,
-          sampledTexts: sampled,
-          windowStartTs: payload.windowStartTs,
-          windowEndTs: payload.windowEndTs
+          reporter_uid: payload.reporter_uid,
+          client_version: VERSION,
+          buckets: buckets2
         };
         try {
           await gmFetch(`${base}/radar/report`, {
@@ -13627,54 +13636,17 @@ emitExisting: false
         } catch {
         }
       }
-      const trendingMemeKeys = y$1( new Map());
-      const TTL_MS = 10 * 60 * 1e3;
-      const FETCH_LIMIT = 50;
-      let lastFetchAt = 0;
-      let inflight = null;
-      async function refreshTrendingMemes(force = false) {
-        const now = Date.now();
-        if (!force && now - lastFetchAt < TTL_MS) return;
-        if (inflight) return inflight;
-        inflight = (async () => {
-          try {
-            const clusters = await fetchTodayRadar(FETCH_LIMIT);
-            lastFetchAt = Date.now();
-            trendingMemeKeys.value = buildTrendingMap(clusters);
-          } finally {
-            inflight = null;
-          }
-        })();
-        return inflight;
-      }
-      function buildTrendingMap(clusters) {
-        const map = new Map();
-        for (let i2 = 0; i2 < clusters.length; i2++) {
-          const c2 = clusters[i2];
-          const key = memeContentKey(c2.representativeText);
-          if (!key) continue;
-          if (!map.has(key)) {
-            map.set(key, {
-              rank: i2 + 1,
-              clusterId: c2.id,
-              heatScore: c2.heatScore,
-              slopeScore: c2.slopeScore
-            });
-          }
-        }
-        return map;
-      }
-      function lookupTrendingMatch(content) {
-        const key = memeContentKey(content);
-        if (!key) return null;
-        return trendingMemeKeys.value.get(key) ?? null;
-      }
+      let _subscribeDanmakuImpl = subscribeDanmaku;
+      let _subscribeCustomChatEventsImpl = subscribeCustomChatEvents;
       const FLUSH_INTERVAL_MS = 6e4;
-      const MAX_SAMPLES = 30;
-      const MAX_TEXT_LEN = 200;
-      let buffer = null;
+      const BUCKET_SEC = 300;
+      const MAX_BUCKETS_PER_FLUSH = 100;
+      let buckets = new Map();
       let flushTimer = null;
       let started = false;
+      function bucketKey(roomId, bucketTs) {
+        return `${roomId}:${bucketTs}`;
+      }
       function ensureTimer() {
         if (flushTimer !== null) return;
         flushTimer = setInterval(flushNow, FLUSH_INTERVAL_MS);
@@ -13684,61 +13656,71 @@ emitExisting: false
         clearInterval(flushTimer);
         flushTimer = null;
       }
-      function dropBuffer() {
-        buffer = null;
+      function dropBuckets() {
+        buckets = new Map();
       }
       function flushNow() {
-        const b2 = buffer;
-        if (!b2 || b2.texts.size === 0) {
-          if (b2) b2.windowStartTs = Date.now();
+        if (buckets.size === 0) return;
+        const reporterUid = cachedSelfUid.value;
+        if (reporterUid === null || reporterUid <= 0) {
+          dropBuckets();
           return;
         }
-        const payload = {
-          roomId: b2.roomId,
-          channelUid: b2.channelUid,
-          sampledTexts: Array.from(b2.texts),
-          windowStartTs: b2.windowStartTs,
-          windowEndTs: Date.now()
-        };
-        buffer = {
-          roomId: b2.roomId,
-          channelUid: b2.channelUid,
-          windowStartTs: payload.windowEndTs,
-          texts: new Set()
-        };
-        void reportRadarObservation(payload);
+        const ordered = Array.from(buckets.values()).sort((a2, b2) => a2.bucketTs - b2.bucketTs);
+        const trimmed = ordered.length > MAX_BUCKETS_PER_FLUSH ? ordered.slice(-MAX_BUCKETS_PER_FLUSH) : ordered;
+        const payloadBuckets = trimmed.map((b2) => {
+          const distinct = b2.distinctSenderUids.size;
+          return {
+            bucket_ts: b2.bucketTs,
+            room_id: b2.roomId,
+            channel_uid: b2.channelUid,
+            msg_count: b2.msgCount,
+
+
+
+distinct_uid_count: Math.min(distinct, b2.msgCount)
+          };
+        });
+        dropBuckets();
+        void reportRadarObservation({
+          reporter_uid: reporterUid,
+          buckets: payloadBuckets
+        });
       }
-      function noteRadarObservation(rawText) {
+      function noteRadarObservation(_rawText, senderUid) {
         if (!radarReportEnabled.value) return;
         const roomId = cachedRoomId.value;
         if (roomId === null || roomId <= 0) return;
         const channelUid = cachedStreamerUid.value;
         if (channelUid === null || channelUid <= 0) return;
-        const text = rawText.trim();
-        if (!text || text.length > MAX_TEXT_LEN) return;
-        if (lookupTrendingMatch(text) === null) return;
-        if (buffer === null || buffer.roomId !== roomId) {
-          buffer = {
+        const selfUid = cachedSelfUid.value;
+        if (selfUid === null || selfUid <= 0) return;
+        const bucketTs = Math.floor(Date.now() / 1e3 / BUCKET_SEC) * BUCKET_SEC;
+        const key = bucketKey(roomId, bucketTs);
+        let acc = buckets.get(key);
+        if (acc === void 0) {
+          acc = {
+            bucketTs,
             roomId,
             channelUid,
-            windowStartTs: Date.now(),
-            texts: new Set()
+            msgCount: 0,
+            distinctSenderUids: new Set()
           };
+          buckets.set(key, acc);
         }
-        if (buffer.texts.has(text)) return;
-        if (buffer.texts.size >= MAX_SAMPLES) return;
-        buffer.texts.add(text);
+        acc.msgCount += 1;
+        acc.distinctSenderUids.add(senderUid ?? "anon");
       }
       let unsubscribeDom = null;
       let unsubscribeWs = null;
       function attachIngest() {
         if (unsubscribeDom !== null) return;
-        unsubscribeDom = subscribeDanmaku({
-          onMessage: (ev) => noteRadarObservation(ev.text)
+        unsubscribeDom = _subscribeDanmakuImpl({
+          onMessage: (ev) => noteRadarObservation(ev.text, ev.uid)
         });
-        unsubscribeWs = subscribeCustomChatEvents((event) => {
+        unsubscribeWs = _subscribeCustomChatEventsImpl((event) => {
           if (event.kind !== "danmaku" || event.source !== "ws") return;
-          noteRadarObservation(event.text);
+          noteRadarObservation(event.text, event.uid);
         });
       }
       function detachIngest() {
@@ -13751,22 +13733,33 @@ emitExisting: false
           unsubscribeWs = null;
         }
       }
+      function refreshSelfUidFromCookie() {
+        if (cachedSelfUid.value !== null) return;
+        if (typeof document === "undefined") return;
+        const raw = getDedeUid();
+        if (!raw) return;
+        const n2 = Number(raw);
+        if (!Number.isFinite(n2) || !Number.isInteger(n2) || n2 <= 0) return;
+        cachedSelfUid.value = n2;
+      }
       function startRadarReportLoop() {
         if (started) return;
         started = true;
+        refreshSelfUidFromCookie();
         j$1(() => {
           if (radarReportEnabled.value) {
+            refreshSelfUidFromCookie();
             attachIngest();
             ensureTimer();
           } else {
             detachIngest();
-            dropBuffer();
+            dropBuckets();
             clearTimer();
           }
         });
         j$1(() => {
           void cachedRoomId.value;
-          if (buffer && buffer.roomId !== cachedRoomId.value) dropBuffer();
+          dropBuckets();
         });
       }
       const UNAME_NOISE_RE = /通过活动|装扮|粉丝牌|用户等级|头像|复制|举报|回复|关闭/;
@@ -15173,7 +15166,7 @@ u$2("label", { htmlFor: "persistSendState", children: "保持当前直播间独�
         bumpDailyLlmCalls(roomId);
         try {
           const chooser = opts?.chooser ?? (await __vitePreload(async () => {
-            const { chooseMemeWithLLM } = await module.import('./llm-driver-DNrpvGKi-D7Nor-O-.js');
+            const { chooseMemeWithLLM } = await module.import('./llm-driver-BVX2OUfD-C3Q8qSmr.js');
             return { chooseMemeWithLLM };
           }, true ? void 0 : void 0)).chooseMemeWithLLM;
           const chosenContent = await chooser({
@@ -15430,7 +15423,7 @@ u$2("label", { htmlFor: "persistSendState", children: "保持当前直播间独�
           testError.value = "";
           try {
             const { testLLMConnection } = await __vitePreload(async () => {
-              const { testLLMConnection: testLLMConnection2 } = await module.import('./llm-driver-DNrpvGKi-D7Nor-O-.js');
+              const { testLLMConnection: testLLMConnection2 } = await module.import('./llm-driver-BVX2OUfD-C3Q8qSmr.js');
               return { testLLMConnection: testLLMConnection2 };
             }, true ? void 0 : void 0);
             const r2 = await testLLMConnection({
@@ -16313,6 +16306,48 @@ u$2("div", { className: "cb-body", children: u$2(
         const merged = [].concat(...results);
         sortMemes(merged, sortBy);
         return merged;
+      }
+      const trendingMemeKeys = y$1( new Map());
+      const TTL_MS = 10 * 60 * 1e3;
+      const FETCH_LIMIT = 50;
+      let lastFetchAt = 0;
+      let inflight = null;
+      async function refreshTrendingMemes(force = false) {
+        const now = Date.now();
+        if (!force && now - lastFetchAt < TTL_MS) return;
+        if (inflight) return inflight;
+        inflight = (async () => {
+          try {
+            const clusters = await fetchTodayRadar(FETCH_LIMIT);
+            lastFetchAt = Date.now();
+            trendingMemeKeys.value = buildTrendingMap(clusters);
+          } finally {
+            inflight = null;
+          }
+        })();
+        return inflight;
+      }
+      function buildTrendingMap(clusters) {
+        const map = new Map();
+        for (let i2 = 0; i2 < clusters.length; i2++) {
+          const c2 = clusters[i2];
+          const key = memeContentKey(c2.representativeText);
+          if (!key) continue;
+          if (!map.has(key)) {
+            map.set(key, {
+              rank: i2 + 1,
+              clusterId: c2.id,
+              heatScore: c2.heatScore,
+              slopeScore: c2.slopeScore
+            });
+          }
+        }
+        return map;
+      }
+      function lookupTrendingMatch(content) {
+        const key = memeContentKey(content);
+        if (!key) return null;
+        return trendingMemeKeys.value.get(key) ?? null;
       }
       const PROBE_INTERVAL_MS = 30 * 60 * 1e3;
       const lastProbeByEndpoint = new Map();
@@ -21413,7 +21448,7 @@ u$2(AlertDialog, {})
   };
 }));
 
-System.register("./llm-driver-DNrpvGKi-D7Nor-O-.js", ['./__monkey.entry-BuZC4rZz.js', '@soniox/speech-to-text-web'], (function (exports, module) {
+System.register("./llm-driver-BVX2OUfD-C3Q8qSmr.js", ['./__monkey.entry-Nmv9Lh5e.js', '@soniox/speech-to-text-web'], (function (exports, module) {
   'use strict';
   var appendLog, gmFetch, BASE_URL;
   return {

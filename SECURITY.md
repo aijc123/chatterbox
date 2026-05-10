@@ -83,14 +83,29 @@
 
 ### 可选出站（Opt-in / 默认 OFF）
 
-- **`POST /radar/report` 到 live-meme-radar**（v2.13.0 起，详见 `src/lib/radar-report.ts` 与 `src/lib/radar-client.ts` 的 `reportRadarObservation`）。
+- **`POST /radar/report` 到 live-meme-radar**（v2.13.0 起，2.13.1 起改成 server schema 对齐的 bucket-aggregate 形态；详见 `src/lib/radar-report.ts` 与 `src/lib/radar-client.ts` 的 `reportRadarObservation`）。
   - 入口：『设置 → 工具 → live-meme-radar 趋势上报』 toggle，对应 GM key `radarReportEnabled`，默认 `false`。
-  - 节奏：每 60 秒 flush 一批；单批 ≤30 条样本，单条 ≤200 字。
-  - 准入过滤：只有当 `lookupTrendingMatch(text)` 命中 radar 已知 trending 簇时才进 buffer —— 把房间噪声挡在客户端。
-  - Payload schema（`RadarReportPayload`）：`{ roomId, channelUid, sampledTexts: string[], windowStartTs, windowEndTs }`。
-    - `channelUid` 是**主播本人公开 ID**（=房间所有者），不是观众 / 发送者的 uid。
-    - `sampledTexts` 是同窗口内 dedupe 后的文本数组，**不带逐条 timestamp、不带任何 uid（明文或哈希都不带）**。
-  - 切房间 / 关 toggle 立即丢未发的 buffer，不在用户改主意之后才发出去。
+  - 节奏：每 60 秒 flush 一批；服务端单批硬上限 100 个 5 分钟桶（`REPORT_MAX_BUCKETS`），客户端在调用前裁到这个上限。
+  - 匿名观众短路：`cachedSelfUid`（来自 `DedeUserID` cookie）为空时 toggle 也不会上报 —— 没有可哈希的 reporter 身份就不发。
+  - Payload schema（`RadarReportPayload`，与 server `validateBucket` 对齐）：
+    ```
+    {
+      reporter_uid: number,        // 观众自身公开 bili uid；server 端 hashUid+IP_HASH_SALT 后才落 D1
+      client_version: string,      // userscript // @version（≤64 字符）
+      buckets: [
+        {
+          bucket_ts: number,         // epoch 秒，必须 300 对齐
+          room_id: number,           // 直播间号
+          channel_uid: number,       // 主播本人公开 uid（=房间所有者），不是观众 / 发送者的 uid
+          msg_count: number,         // 桶内观察到的弹幕条数
+          distinct_uid_count: number // 桶内 distinct 发送者数量；server 拒掉 distinct > msg_count
+        }
+      ]
+    }
+    ```
+  - **不再发送任何弹幕原文 / 单条 timestamp**：v2.13.0 的 `sampledTexts` 数组已退役，取而代之的是每个 5 分钟桶的两个计数字段。这一改在隐私上是严格的"减"操作 —— 文本样本不出门了，server 也没法事后回放观众读到了什么。
+  - sender uid 只在客户端用于桶内 `distinctSenderUids: Set` 去重，**不放进 payload**；payload 里能反查到观众身份的字段只有 `reporter_uid`，并且 server 端在哈希前永远不会落 D1。
+  - 切房间 / 关 toggle 立即丢未发的桶，不在用户改主意之后才发出去。
   - 失败一律静默（`reportRadarObservation` 内部 swallow），不影响其他功能。
 - **Soniox STT WebSocket**（`@soniox/speech-to-text-web` UMD 包通过 `@require https://unpkg.com/@soniox/speech-to-text-web@1.4.0/...` 加载，见 `src/components/stt-tab.tsx`）。
   - 入口：『同传』tab 自填 Soniox API key 并主动开始。
@@ -111,7 +126,8 @@
 ### 永不出站（Never outbound）
 
 - 弹幕历史 / 完整聊天 transcript（自定义 Chatterbox Chat 完全本地渲染）。
-- 观众 uid / uname / 头像 / 单条 timestamp（即使在 opt-in 的 `/radar/report` payload 里也不含）。
+- **弹幕原文 / 单条 timestamp / 弹幕发送者 uid**（在 opt-in 的 `/radar/report` payload 里都不含 —— 只送 5 分钟桶的两个计数）。注：`/radar/report` payload 里**会**含登录观众自身的 `reporter_uid`，server 端 hashUid+IP_HASH_SALT 后才落 D1，原 uid 不进库；这点见上面 opt-in 段。
+- 观众 uname / 头像。
 - 浏览器 cookie / B 站 CSRF token / Tampermonkey GM storage dump。
 - LocalStorage / GM storage 的整体导出内容（用户可手动导出 backup，见下面"本地存储"，但脚本绝不主动上传）。
 
