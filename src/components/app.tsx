@@ -16,6 +16,7 @@ import { startLiveDeskSync, stopLiveDeskSync } from '../lib/live-desk-sync'
 import { startLiveWsSource, stopLiveWsSource } from '../lib/live-ws-source'
 import { loop } from '../lib/loop'
 import { startNativeChatFold, stopNativeChatFold } from '../lib/native-chat-fold'
+import { startRadarReportLoop } from '../lib/radar-report'
 import {
   autoBlendEnabled,
   customChatEnabled,
@@ -54,6 +55,12 @@ export function App() {
   useEffect(() => startCustomChatRoomRearm(), [])
 
   useEffect(() => startCbBackendHealthProbe(), [])
+
+  // radar 观察上报:默认 OFF。开关打开时才订阅 danmaku 流,关掉时立刻退订并
+  // 丢掉未发送的 buffer。fire-and-forget — 失败/网络错误一律静默吞掉。
+  useEffect(() => {
+    startRadarReportLoop()
+  }, [])
 
   useEffect(() => {
     if (danmakuDirectMode.value) {
