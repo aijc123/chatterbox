@@ -31,6 +31,16 @@ import { reportRadarObservation } from './radar-client'
 import { cachedRoomId, cachedStreamerUid } from './store'
 import { radarReportEnabled } from './store-radar'
 
+// ---------------------------------------------------------------------------
+// Test-only DI seams — do NOT use from production code.
+// Production paths always go through the real imports above. Tests can swap
+// these out via `_setSubscribersForTests` (see bottom of file) so the
+// aggregator can be exercised without spinning up real DOM observers / WS.
+// ---------------------------------------------------------------------------
+let _subscribeDanmakuImpl: typeof subscribeDanmaku = subscribeDanmaku
+let _subscribeCustomChatEventsImpl: typeof subscribeCustomChatEvents = subscribeCustomChatEvents
+let _lookupTrendingMatchImpl: typeof lookupTrendingMatch = lookupTrendingMatch
+
 const FLUSH_INTERVAL_MS = 60_000
 const MAX_SAMPLES = 30
 const MAX_TEXT_LEN = 200
@@ -108,7 +118,7 @@ export function noteRadarObservation(rawText: string): void {
 
   // 关键过滤:只有命中 radar 已知簇的才上报。这把绝大多数房间噪声挡在外面,
   // 也保证 server 那边不用反过来处理"你们是不是把整个聊天都送过来了"。
-  if (lookupTrendingMatch(text) === null) return
+  if (_lookupTrendingMatchImpl(text) === null) return
 
   if (buffer === null || buffer.roomId !== roomId) {
     buffer = {
@@ -130,10 +140,10 @@ let unsubscribeWs: (() => void) | null = null
 
 function attachIngest(): void {
   if (unsubscribeDom !== null) return
-  unsubscribeDom = subscribeDanmaku({
+  unsubscribeDom = _subscribeDanmakuImpl({
     onMessage: ev => noteRadarObservation(ev.text),
   })
-  unsubscribeWs = subscribeCustomChatEvents(event => {
+  unsubscribeWs = _subscribeCustomChatEventsImpl(event => {
     if (event.kind !== 'danmaku' || event.source !== 'ws') return
     noteRadarObservation(event.text)
   })
@@ -198,4 +208,26 @@ export function _resetRadarReportForTests(): void {
   clearTimer()
   detachIngest()
   started = false
+  // Restore default impls so a stray test override doesn't leak across files.
+  _subscribeDanmakuImpl = subscribeDanmaku
+  _subscribeCustomChatEventsImpl = subscribeCustomChatEvents
+  _lookupTrendingMatchImpl = lookupTrendingMatch
+}
+
+/**
+ * Test-only DI seam: swap subscriber / lookup implementations so unit tests
+ * don't have to spin up real DOM observers, WS streams, or seed the trending
+ * map. Pass a partial options object — only provided keys are overridden.
+ * Reset to real impls via `_resetRadarReportForTests`.
+ */
+export function _setSubscribersForTests(
+  opts: {
+    subscribeDanmaku?: typeof subscribeDanmaku
+    subscribeCustomChatEvents?: typeof subscribeCustomChatEvents
+    lookupTrendingMatch?: typeof lookupTrendingMatch
+  } = {}
+): void {
+  if (opts.subscribeDanmaku) _subscribeDanmakuImpl = opts.subscribeDanmaku
+  if (opts.subscribeCustomChatEvents) _subscribeCustomChatEventsImpl = opts.subscribeCustomChatEvents
+  if (opts.lookupTrendingMatch) _lookupTrendingMatchImpl = opts.lookupTrendingMatch
 }
