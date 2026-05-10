@@ -3,7 +3,7 @@
 [![CI](https://github.com/aijc123/bilibili-live-wheel-auto-follow/actions/workflows/ci.yml/badge.svg)](https://github.com/aijc123/bilibili-live-wheel-auto-follow/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/aijc123/bilibili-live-wheel-auto-follow/branch/master/graph/badge.svg)](https://codecov.io/gh/aijc123/bilibili-live-wheel-auto-follow)
 [![Greasy Fork installs](https://img.shields.io/badge/installs-40-brightgreen)](https://greasyfork.org/zh-CN/scripts/574939)
-[![Greasy Fork version](https://img.shields.io/badge/greasy%20fork-v2.13.1-blue)](https://greasyfork.org/zh-CN/scripts/574939)
+[![Greasy Fork version](https://img.shields.io/badge/greasy%20fork-v2.13.2-blue)](https://greasyfork.org/zh-CN/scripts/574939)
 [![Bundle size](https://img.shields.io/github/size/aijc123/bilibili-live-wheel-auto-follow/dist/bilibili-live-wheel-auto-follow.user.js?label=userscript%20size)](https://github.com/aijc123/bilibili-live-wheel-auto-follow/blob/master/dist/bilibili-live-wheel-auto-follow.user.js)
 [![Last commit](https://img.shields.io/github/last-commit/aijc123/bilibili-live-wheel-auto-follow)](https://github.com/aijc123/bilibili-live-wheel-auto-follow/commits/master)
 [![License: AGPL-3.0](https://img.shields.io/github/license/aijc123/bilibili-live-wheel-auto-follow)](LICENSE)
