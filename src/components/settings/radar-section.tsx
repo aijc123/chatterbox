@@ -26,8 +26,8 @@ export function RadarSection({ query = '' }: { query?: string }) {
           live-meme-radar 观察上报
         </div>
         <div className='cb-note' style={{ color: '#666', fontSize: '0.85em', marginBottom: '.5em' }}>
-          帮助 radar 识别跨房间 meme:开启后,本房间命中已知 trending 簇的弹幕文本会按 60s 窗口聚合后批量上报。
-          只送 dedupe 后的短文本 + 房间 id + 主播 uid;不送观众 uid、不送逐条时间戳、失败静默。默认关闭。
+          帮助 radar 识别跨房间 meme:开启后,本房间命中已知 trending 簇的弹幕文本会按 60s 窗口聚合后批量上报。 只送
+          dedupe 后的短文本 + 房间 id + 主播 uid;不送观众 uid、不送逐条时间戳、失败静默。默认关闭。
         </div>
         <label className='cb-row' style={{ display: 'flex', gap: '.5em', alignItems: 'center' }}>
           <input
