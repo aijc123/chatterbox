@@ -525,6 +525,11 @@ export async function startHzmAutoDrive(opts: {
   unsubscribe = subscribeDanmaku({
     onMessage: ev => {
       if (!ev.text) return
+      // 大表情(bulge-emoticon)的 `data-danmaku` 是"应援"/"干杯"这类
+      // 显示名,不是 emoticon_unique。混进 recentDanmu 会污染 LLM/启发式
+      // 选梗时的"近期热度"统计,把"应援"这种本就不可重发的字符串选进
+      // 推荐里——同样的理由,自动跟车也在 recordDanmaku 里硬丢这种事件。
+      if (ev.hasLargeEmote) return
       recentDanmu.push({ ts: Date.now(), text: ev.text, uid: ev.uid ?? null })
       if (recentDanmu.length > RECENT_DANMU_MAX) {
         recentDanmu.splice(0, recentDanmu.length - RECENT_DANMU_MAX)

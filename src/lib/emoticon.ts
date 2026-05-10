@@ -90,3 +90,49 @@ export function formatLockedEmoticonReject(msg: string, label: string): string {
   const reason = getEmoticonLockReason(findEmoticon(msg))
   return `🔒 ${label}：${msg} 已被平台锁定（${reason}），已阻止发送`
 }
+
+/**
+ * Heuristic regex for B站 `emoticon_unique` IDs: one or more lowercase
+ * letters followed by one or more `_<digits>` segments. Catches the three
+ * observed families:
+ *
+ *   - `room_<roomId>_<emoticonId>`     — 房间专属（主播自己的表情包）
+ *   - `official_<emoticonId>`          — 站内通用
+ *   - `upower_<roomId>_<emoticonId>`   — 充电档专属表情
+ *
+ * 故意保守：纯 ID 形态字符串（`abc_123`）在中文聊天里几乎不会自然出现，
+ * 误判代价是"用户多看到一行 log"而不是"静默漏发"。
+ */
+const EMOTICON_UNIQUE_PATTERN = /^[a-z]+(_\d+)+$/
+
+/**
+ * `true` when `msg` looks like an `emoticon_unique` ID 但不在当前房间的
+ * 缓存表情包内。这种字符串发出去 B 站会按"未识别的 unique"原样回显，
+ * 在聊天里就是一坨乱码（`room_1713546334_108382`），通常发生场景：
+ *
+ *   - 观众从别的主播房间复制了 unique ID，跟车把它当文本累积出 trend
+ *   - 模板/共享脚本里硬编码了别房间的 ID
+ *
+ * 三条 send path（auto-blend / 手动 / +1 / 独轮车 / 同传）都把这个当
+ * 硬拒绝。从 upstream chatterbox 644e6b1 移植。
+ *
+ * 返回 `false` 的情况：
+ *   - 字符串是已知表情（走 `isEmoticonUnique` 的正常表情发送路径），
+ *   - 字符串不像 ID 形态（普通文本，照常发送），
+ *   - 表情缓存还没加载（无法区分"不可用"和"还在加载"，宁可放过也
+ *     不要把启动瞬间的合法本房间表情误杀）。
+ */
+export function isUnavailableEmoticon(msg: string): boolean {
+  if (!EMOTICON_UNIQUE_PATTERN.test(msg)) return false
+  if (cachedEmoticonPackages.value.length === 0) return false
+  return !isEmoticonUnique(msg)
+}
+
+/**
+ * Builds the user-facing log line for an unavailable-emoticon rejection.
+ * 与 `formatLockedEmoticonReject` 同形：调用方传入 call-site label，
+ * 文案与 🚫 前缀在这里集中维护，五条 send path 看到的提示一致。
+ */
+export function formatUnavailableEmoticonReject(msg: string, label: string): string {
+  return `🚫 ${label}：${msg} 不在当前房间表情包内，已阻止发送`
+}

@@ -290,6 +290,41 @@ describe('extractDanmakuInfo', () => {
     })
     expect(extractDanmakuInfo(n)?.avatarUrl).toContain('avatar.png')
   })
+
+  test('hasLargeEmote=false for an ordinary text danmaku', () => {
+    const n = makeDanmakuNode({ text: 'plain', uname: 'A' })
+    expect(extractDanmakuInfo(n)?.hasLargeEmote).toBe(false)
+  })
+
+  test('hasLargeEmote=true when node carries the bulge-emoticon class (4-class form)', () => {
+    // 同 isValidDanmakuNode 接受的 4-class shape:`chat-emoticon bulge-emoticon`
+    const n = makeDanmakuNode({
+      text: '应援',
+      classes: ['chat-item', 'danmaku-item', 'chat-emoticon', 'bulge-emoticon'],
+    })
+    const info = extractDanmakuInfo(n)
+    expect(info).not.toBeNull()
+    expect(info?.hasLargeEmote).toBe(true)
+    // 文本字段还是 data-danmaku 的显示名,这是本字段存在的根因——
+    // 直接发"应援"会变成纯文本,而不是别人看到的大表情。
+    expect(info?.text).toBe('应援')
+  })
+
+  test('hasLargeEmote=true for the 6-class with-bubble bulge variant', () => {
+    const n = makeDanmakuNode({
+      text: '干杯',
+      classes: ['chat-item', 'danmaku-item', 'chat-colorful-bubble', 'has-bubble', 'chat-emoticon', 'bulge-emoticon'],
+    })
+    expect(extractDanmakuInfo(n)?.hasLargeEmote).toBe(true)
+  })
+
+  test('hasLargeEmote=false for a regular has-bubble danmaku (no bulge-emoticon class)', () => {
+    const n = makeDanmakuNode({
+      text: '气泡弹幕',
+      classes: ['chat-item', 'danmaku-item', 'has-bubble'],
+    })
+    expect(extractDanmakuInfo(n)?.hasLargeEmote).toBe(false)
+  })
 })
 
 describe('subscribeDanmaku — basic lifecycle', () => {

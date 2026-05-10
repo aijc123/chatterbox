@@ -48,6 +48,10 @@ mock.module('../src/lib/emoticon', () => ({
   // loads cleanly when send-verification triggers tryAiEvasion.
   isLockedEmoticon: () => false,
   formatLockedEmoticonReject: () => '',
+  // Same reason for the unavailable-emoticon helpers (added with the
+  // cross-room emote ID guard) — ai-evasion.ts imports them at top-level.
+  isUnavailableEmoticon: () => false,
+  formatUnavailableEmoticonReject: () => '',
 }))
 
 // WS status mock — defaults to 'live' so existing tests (which expect the

@@ -55,6 +55,13 @@ export const autoBlendMinDistinctUsers = numericGmSignal('autoBlendMinDistinctUs
 })
 export const autoBlendSendCount = numericGmSignal('autoBlendSendCount', 1, { min: 1, max: 50, integer: true })
 export const autoBlendUserBlacklist = gmSignal<Record<string, string>>('autoBlendUserBlacklist', {})
+// 文本黑名单(精确匹配,trim 后):某些万能水弹幕("666"、"+1"、"哈哈哈")
+// 即使触发达标也不希望我们去跟。和上面 UID 黑名单互补——一个是按人,
+// 一个是按内容。键存 trim 后的文本,值固定为 true(用 Record 而非 Set
+// 是为了 GM_setValue 的可序列化语义)。从 upstream chatterbox 2820b45
+// 移植,采纳 16972c7 的 Object.hasOwn 修复(避免命中 Object.prototype 的
+// 内置 key 例如 "toString"、"constructor")。
+export const autoBlendMessageBlacklist = gmSignal<Record<string, true>>('autoBlendMessageBlacklist', {})
 // When enabled, a burst trigger sends ALL currently-trending messages (sorted by
 // count) instead of just the one that crossed the threshold first.
 // The routine timer always picks one message per tick (weighted random).

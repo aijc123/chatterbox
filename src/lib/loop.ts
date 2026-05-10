@@ -2,7 +2,13 @@ import type { DanmakuConfigResponse } from '../types'
 
 import { ensureRoomId, fetchEmoticons, getCsrfToken, setDanmakuMode, setRandomDanmakuColor } from './api'
 import { BASE_URL } from './const'
-import { formatLockedEmoticonReject, isEmoticonUnique, isLockedEmoticon } from './emoticon'
+import {
+  formatLockedEmoticonReject,
+  formatUnavailableEmoticonReject,
+  isEmoticonUnique,
+  isLockedEmoticon,
+  isUnavailableEmoticon,
+} from './emoticon'
 import { classifyRiskEvent, syncGuardRoomRiskEvent } from './guard-room-sync'
 import { appendLog } from './log'
 import { computeJitteredSleepMs } from './loop-utils'
@@ -188,6 +194,16 @@ export async function loop(): Promise<void> {
           if (isLockedEmoticon(message)) {
             const skipLabel = total > 1 ? `自动表情 [${i + 1}/${total}]` : '自动表情'
             appendLog(formatLockedEmoticonReject(message, skipLabel))
+            const ok = await abortableSleep(computeJitteredSleepMs(interval, enableRandomInterval), signal)
+            if (!ok) {
+              completed = false
+              break
+            }
+            continue
+          }
+          if (isUnavailableEmoticon(message)) {
+            const skipLabel = total > 1 ? `自动表情 [${i + 1}/${total}]` : '自动表情'
+            appendLog(formatUnavailableEmoticonReject(message, skipLabel))
             const ok = await abortableSleep(computeJitteredSleepMs(interval, enableRandomInterval), signal)
             if (!ok) {
               completed = false

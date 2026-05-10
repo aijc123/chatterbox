@@ -321,3 +321,41 @@ describe('AutoBlendControls verifyUiInvariants', () => {
     expect(typeof findFirstInputAfterText).toBe('function')
   })
 })
+
+describe('MessageBlacklistPanel mount (UI tree shape)', () => {
+  // The collectNodes walker doesn't invoke child function components by
+  // design (line ~3 of this file: "stay inert"). We can only verify that
+  // the AutoBlendControls tree includes the MessageBlacklistPanel function
+  // component as a sibling of the existing BlacklistPanel one. The deeper
+  // behavior (rendering, add/remove, Object.hasOwn semantics) is covered
+  // by `auto-blend-blacklist.test.ts` and the helper unit tests there.
+  beforeEach(() => {
+    resetGmStore()
+    applyAutoBlendPreset('normal')
+    autoBlendPanelOpen.value = true
+    autoBlendAdvancedOpen.value = true
+  })
+
+  afterEach(() => {
+    autoBlendPanelOpen.value = false
+    autoBlendAdvancedOpen.value = false
+  })
+
+  test('AutoBlendControls renders both UID BlacklistPanel and the new text MessageBlacklistPanel', () => {
+    const tree = AutoBlendControls() as TreeNode
+    const componentNodes = collectNodes(tree).filter(n => typeof n.type === 'function')
+    const componentNames = componentNodes.map(n => (n.type as { name?: string }).name ?? '<anonymous>')
+    expect(componentNames).toContain('BlacklistPanel')
+    expect(componentNames).toContain('MessageBlacklistPanel')
+  })
+
+  test('MessageBlacklistPanel is mounted AFTER BlacklistPanel (UID first, text second)', () => {
+    const tree = AutoBlendControls() as TreeNode
+    const componentNodes = collectNodes(tree).filter(n => typeof n.type === 'function')
+    const names = componentNodes.map(n => (n.type as { name?: string }).name ?? '<anonymous>')
+    const uidIdx = names.indexOf('BlacklistPanel')
+    const textIdx = names.indexOf('MessageBlacklistPanel')
+    expect(uidIdx).toBeGreaterThanOrEqual(0)
+    expect(textIdx).toBeGreaterThan(uidIdx)
+  })
+})
