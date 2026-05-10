@@ -29,7 +29,7 @@ const {
   _resetAutoBlendStateForTests,
 } = await import('../src/lib/auto-blend')
 
-const { autoBlendAvoidRepeat, autoBlendEnabled, autoBlendIncludeReply } = await import('../src/lib/store')
+const { autoBlendAvoidRepeat, autoBlendEnabled } = await import('../src/lib/store')
 
 describe('autoBlendAvoidRepeat', () => {
   beforeEach(() => {
@@ -37,7 +37,8 @@ describe('autoBlendAvoidRepeat', () => {
     _resetAutoBlendStateForTests()
     autoBlendEnabled.value = true
     autoBlendAvoidRepeat.value = false
-    autoBlendIncludeReply.value = false
+    // 注：`autoBlendIncludeReply` 已废除，@ 回复永久不入候选。这些测试都用
+    // `isReply=false` 的非回复弹幕，所以行为没变化。
   })
 
   afterEach(() => {

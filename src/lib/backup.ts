@@ -36,7 +36,8 @@ const EXPORT_KEYS = [
   'autoBlendDryRun',
   'autoBlendAvoidRisky',
   'autoBlendBlockedWords',
-  'autoBlendIncludeReply',
+  // 'autoBlendIncludeReply' — 已废除（@ 回复一律不跟），不再导入/导出。
+  // 老备份里若包含会进入 unknownKeys 列表被静默忽略，无副作用。
   'autoBlendUseReplacements',
   'autoBlendAvoidRepeat',
   'autoBlendRequireDistinctUsers',
@@ -45,6 +46,19 @@ const EXPORT_KEYS = [
   'autoBlendUserBlacklist',
   'autoBlendSendAllTrending',
   'autoBlendMessageBlacklist',
+  // YOLO（LLM 文本润色）开关 + 提示词。LLM 凭证(provider/key/model/baseURL)
+  // 复用 hzm-* 那一份,backup-section 已有覆盖,这里不重复。
+  'autoBlendYolo',
+  'autoSendYolo',
+  'normalSendYolo',
+  'llmPromptsGlobal',
+  'llmActivePromptGlobal',
+  'llmPromptsNormalSend',
+  'llmActivePromptNormalSend',
+  'llmPromptsAutoBlend',
+  'llmActivePromptAutoBlend',
+  'llmPromptsAutoSend',
+  'llmActivePromptAutoSend',
   // Custom chat
   'customChatEnabled',
   'customChatHideNative',

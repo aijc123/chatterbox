@@ -5,6 +5,7 @@ import { computeAutoCooldownSec, getCurrentCpm } from '../lib/auto-blend'
 import { AUTO_BLEND_PRESETS } from '../lib/auto-blend-preset-config'
 import { applyAutoBlendPreset } from '../lib/auto-blend-presets'
 import { decideAutoBlendToggle } from '../lib/auto-blend-toggle'
+import { describeLlmGap } from '../lib/llm-polish'
 import { appendLog } from '../lib/log'
 import {
   autoBlendAdvancedOpen,
@@ -16,7 +17,6 @@ import {
   autoBlendDriftFromPreset,
   autoBlendDryRun,
   autoBlendEnabled,
-  autoBlendIncludeReply,
   autoBlendLastActionText,
   autoBlendMessageBlacklist,
   autoBlendMinDistinctUsers,
@@ -33,9 +33,13 @@ import {
   autoBlendUseReplacements,
   autoBlendUserBlacklist,
   autoBlendWindowSec,
+  autoBlendYolo,
   hasConfirmedAutoBlendRealFire,
+  llmActivePromptAutoBlend,
+  llmPromptsAutoBlend,
   msgSendInterval,
 } from '../lib/store'
+import { PromptPicker } from './prompt-picker'
 
 function NumberInput({
   value,
@@ -759,18 +763,40 @@ export function AutoBlendControls() {
             <label htmlFor='autoBlendUseReplacements'>套用替换规则</label>
           </span>
 
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em', flexWrap: 'wrap' }}>
             <input
-              id='autoBlendIncludeReply'
+              id='autoBlendYolo'
               type='checkbox'
-              checked={autoBlendIncludeReply.value}
+              checked={autoBlendYolo.value}
               onInput={e => {
-                markCustom()
-                autoBlendIncludeReply.value = e.currentTarget.checked
+                autoBlendYolo.value = e.currentTarget.checked
               }}
             />
-            <label htmlFor='autoBlendIncludeReply'>也跟 @ 回复</label>
+            <label
+              htmlFor='autoBlendYolo'
+              title='YOLO：触发后用 LLM 把要发的文本润色一遍再发。LLM 配置复用「智能辅助驾驶」面板。'
+            >
+              🤖 YOLO（LLM 润色后再发）
+            </label>
+            <PromptPicker
+              prompts={llmPromptsAutoBlend.value}
+              activeIndex={llmActivePromptAutoBlend.value}
+              onActiveIndexChange={i => {
+                llmActivePromptAutoBlend.value = i
+              }}
+              previewGraphemes={12}
+              className='lc-min-w-[120px] lc-max-w-[180px] lc-truncate'
+              title='当前提示词（在「设置 → LLM 提示词 → 自动跟车」里管理）'
+              emptyText='暂无提示词，请到设置里添加'
+              disabled={!autoBlendYolo.value}
+            />
           </span>
+          {autoBlendYolo.value && (
+            <div className='cb-note' style={{ color: '#666', fontSize: '0.85em', paddingLeft: '1.4em' }}>
+              {describeLlmGap('autoBlend') ??
+                '已就绪：触发后会先用 LLM 润色再发。每条触发都会调用一次 LLM（产生 token 消耗）。'}
+            </div>
+          )}
 
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
             <input

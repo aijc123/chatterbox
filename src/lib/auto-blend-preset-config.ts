@@ -14,7 +14,8 @@ export interface AutoBlendPresetConfig {
 }
 
 export interface AutoBlendPresetValues extends AutoBlendPresetConfig {
-  includeReply: boolean
+  // `includeReply` 已经废除（@ 回复一律不入候选,见 auto-blend.ts 中
+  // recordDanmaku 注释 + upstream chatterbox 624de4e）。Preset 不再需要写它。
   requireDistinctUsers: boolean
   sendCount: number
   sendAllTrending: boolean
@@ -63,7 +64,6 @@ export const AUTO_BLEND_PRESETS: Record<AutoBlendPreset, AutoBlendPresetConfig> 
 export function getAutoBlendPresetValues(preset: AutoBlendPreset): AutoBlendPresetValues {
   return {
     ...AUTO_BLEND_PRESETS[preset],
-    includeReply: false,
     requireDistinctUsers: true,
     sendCount: 1,
     sendAllTrending: false,

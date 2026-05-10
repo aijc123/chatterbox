@@ -10,6 +10,7 @@ import {
   isUnavailableEmoticon,
 } from './emoticon'
 import { classifyRiskEvent, syncGuardRoomRiskEvent } from './guard-room-sync'
+import { describeLlmGap, polishWithLlm } from './llm-polish'
 import { appendLog } from './log'
 import { computeJitteredSleepMs } from './loop-utils'
 import { applyReplacements, buildReplacementMap } from './replacement'
@@ -17,6 +18,7 @@ import { cancelPendingAuto, enqueueDanmaku, SendPriority } from './send-queue'
 import { verifyBroadcast } from './send-verification'
 import {
   activeTemplateIndex,
+  autoSendYolo,
   availableDanmakuColors,
   forceScrollDanmaku,
   maxLength,
@@ -214,7 +216,47 @@ export async function loop(): Promise<void> {
 
           const isEmote = isEmoticonUnique(message)
           const originalMessage = message
-          const processedMessage = isEmote ? message : applyReplacements(message)
+
+          // YOLO（独轮车的 LLM 润色）：每条非表情消息送 LLM 润色一遍。
+          // - 配置不全（key/model/提示词）→ 直接停车,避免循环里反复打"未配置"日志
+          // - 单次润色异常（网络抖动/上游 5xx）→ 跳过本条,sleep 后继续下一条
+          // - 表情类（emoticon_unique）一律跳过：那是不透明 ID,润色无意义
+          let polishedMessage = originalMessage
+          if (autoSendYolo.value && !isEmote) {
+            const gap = describeLlmGap('autoSend')
+            if (gap) {
+              appendLog(`🤖 独轮车 YOLO 已开启但配置不完整,已停车：${gap}`)
+              sendMsg.value = false
+              currentAbort = null
+              completed = false
+              break
+            }
+            try {
+              const out = (await polishWithLlm('autoSend', originalMessage)).trim()
+              if (!out) {
+                appendLog(`🤖 独轮车 YOLO 跳过本条：LLM 返回为空 (${originalMessage})`)
+                const okSleep = await abortableSleep(computeJitteredSleepMs(interval, enableRandomInterval), signal)
+                if (!okSleep) {
+                  completed = false
+                  break
+                }
+                continue
+              }
+              polishedMessage = out
+              appendLog(`🤖 独轮车 YOLO：${originalMessage} → ${polishedMessage}`)
+            } catch (err) {
+              const errMsg = err instanceof Error ? err.message : String(err)
+              appendLog(`🤖 独轮车 YOLO 跳过本条：${errMsg} (${originalMessage})`)
+              const okSleep = await abortableSleep(computeJitteredSleepMs(interval, enableRandomInterval), signal)
+              if (!okSleep) {
+                completed = false
+                break
+              }
+              continue
+            }
+          }
+
+          const processedMessage = isEmote ? polishedMessage : applyReplacements(polishedMessage)
           const wasReplaced = !isEmote && originalMessage !== processedMessage
 
           if (enableRandomColor) {

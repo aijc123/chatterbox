@@ -27,6 +27,7 @@ import {
 } from './emoticon'
 import { classifyRiskEvent, syncGuardRoomRiskEvent } from './guard-room-sync'
 import { startLiveWsSource, stopLiveWsSource } from './live-ws-source'
+import { describeLlmGap, polishWithLlm } from './llm-polish'
 import { clearMemeSession, recordMemeCandidate } from './meme-contributor'
 import {
   classifyByCode,
@@ -47,7 +48,6 @@ import {
   autoBlendCooldownSec,
   autoBlendDryRun,
   autoBlendEnabled,
-  autoBlendIncludeReply,
   autoBlendLastActionText,
   autoBlendMinDistinctUsers,
   autoBlendRateLimitStopThreshold,
@@ -60,6 +60,7 @@ import {
   autoBlendThreshold,
   autoBlendUseReplacements,
   autoBlendWindowSec,
+  autoBlendYolo,
   cachedRoomId,
   maxLength,
   msgSendInterval,
@@ -480,7 +481,10 @@ function recordDanmaku(rawText: string, uid: string | null, isReply: boolean, ha
 
   const text = rawText.trim()
   if (!text) return
-  if (isReply && !autoBlendIncludeReply.value) return
+  // @ 回复不入候选：@ 是定向对话，不应该被当作"群体趋势"被自动跟车放大。
+  // 上游 chatterbox 624de4e 已经把这条改成无条件过滤；本 fork 同步这一约定，
+  // 删除原先的 `autoBlendIncludeReply` 开关（一并移出 store / 备份 / UI）。
+  if (isReply) return
 
   if (isAutoBlendBlacklistedUid(uid)) return
   // 文本黑名单(精确 trim 后匹配):"666"、"+1"、"哈哈哈" 这种万能水
@@ -670,11 +674,44 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
       // 记录"正在动手发的这一句",让 autoBlendAvoidRepeat 在内层重发循环里、
       // 以及多目标 burst 推进到下一目标时都能立刻生效。无条件写入:开关关闭时
       // 这个值就只是个无人读取的字段,不会带来副作用。
+      // **关键**：始终用 *原文*（未润色）做 avoid-repeat 的指纹——这样即使 LLM
+      // 把 "666" 润色成 "哥哥太厉害了"，下一波同样的 "666" 仍会被识别为重复。
       lastAutoSentText = originalText
       const isEmote = isEmoticonUnique(originalText)
+
+      // YOLO（自动跟车的 LLM 润色）：在所有 fork-specific 过滤都过完后,在
+      // applyReplacements 之前。这样：
+      //   - 文本/UID/locked/unavailable/large-emote 黑名单都已经把不该跟的拦下来了
+      //     （润色不会绕过黑名单），
+      //   - 替换规则仍然作为最后一道安全网套用在润色结果上,
+      //   - 表情类（unique ID）一律不送 LLM——它是一串不透明的标识符,润色没意义。
+      // 失败/未配置：跳过该 target,不耗冷却（continue 让外层多 target 的 burst 继续）。
+      let polished = originalText
+      if (autoBlendYolo.value && !isEmote) {
+        const gap = describeLlmGap('autoBlend')
+        if (gap) {
+          autoBlendLastActionText.value = `自动跟车 YOLO 跳过：${gap}`
+          logAutoBlend(`🤖 自动跟车 YOLO 跳过（${shortAutoBlendText(originalText)}）：${gap}`, 'warning')
+          continue
+        }
+        try {
+          const out = (await polishWithLlm('autoBlend', originalText)).trim()
+          if (!out) {
+            logAutoBlend(`🤖 自动跟车 YOLO 跳过（${shortAutoBlendText(originalText)}）：LLM 返回为空`, 'warning')
+            continue
+          }
+          polished = out
+          logAutoBlend(`🤖 自动跟车 YOLO：${shortAutoBlendText(originalText)} → ${shortAutoBlendText(polished)}`)
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          logAutoBlend(`🤖 自动跟车 YOLO 跳过（${shortAutoBlendText(originalText)}）：${msg}`, 'warning')
+          continue
+        }
+      }
+
       const useReplacements = autoBlendUseReplacements.value && !isEmote
-      const replaced = useReplacements ? applyReplacements(originalText) : originalText
-      const wasReplaced = useReplacements && originalText !== replaced
+      const replaced = useReplacements ? applyReplacements(polished) : polished
+      const wasReplaced = polished !== originalText || (useReplacements && polished !== replaced)
 
       if (isMulti) {
         logAutoBlend(`  - ${shortAutoBlendText(originalText)}（${formatAutoBlendSenderInfo(uniqueUsers, totalCount)}）`)

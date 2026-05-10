@@ -1,9 +1,13 @@
+import { describeLlmGap } from '../lib/llm-polish'
 import { appendLog } from '../lib/log'
 import { cancelLoop } from '../lib/loop'
 import {
   activeTemplateIndex,
   autoSendPanelOpen,
+  autoSendYolo,
   cachedRoomId,
+  llmActivePromptAutoSend,
+  llmPromptsAutoSend,
   maxLength,
   msgSendInterval,
   msgTemplates,
@@ -14,6 +18,7 @@ import {
   sendMsg,
 } from '../lib/store'
 import { getGraphemes, processMessages, trimText } from '../lib/utils'
+import { PromptPicker } from './prompt-picker'
 
 function getPreview(template: string): string {
   const firstLine = (template.split('\n')[0] ?? '').trim()
@@ -190,6 +195,36 @@ export function AutoSendControls() {
             />
             <label htmlFor='persistSendState'>保持当前直播间独轮车开关状态</label>
           </span>
+          <span className='cb-row' style={{ flexWrap: 'wrap', gap: '.25em' }}>
+            <input
+              id='autoSendYolo'
+              type='checkbox'
+              checked={autoSendYolo.value}
+              onInput={e => {
+                autoSendYolo.value = e.currentTarget.checked
+              }}
+            />
+            <label htmlFor='autoSendYolo' title='YOLO：循环里每条非表情消息发出前先送 LLM 润色。配置不全会自动停车。'>
+              🤖 YOLO（LLM 润色后再发）
+            </label>
+            <PromptPicker
+              prompts={llmPromptsAutoSend.value}
+              activeIndex={llmActivePromptAutoSend.value}
+              onActiveIndexChange={i => {
+                llmActivePromptAutoSend.value = i
+              }}
+              previewGraphemes={12}
+              className='lc-min-w-[120px] lc-max-w-[180px] lc-truncate'
+              title='当前提示词（在「设置 → LLM 提示词 → 独轮车」里管理）'
+              emptyText='暂无提示词，请到设置里添加'
+              disabled={!autoSendYolo.value}
+            />
+          </span>
+          {autoSendYolo.value && (
+            <div className='cb-note' style={{ color: '#666', fontSize: '0.85em', paddingLeft: '1.4em' }}>
+              {describeLlmGap('autoSend') ?? '已就绪：每条非表情消息会用 LLM 润色一次（产生 token 消耗）。'}
+            </div>
+          )}
         </div>
       </div>
     </details>

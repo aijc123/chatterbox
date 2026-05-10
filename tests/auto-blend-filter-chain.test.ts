@@ -22,20 +22,16 @@ mock.module('../src/lib/api', () => ({ ...realApi }))
 const { _recordDanmakuForTests, _getTrendMapSizeForTests, _getCpmWindowSizeForTests, _resetAutoBlendStateForTests } =
   await import('../src/lib/auto-blend')
 
-const {
-  autoBlendEnabled,
-  autoBlendIncludeReply,
-  autoBlendMessageBlacklist,
-  autoBlendUserBlacklist,
-  cachedEmoticonPackages,
-} = await import('../src/lib/store')
+const { autoBlendEnabled, autoBlendMessageBlacklist, autoBlendUserBlacklist, cachedEmoticonPackages } = await import(
+  '../src/lib/store'
+)
 
 describe('recordDanmaku filter chain — text blacklist', () => {
   beforeEach(() => {
     resetGmStore()
     _resetAutoBlendStateForTests()
     autoBlendEnabled.value = true
-    autoBlendIncludeReply.value = false
+    // 注：`autoBlendIncludeReply` 已废除，@ 回复永久不入候选；下方所有用例传 isReply=false。
     autoBlendUserBlacklist.value = {}
     autoBlendMessageBlacklist.value = {}
     cachedEmoticonPackages.value = []
@@ -98,7 +94,7 @@ describe('recordDanmaku filter chain — large emote (hasLargeEmote=true)', () =
     resetGmStore()
     _resetAutoBlendStateForTests()
     autoBlendEnabled.value = true
-    autoBlendIncludeReply.value = false
+    // 注：`autoBlendIncludeReply` 已废除，@ 回复永久不入候选；下方所有用例传 isReply=false。
     autoBlendUserBlacklist.value = {}
     autoBlendMessageBlacklist.value = {}
     cachedEmoticonPackages.value = []
@@ -138,7 +134,7 @@ describe('recordDanmaku filter chain — cross-room unavailable emoticon ID', ()
     resetGmStore()
     _resetAutoBlendStateForTests()
     autoBlendEnabled.value = true
-    autoBlendIncludeReply.value = false
+    // 注：`autoBlendIncludeReply` 已废除，@ 回复永久不入候选；下方所有用例传 isReply=false。
     autoBlendUserBlacklist.value = {}
     autoBlendMessageBlacklist.value = {}
     // Seed a cache so isUnavailableEmoticon is "live" (not in fail-open mode).
@@ -197,7 +193,7 @@ describe('recordDanmaku filter chain — interaction', () => {
     resetGmStore()
     _resetAutoBlendStateForTests()
     autoBlendEnabled.value = true
-    autoBlendIncludeReply.value = false
+    // 注：`autoBlendIncludeReply` 已废除，@ 回复永久不入候选；下方所有用例传 isReply=false。
     autoBlendUserBlacklist.value = {}
     autoBlendMessageBlacklist.value = {}
     cachedEmoticonPackages.value = []

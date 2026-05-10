@@ -418,6 +418,230 @@ describe('chooseMemeWithLLM — response parsing', () => {
   })
 })
 
+describe('chatCompletionViaLlm — generic chat polish (used by YOLO)', () => {
+  test('openai: posts to /v1/chat/completions with bearer + system/user messages', async () => {
+    const { chatCompletionViaLlm } = await import('../src/lib/llm-driver')
+    mockResponseFactory = () => ({ choices: [{ message: { content: '哥哥太厉害了' } }] })
+    const out = await chatCompletionViaLlm({
+      provider: 'openai',
+      apiKey: 'k1',
+      model: 'gpt-4o-mini',
+      systemPrompt: 'rewrite into chinese',
+      userText: '666',
+    })
+    expect(out).toBe('哥哥太厉害了')
+    expect(captured[0].url).toBe('https://api.openai.com/v1/chat/completions')
+    expect(captured[0].headers?.Authorization).toBe('Bearer k1')
+    const body = JSON.parse(captured[0].body ?? '{}')
+    expect(body.model).toBe('gpt-4o-mini')
+    expect(body.messages[0]).toEqual({ role: 'system', content: 'rewrite into chinese' })
+    expect(body.messages[1]).toEqual({ role: 'user', content: '666' })
+    expect(body.stream).toBe(false)
+    // Default cap kept conservative (256) — danmaku polish is short.
+    expect(body.max_tokens).toBe(256)
+  })
+
+  test('anthropic: posts to /v1/messages with x-api-key + system as separate field', async () => {
+    const { chatCompletionViaLlm } = await import('../src/lib/llm-driver')
+    mockResponseFactory = () => ({ content: [{ text: '一句润色后的话', type: 'text' }] })
+    const out = await chatCompletionViaLlm({
+      provider: 'anthropic',
+      apiKey: 'sk-ant-xxx',
+      model: 'claude-haiku-4-5',
+      systemPrompt: 'sys',
+      userText: 'usr',
+    })
+    expect(out).toBe('一句润色后的话')
+    expect(captured[0].url).toBe('https://api.anthropic.com/v1/messages')
+    expect(captured[0].headers?.['x-api-key']).toBe('sk-ant-xxx')
+    expect(captured[0].headers?.['anthropic-version']).toBe('2023-06-01')
+    const body = JSON.parse(captured[0].body ?? '{}')
+    expect(body.system?.[0]?.text).toBe('sys')
+    expect(body.messages[0]).toEqual({ role: 'user', content: 'usr' })
+  })
+
+  test('openai-compat: builds chat URL from baseURL and posts there', async () => {
+    const { chatCompletionViaLlm } = await import('../src/lib/llm-driver')
+    mockResponseFactory = () => ({ choices: [{ message: { content: 'ok' } }] })
+    const out = await chatCompletionViaLlm({
+      provider: 'openai-compat',
+      apiKey: 'k',
+      model: 'deepseek-chat',
+      baseURL: 'https://api.deepseek.com',
+      systemPrompt: 's',
+      userText: 'u',
+    })
+    expect(out).toBe('ok')
+    expect(captured[0].url).toBe('https://api.deepseek.com/v1/chat/completions')
+  })
+
+  test('openai-compat: uses buildOpenAICompatChatURL to handle base ending in /v1', async () => {
+    const { chatCompletionViaLlm } = await import('../src/lib/llm-driver')
+    mockResponseFactory = () => ({ choices: [{ message: { content: 'ok' } }] })
+    await chatCompletionViaLlm({
+      provider: 'openai-compat',
+      apiKey: 'k',
+      model: 'm',
+      baseURL: 'https://token-plan-sgp.xiaomimimo.com/v1',
+      systemPrompt: 's',
+      userText: 'u',
+    })
+    // The Mimo-style trailing /v1 must NOT become /v1/v1.
+    expect(captured[0].url).toBe('https://token-plan-sgp.xiaomimimo.com/v1/chat/completions')
+  })
+
+  test('throws on missing API key (no network call)', async () => {
+    const { chatCompletionViaLlm } = await import('../src/lib/llm-driver')
+    await expect(
+      chatCompletionViaLlm({
+        provider: 'openai',
+        apiKey: '',
+        model: 'm',
+        systemPrompt: 's',
+        userText: 'u',
+      })
+    ).rejects.toThrow(/API key/)
+    expect(captured.length).toBe(0)
+  })
+
+  test('throws on missing model (no network call)', async () => {
+    const { chatCompletionViaLlm } = await import('../src/lib/llm-driver')
+    await expect(
+      chatCompletionViaLlm({
+        provider: 'openai',
+        apiKey: 'k',
+        model: '',
+        systemPrompt: 's',
+        userText: 'u',
+      })
+    ).rejects.toThrow(/模型/)
+    expect(captured.length).toBe(0)
+  })
+
+  test('throws on missing systemPrompt (no network call)', async () => {
+    const { chatCompletionViaLlm } = await import('../src/lib/llm-driver')
+    await expect(
+      chatCompletionViaLlm({
+        provider: 'openai',
+        apiKey: 'k',
+        model: 'm',
+        systemPrompt: '   ',
+        userText: 'u',
+      })
+    ).rejects.toThrow(/系统提示词/)
+    expect(captured.length).toBe(0)
+  })
+
+  test('throws on empty userText (no network call)', async () => {
+    const { chatCompletionViaLlm } = await import('../src/lib/llm-driver')
+    await expect(
+      chatCompletionViaLlm({
+        provider: 'openai',
+        apiKey: 'k',
+        model: 'm',
+        systemPrompt: 's',
+        userText: '',
+      })
+    ).rejects.toThrow(/输入内容/)
+    expect(captured.length).toBe(0)
+  })
+
+  test('throws when openai-compat is missing baseURL', async () => {
+    const { chatCompletionViaLlm } = await import('../src/lib/llm-driver')
+    await expect(
+      chatCompletionViaLlm({
+        provider: 'openai-compat',
+        apiKey: 'k',
+        model: 'm',
+        baseURL: '',
+        systemPrompt: 's',
+        userText: 'u',
+      })
+    ).rejects.toThrow(/base URL/)
+    expect(captured.length).toBe(0)
+  })
+
+  test('throws on HTTP 4xx (status surfaces in the error message)', async () => {
+    const { chatCompletionViaLlm } = await import('../src/lib/llm-driver')
+    mockHttpStatus = 429
+    mockResponseFactory = () => ({ error: 'rate limit' })
+    await expect(
+      chatCompletionViaLlm({
+        provider: 'openai',
+        apiKey: 'k',
+        model: 'm',
+        systemPrompt: 's',
+        userText: 'u',
+      })
+    ).rejects.toThrow(/HTTP 429/)
+  })
+
+  test('throws on empty content (so YOLO can skip target rather than send blank)', async () => {
+    const { chatCompletionViaLlm } = await import('../src/lib/llm-driver')
+    mockResponseFactory = () => ({ choices: [{ message: { content: '' } }] })
+    await expect(
+      chatCompletionViaLlm({
+        provider: 'openai',
+        apiKey: 'k',
+        model: 'm',
+        systemPrompt: 's',
+        userText: 'u',
+      })
+    ).rejects.toThrow(/返回内容为空/)
+  })
+
+  test('respects maxTokens override (used by callers wanting a tighter cap)', async () => {
+    const { chatCompletionViaLlm } = await import('../src/lib/llm-driver')
+    mockResponseFactory = () => ({ choices: [{ message: { content: 'ok' } }] })
+    await chatCompletionViaLlm({
+      provider: 'openai',
+      apiKey: 'k',
+      model: 'm',
+      systemPrompt: 's',
+      userText: 'u',
+      maxTokens: 64,
+    })
+    const body = JSON.parse(captured[0].body ?? '{}')
+    expect(body.max_tokens).toBe(64)
+  })
+
+  test('anthropic: concatenates multiple text blocks (defensive against future API shape changes)', async () => {
+    const { chatCompletionViaLlm } = await import('../src/lib/llm-driver')
+    mockResponseFactory = () => ({
+      content: [
+        { text: '前半段', type: 'text' },
+        { text: '后半段', type: 'text' },
+      ],
+    })
+    const out = await chatCompletionViaLlm({
+      provider: 'anthropic',
+      apiKey: 'k',
+      model: 'm',
+      systemPrompt: 's',
+      userText: 'u',
+    })
+    expect(out).toBe('前半段后半段')
+  })
+
+  test('anthropic: skips non-text blocks (e.g. tool_use) when joining content', async () => {
+    const { chatCompletionViaLlm } = await import('../src/lib/llm-driver')
+    mockResponseFactory = () => ({
+      content: [
+        { text: 'text-only-please', type: 'text' },
+        { type: 'tool_use', text: 'should be ignored' },
+      ],
+    })
+    const out = await chatCompletionViaLlm({
+      provider: 'anthropic',
+      apiKey: 'k',
+      model: 'm',
+      systemPrompt: 's',
+      userText: 'u',
+    })
+    expect(out).toBe('text-only-please')
+  })
+})
+
 describe('chooseMemeWithLLM — candidate cap', () => {
   test('truncates candidates above LLM_CANDIDATES_HARD_CAP and emits a warn log', async () => {
     const { LLM_CANDIDATES_HARD_CAP } = await import('../src/lib/llm-driver')

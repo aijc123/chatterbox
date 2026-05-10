@@ -41,7 +41,10 @@ if (!GM_getValue(autoBlendDryRunMigrationKey, false)) {
 export const autoBlendDryRun = gmSignal('autoBlendDryRun', false)
 export const autoBlendAvoidRisky = gmSignal('autoBlendAvoidRisky', true)
 export const autoBlendBlockedWords = gmSignal('autoBlendBlockedWords', '抽奖\n加群\n私信\n房管\n举报')
-export const autoBlendIncludeReply = gmSignal('autoBlendIncludeReply', false)
+// 旧的 `autoBlendIncludeReply` 已经移除：自上游 chatterbox 624de4e 起 @ 回复
+// 一律不入候选（@ 是定向对话,不应该被自动跟车放大）。store 里也不再持久化对应
+// signal——backup 老备份里若包含此 key 会被 backup.ts 的 unknown-keys 流程
+// 静默忽略（旧值在 GM 存储里残留也无害,没人读它）。
 export const autoBlendUseReplacements = gmSignal('autoBlendUseReplacements', true)
 // 不重复上次自动发送：开启后,与上一次自动跟车发出去的弹幕完全相同的新弹幕
 // 不再计入候选,避免冷却结束后被同一句话立刻再次刷上去。仅作用于一次

@@ -2,7 +2,6 @@ import { type AutoBlendPreset, getAutoBlendPresetValues } from './auto-blend-pre
 import {
   autoBlendBurstSettleMs,
   autoBlendCooldownSec,
-  autoBlendIncludeReply,
   autoBlendMinDistinctUsers,
   autoBlendPreset,
   autoBlendRateLimitStopThreshold,
@@ -27,7 +26,7 @@ export function applyAutoBlendPreset(preset: AutoBlendPreset): void {
   autoBlendBurstSettleMs.value = p.burstSettleMs
   autoBlendRateLimitWindowMin.value = p.rateLimitWindowMin
   autoBlendRateLimitStopThreshold.value = p.rateLimitStopThreshold
-  autoBlendIncludeReply.value = p.includeReply
+  // includeReply 字段已废弃（auto-blend.ts 永远不跟 @ 回复）。
   autoBlendRequireDistinctUsers.value = p.requireDistinctUsers
   autoBlendMinDistinctUsers.value = p.minDistinctUsers
   autoBlendSendCount.value = p.sendCount

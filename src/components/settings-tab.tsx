@@ -1,7 +1,18 @@
 import { useSignal } from '@preact/signals'
 
 import { debugLogVisible, maxLogLines } from '../lib/log'
+import {
+  llmActivePromptAutoBlend,
+  llmActivePromptAutoSend,
+  llmActivePromptGlobal,
+  llmActivePromptNormalSend,
+  llmPromptsAutoBlend,
+  llmPromptsAutoSend,
+  llmPromptsGlobal,
+  llmPromptsNormalSend,
+} from '../lib/store-llm'
 import { EmoteIds } from './emote-ids'
+import { PromptManager } from './prompt-manager'
 import { BackupSection } from './settings/backup-section'
 import { CbBackendSection } from './settings/cb-backend-section'
 import { CustomChatSection } from './settings/custom-chat-section'
@@ -84,6 +95,9 @@ export function SettingsTab() {
       <LocalRoomReplacementSection query={query} />
       <ShadowObservationSection query={query} />
 
+      <GroupHeading query={query}>LLM</GroupHeading>
+      <LlmPromptsSection query={query} />
+
       <GroupHeading query={query}>工具</GroupHeading>
       <MedalCheckSection query={query} />
       <CbBackendSection query={query} />
@@ -141,5 +155,109 @@ export function SettingsTab() {
         </details>
       )}
     </>
+  )
+}
+
+/**
+ * LLM 提示词管理（YOLO 用）。
+ *
+ * - **不在这里出现 API 设置**——LLM 凭证（provider / key / model / baseURL）一律
+ *   复用「智能辅助驾驶」面板里那一份。设置一次，meme picker 与 YOLO 共享。
+ * - 全局基线 + 三个功能特定的 PromptManager。getActiveLlmPrompt 在调用时会把
+ *   全局拼到功能前面（详见 `src/lib/prompts.ts`）。
+ * - 设计参考自 upstream chatterbox 0c8706f / 090bd1e。
+ */
+function LlmPromptsSection({ query }: { query: string }) {
+  const KEYWORDS = 'llm 提示词 prompt yolo 润色 ai openai anthropic'
+  if (query && !KEYWORDS.includes(query)) return null
+  return (
+    <details className='cb-settings-accordion'>
+      <summary>LLM 提示词（YOLO 用）</summary>
+      <div className='cb-section cb-stack' style={{ margin: '.5em 0', paddingBottom: '1em', gap: '.75em' }}>
+        <div className='cb-note' style={{ color: '#666', fontSize: '0.85em' }}>
+          LLM 凭证（API key / 模型 / base URL）复用「发送 → 智能辅助驾驶」面板里那一份。这里只管理 YOLO 用的提示词。
+        </div>
+
+        <div>
+          <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.25em' }}>
+            全局基线
+          </div>
+          <div className='cb-note' style={{ color: '#666', fontSize: '0.85em', marginBottom: '.4em' }}>
+            会作为通用前缀拼到下面三个功能特定提示词的前面（用 ↓ 双换行 + "以下是用户的修改提示" 分隔）。
+          </div>
+          <PromptManager
+            prompts={llmPromptsGlobal.value}
+            activeIndex={llmActivePromptGlobal.value}
+            onPromptsChange={p => {
+              llmPromptsGlobal.value = p
+            }}
+            onActiveIndexChange={i => {
+              llmActivePromptGlobal.value = i
+            }}
+            placeholder='全局基线，例如：你是直播间弹幕优化助手，结尾不带句号，单条 ≤40 字…'
+          />
+        </div>
+
+        <div>
+          <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.25em' }}>
+            常规发送
+          </div>
+          <div className='cb-note' style={{ color: '#666', fontSize: '0.85em', marginBottom: '.4em' }}>
+            手动输入框 / 偷 / +1 等手动发送场景的修改提示。空 = 跳过 LLM。
+          </div>
+          <PromptManager
+            prompts={llmPromptsNormalSend.value}
+            activeIndex={llmActivePromptNormalSend.value}
+            onPromptsChange={p => {
+              llmPromptsNormalSend.value = p
+            }}
+            onActiveIndexChange={i => {
+              llmActivePromptNormalSend.value = i
+            }}
+            placeholder='例如：把我输入的话改写成更礼貌的中文弹幕'
+          />
+        </div>
+
+        <div>
+          <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.25em' }}>
+            自动跟车
+          </div>
+          <div className='cb-note' style={{ color: '#666', fontSize: '0.85em', marginBottom: '.4em' }}>
+            触发跟车后，把命中的弹幕用 LLM 润色一遍再发的修改提示。
+          </div>
+          <PromptManager
+            prompts={llmPromptsAutoBlend.value}
+            activeIndex={llmActivePromptAutoBlend.value}
+            onPromptsChange={p => {
+              llmPromptsAutoBlend.value = p
+            }}
+            onActiveIndexChange={i => {
+              llmActivePromptAutoBlend.value = i
+            }}
+            placeholder='例如：把要跟的弹幕换个说法但保留意思，更像观众随口说出来的'
+          />
+        </div>
+
+        <div>
+          <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.25em' }}>
+            独轮车
+          </div>
+          <div className='cb-note' style={{ color: '#666', fontSize: '0.85em', marginBottom: '.4em' }}>
+            循环里每条非表情消息发送前用 LLM 润色的修改提示。配置不全会自动停车。
+          </div>
+          <PromptManager
+            prompts={llmPromptsAutoSend.value}
+            activeIndex={llmActivePromptAutoSend.value}
+            onPromptsChange={p => {
+              llmPromptsAutoSend.value = p
+            }}
+            onActiveIndexChange={i => {
+              llmActivePromptAutoSend.value = i
+            }}
+            placeholder='例如：把模板里的话改成有梗的中文弹幕，每次表达不重复'
+          />
+        </div>
+      </div>
+    </details>
   )
 }

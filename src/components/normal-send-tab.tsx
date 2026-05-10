@@ -1,5 +1,14 @@
 import { sendManualDanmaku } from '../lib/danmaku-actions'
-import { aiEvasion, customChatEnabled, fasongText } from '../lib/store'
+import { describeLlmGap } from '../lib/llm-polish'
+import {
+  aiEvasion,
+  customChatEnabled,
+  fasongText,
+  llmActivePromptNormalSend,
+  llmPromptsNormalSend,
+  normalSendYolo,
+} from '../lib/store'
+import { PromptPicker } from './prompt-picker'
 import { SendActions } from './send-actions'
 
 export function NormalSendTab() {
@@ -83,6 +92,40 @@ export function NormalSendTab() {
           {aiEvasion.value && (
             <div className='cb-note' style={{ color: '#666', fontSize: '0.85em', paddingLeft: '1.4em' }}>
               开启后，发送失败的弹幕文本会发到 edge-workers.laplace.cn 改写。详见 关于 → 隐私说明。
+            </div>
+          )}
+
+          <span className='cb-row' style={{ flexWrap: 'wrap', gap: '.25em' }}>
+            <input
+              id='normalSendYolo'
+              type='checkbox'
+              checked={normalSendYolo.value}
+              onInput={e => {
+                normalSendYolo.value = e.currentTarget.checked
+              }}
+            />
+            <label
+              htmlFor='normalSendYolo'
+              title='YOLO：手动发送的文本先送 LLM 润色再发。失败时回退原文。LLM 配置复用「智能辅助驾驶」。'
+            >
+              🤖 YOLO（LLM 润色后再发）
+            </label>
+            <PromptPicker
+              prompts={llmPromptsNormalSend.value}
+              activeIndex={llmActivePromptNormalSend.value}
+              onActiveIndexChange={i => {
+                llmActivePromptNormalSend.value = i
+              }}
+              previewGraphemes={12}
+              className='lc-min-w-[120px] lc-max-w-[180px] lc-truncate'
+              title='当前提示词（在「设置 → LLM 提示词 → 常规发送」里管理）'
+              emptyText='暂无提示词，请到设置里添加'
+              disabled={!normalSendYolo.value}
+            />
+          </span>
+          {normalSendYolo.value && (
+            <div className='cb-note' style={{ color: '#666', fontSize: '0.85em', paddingLeft: '1.4em' }}>
+              {describeLlmGap('normalSend') ?? '已就绪：手动发送的文本会先用 LLM 润色（产生 token 消耗）。'}
             </div>
           )}
         </div>

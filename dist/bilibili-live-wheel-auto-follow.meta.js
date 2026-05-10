@@ -15,9 +15,6 @@
 // @match        *://space.bilibili.com/*
 // @require      https://unpkg.com/@soniox/speech-to-text-web@1.4.0/dist/speech-to-text-web.umd.cjs
 // @require      data:application/javascript,%3Bwindow.SonioxSpeechToTextWeb%3Dwindow%5B%22speech-to-text-web%22%5D%3B
-// @require      https://cdn.jsdelivr.net/npm/systemjs@6.15.1/dist/system.min.js
-// @require      https://cdn.jsdelivr.net/npm/systemjs@6.15.1/dist/extras/named-register.min.js
-// @require      data:application/javascript,%3B(typeof%20System!%3D'undefined')%26%26(System%3Dnew%20System.constructor())%3B
 // @connect      bilibili-guard-room.vercel.app
 // @connect      localhost
 // @connect      sbhzm.cn

@@ -8,8 +8,11 @@
  *
  * 都走 GM_xmlhttpRequest（gm-fetch.ts），因为浏览器直连这些 LLM 端点会被 CORS 拦截。
  *
- * 这个模块由 `hzm-auto-drive.ts` 通过 `await import('./llm-driver')` **懒加载**，
- * 所以未启用 LLM 模式的用户冷启动 bundle 不会拉这部分代码。
+ * 这个模块由 `hzm-auto-drive.ts` 通过 `await import('./llm-driver')` 懒加载（智驾路径），
+ * 同时也被 `llm-polish.ts` 静态 import（YOLO 路径）。vite-plugin-monkey 把所有 chunk 合
+ * 进单个 user.js，所以两种 import 风格在 userscript 上效果相同；YOLO 走静态导入是因为
+ * 实测懒加载会让 vite 多发一份 chunk，反而把 user.js 体积撑大 ~80KB（超出 1024KB
+ * release 预算），不值得。
  */
 
 import type { HzmLlmProvider } from './store-hzm'
@@ -272,6 +275,140 @@ export async function chooseMemeWithLLM(opts: ChooseMemeOptions): Promise<string
     c => c.content === raw || raw.includes(c.content) || c.content.includes(raw)
   )
   return byContent?.content ?? null
+}
+
+// ---------------------------------------------------------------------------
+// Generic chat completion (used by YOLO text-polish, NOT meme picking).
+//
+// Different shape than the meme-picking code above:
+//   - meme-picking returns a structured id token + has its own SYSTEM_PROMPT_TEMPLATE,
+//     reasoning_content fallback, abstain semantics ("-1"), etc.
+//   - text-polish wants a plain assistant content string back, with a user-supplied
+//     system prompt + user message. No structured parsing.
+//
+// We deliberately keep these as parallel sibling helpers rather than refactoring
+// the meme code. The meme path is heavily tuned (reasoning_content extraction,
+// id normalisation, content-substring fallback) and refactoring under it carries
+// a regression risk that's not worth a small bit of DRY here.
+// ---------------------------------------------------------------------------
+
+export interface ChatCompletionOptions {
+  provider: HzmLlmProvider
+  apiKey: string
+  model: string
+  /** Only used when provider='openai-compat'. */
+  baseURL?: string
+  /** System prompt — task instructions + global baseline (joined upstream). */
+  systemPrompt: string
+  /** User message — the text to polish. */
+  userText: string
+  /** Cap on response length. Default 256 — text polish for danmaku is short. */
+  maxTokens?: number
+  /** Optional abort signal so callers can cancel in-flight requests. */
+  signal?: AbortSignal
+}
+
+function readContent(json: unknown): string | null {
+  if (!json || typeof json !== 'object') return null
+  const choices = (json as { choices?: OpenAIChoice[] }).choices
+  if (!Array.isArray(choices) || choices.length === 0) return null
+  const choice = choices[0]
+  const content = choice?.message?.content?.trim() ?? ''
+  return content || null
+}
+
+function readAnthropicContent(json: unknown): string | null {
+  if (!json || typeof json !== 'object') return null
+  const arr = (json as { content?: Array<{ text?: string; type?: string }> }).content
+  if (!Array.isArray(arr) || arr.length === 0) return null
+  // Anthropic returns content blocks; concatenate all `text` blocks (skip
+  // tool_use, etc.). For polish, this is always 1 block but be defensive.
+  const text = arr
+    .filter(c => !c.type || c.type === 'text')
+    .map(c => c.text ?? '')
+    .join('')
+    .trim()
+  return text || null
+}
+
+async function postOpenAIChatPolish(opts: ChatCompletionOptions, urlOverride?: string): Promise<string> {
+  const url = urlOverride ?? BASE_URL.OPENAI_CHAT
+  const resp = await gmFetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${opts.apiKey.trim()}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: opts.model.trim(),
+      max_tokens: opts.maxTokens ?? 256,
+      temperature: 0.7,
+      stream: false,
+      messages: [
+        { role: 'system', content: opts.systemPrompt },
+        { role: 'user', content: opts.userText },
+      ],
+    }),
+    timeoutMs: 30000,
+  })
+  if (!resp.ok) {
+    throw new Error(`HTTP ${resp.status}: ${resp.text().slice(0, 200)}`)
+  }
+  const content = readContent(resp.json())
+  if (!content) throw new Error('返回内容为空')
+  return content
+}
+
+async function postAnthropicPolish(opts: ChatCompletionOptions): Promise<string> {
+  const resp = await gmFetch(BASE_URL.ANTHROPIC_MESSAGES, {
+    method: 'POST',
+    headers: {
+      'x-api-key': opts.apiKey.trim(),
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model: opts.model.trim(),
+      max_tokens: opts.maxTokens ?? 256,
+      system: [{ type: 'text', text: opts.systemPrompt, cache_control: { type: 'ephemeral' } }],
+      messages: [{ role: 'user', content: opts.userText }],
+    }),
+    timeoutMs: 30000,
+  })
+  if (!resp.ok) {
+    throw new Error(`HTTP ${resp.status}: ${resp.text().slice(0, 200)}`)
+  }
+  const content = readAnthropicContent(resp.json())
+  if (!content) throw new Error('返回内容为空')
+  return content
+}
+
+/**
+ * Generic chat-completion entry used by the YOLO text-polish feature.
+ *
+ * Returns the assistant's content string verbatim — caller is expected to
+ * trim / dequote / size-cap as appropriate for the surface (danmaku 40-char
+ * cap, etc.). Throws user-readable Chinese errors so the call site can pipe
+ * them straight into appendLog / status text.
+ *
+ * Routes through `gm-fetch` (GM_xmlhttpRequest) so cross-origin calls to
+ * Anthropic / OpenAI / DeepSeek / Moonshot / OpenRouter work without CORS
+ * pre-flight failures — same constraint as the meme-picking code above.
+ */
+export async function chatCompletionViaLlm(opts: ChatCompletionOptions): Promise<string> {
+  if (!opts.apiKey.trim()) throw new Error('请先配置 API key')
+  if (!opts.model.trim()) throw new Error('请先选择模型')
+  if (!opts.systemPrompt.trim()) throw new Error('系统提示词为空')
+  if (!opts.userText.trim()) throw new Error('输入内容为空')
+
+  if (opts.provider === 'anthropic') return postAnthropicPolish(opts)
+  if (opts.provider === 'openai') return postOpenAIChatPolish(opts)
+
+  // openai-compat
+  const base = (opts.baseURL ?? '').trim()
+  if (!base) throw new Error('openai-compat 需要填 base URL（在「智能辅助驾驶」里设置）')
+  return postOpenAIChatPolish(opts, buildOpenAICompatChatURL(base))
 }
 
 /**

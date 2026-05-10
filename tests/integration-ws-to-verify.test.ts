@@ -233,7 +233,6 @@ const {
   autoBlendCooldownSec,
   autoBlendDryRun,
   autoBlendEnabled,
-  autoBlendIncludeReply,
   autoBlendLastActionText,
   autoBlendMinDistinctUsers,
   autoBlendRequireDistinctUsers,
@@ -333,7 +332,7 @@ beforeEach(async () => {
   autoBlendThreshold.value = 2
   autoBlendWindowSec.value = 10
   autoBlendCooldownSec.value = 1
-  autoBlendIncludeReply.value = false
+  // 注：autoBlendIncludeReply 已废除；@ 回复永久不入候选。
   autoBlendDryRun.value = false
   autoBlendUseReplacements.value = false
   autoBlendRequireDistinctUsers.value = true
