@@ -32,3 +32,14 @@ jobs:
           flags: bun
           name: bun-tests
           fail_ci_if_error: true
+
+      - name: Upload coverage to DeepSource
+        env:
+          DEEPSOURCE_DSN: ${{ secrets.DEEPSOURCE_DSN }}
+        run: |
+          if [ -z "$DEEPSOURCE_DSN" ]; then
+            echo "DEEPSOURCE_DSN secret not set; skipping DeepSource coverage upload"
+            exit 0
+          fi
+          curl https://deepsource.io/cli | sh
+          ./bin/deepsource report --analyzer test-coverage --key javascript --value-file ./coverage/lcov.info

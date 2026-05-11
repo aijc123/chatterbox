@@ -24,3 +24,7 @@ name = "javascript"
   module_system = "es-modules"
   plugins = ["react"]
   dialect = "typescript"
+
+[[analyzers]]
+name = "test-coverage"
+enabled = true
