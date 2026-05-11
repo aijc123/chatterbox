@@ -34,7 +34,7 @@ export interface ProbeOptions {
   forceEnabled?: boolean
 }
 
-export type ProbeOutcome = 'skipped_disabled' | 'skipped_no_source' | 'skipped_throttled' | 'probed'
+type ProbeOutcome = 'skipped_disabled' | 'skipped_no_source' | 'skipped_throttled' | 'probed'
 
 export interface ProbeResult {
   outcome: ProbeOutcome

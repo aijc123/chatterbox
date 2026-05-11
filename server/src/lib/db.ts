@@ -40,7 +40,7 @@ function narrowSource(s: string | null | undefined): 'cb' | 'laplace' | 'sbhzm' 
   return s === 'laplace' || s === 'sbhzm' ? s : 'cb'
 }
 
-export function rowToCbMeme(row: MemeRow, tags: CbTag[] = []): CbMeme {
+function rowToCbMeme(row: MemeRow, tags: CbTag[] = []): CbMeme {
   return {
     id: row.id,
     uid: row.uid,

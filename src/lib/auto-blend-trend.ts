@@ -4,7 +4,7 @@ export interface TrendEvent {
   uid?: string | null
 }
 
-export interface TrendCandidate {
+interface TrendCandidate {
   text: string
   totalCount: number
   uniqueUsers: number

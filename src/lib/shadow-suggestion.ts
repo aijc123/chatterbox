@@ -26,7 +26,7 @@
 import { processText } from './ai-evasion'
 import { getGraphemes } from './utils'
 
-export type ShadowBypassStrategy = 'invisible' | 'kou' | 'space' | 'ai'
+type ShadowBypassStrategy = 'invisible' | 'kou' | 'space' | 'ai'
 
 export interface ShadowBypassCandidate {
   /** Strategy id — stable, used for dedup and telemetry. */

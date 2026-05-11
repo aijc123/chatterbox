@@ -68,7 +68,7 @@ let consecutiveFailures = 0
 let circuitOpenedAt: number | null = null
 
 /** AI 检测是否处于降级状态(供 UI 横幅订阅;无需持久化)。 */
-export const aiEvasionDegraded = signal(false)
+const aiEvasionDegraded = signal(false)
 
 function isCircuitOpen(now: number): boolean {
   if (circuitOpenedAt === null) return false

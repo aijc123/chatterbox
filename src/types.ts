@@ -1,7 +1,7 @@
 /**
  * Danmaku color entry from Bilibili API.
  */
-export interface DanmakuColor {
+interface DanmakuColor {
   name: string
   color: string
   color_hex: string
@@ -14,7 +14,7 @@ export interface DanmakuColor {
 /**
  * Group of danmaku colors.
  */
-export interface DanmakuColorGroup {
+interface DanmakuColorGroup {
   name: string
   sort: number
   color: DanmakuColor[]
@@ -23,7 +23,7 @@ export interface DanmakuColorGroup {
 /**
  * Danmaku display mode (scroll, bottom, top).
  */
-export interface DanmakuMode {
+interface DanmakuMode {
   name: string
   mode: number
   type: string
@@ -33,7 +33,7 @@ export interface DanmakuMode {
 /**
  * Danmaku config payload (groups + modes).
  */
-export interface DanmakuConfigData {
+interface DanmakuConfigData {
   group: DanmakuColorGroup[]
   mode: DanmakuMode[]
 }

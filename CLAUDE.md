@@ -170,7 +170,7 @@ Modules are grouped by subsystem. When adding a new file, drop it next to its pe
 
 #### UI primitives (`components/ui/`, `components/settings/`)
 
-- `src/components/ui/` holds shared primitives (`button`, `checkbox`, `input`, `textarea`, `label`, `native-select`, `accordion`, `alert-dialog`). Use these instead of bare HTML when adding new settings.
+- `src/components/ui/` holds shared primitives (`button`, `textarea`, `native-select`, `alert-dialog`). Use these instead of bare HTML when adding new settings.
 - `src/components/settings/` is the per-section split (custom-chat, danmaku-direct, layout, replacement, shadow-observation, medal-check, cb-backend, backup). Each section accepts a `query` prop for the keyword search filter; `visible` is computed from a search-friendly string.
 - `src/components/error-boundary.tsx` wraps the app shell so a render error doesn't take down the whole panel.
 

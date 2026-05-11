@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test'
 import type { CustomChatEvent } from '../src/lib/custom-chat-events'
 
 import {
-  CUSTOM_CHAT_MAX_RENDER_QUEUE,
+  CUSTOM_CHAT_MAX_MESSAGES,
   customChatBadgeType,
   customChatPriority,
   shouldSuppressCustomChatEvent,
@@ -59,10 +59,10 @@ describe('trimRenderQueue (perf regression: was while-shift loop)', () => {
   })
 
   test('drops the oldest entries to leave exactly the cap', () => {
-    const queue = makeEvents(CUSTOM_CHAT_MAX_RENDER_QUEUE + 25)
+    const queue = makeEvents(CUSTOM_CHAT_MAX_MESSAGES + 25)
     const lastIdBefore = queue[queue.length - 1].id
     trimRenderQueue(queue)
-    expect(queue.length).toBe(CUSTOM_CHAT_MAX_RENDER_QUEUE)
+    expect(queue.length).toBe(CUSTOM_CHAT_MAX_MESSAGES)
     // Newest item is preserved at the tail.
     expect(queue[queue.length - 1].id).toBe(lastIdBefore)
     // First item is now the (old length - cap)th original.
@@ -70,8 +70,8 @@ describe('trimRenderQueue (perf regression: was while-shift loop)', () => {
   })
 
   test('handles a queue exactly at the cap (boundary)', () => {
-    const queue = makeEvents(CUSTOM_CHAT_MAX_RENDER_QUEUE)
+    const queue = makeEvents(CUSTOM_CHAT_MAX_MESSAGES)
     trimRenderQueue(queue)
-    expect(queue.length).toBe(CUSTOM_CHAT_MAX_RENDER_QUEUE)
+    expect(queue.length).toBe(CUSTOM_CHAT_MAX_MESSAGES)
   })
 })

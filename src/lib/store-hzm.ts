@@ -18,7 +18,6 @@ import { gmSignal } from './gm-signal'
 // 直接 import 自 ./store-llm。
 export {
   clearLlmApiKey as clearHzmLlmApiKey,
-  type LlmProvider as HzmLlmProvider,
   llmApiKey as hzmLlmApiKey,
   llmApiKeyPersist as hzmLlmApiKeyPersist,
   llmBaseURL as hzmLlmBaseURL,

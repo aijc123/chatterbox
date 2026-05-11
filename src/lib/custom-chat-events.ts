@@ -148,7 +148,7 @@ function normalizeEventKind(event: CustomChatEvent): CustomChatKind {
   return event.kind
 }
 
-export function normalizeCustomChatEvent(event: CustomChatEvent): CustomChatEvent {
+function normalizeCustomChatEvent(event: CustomChatEvent): CustomChatEvent {
   const kind = normalizeEventKind(event)
   return {
     ...event,

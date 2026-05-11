@@ -11,7 +11,7 @@
 import { gmSignal } from './gm-signal'
 
 /**
- * Future-reserved (not currently read by any production path).
+ * @public Future-reserved (not currently read by any production path).
  *
  * Was the user-facing "radar 软门 / boost" toggle in 2.11.0–2.11.1; removed
  * from the UI in 2.11.2 once we decided radar should only feed passive

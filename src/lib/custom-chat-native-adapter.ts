@@ -125,7 +125,7 @@ export function nodeText(node: HTMLElement): string {
   return compactText(node.textContent ?? '')
 }
 
-export function attrText(node: HTMLElement, attr: string): string | null {
+function attrText(node: HTMLElement, attr: string): string | null {
   const value = node.getAttribute(attr)
   return value ? compactText(value) : null
 }

@@ -263,7 +263,7 @@ function isAmplifierSummary(x: unknown): x is AmplifierSummary {
  * 单个 5 分钟桶的上报内容,字段名与 server validation 一致(见
  * live-meme-radar/server/src/routes/radar-public.ts 第 ~755 行的 validateBucket)。
  */
-export interface RadarReportBucket {
+interface RadarReportBucket {
   /** epoch 秒,必须是 300 的倍数(对齐 5 分钟桶) */
   bucket_ts: number
   /** 直播间号 */

@@ -59,7 +59,7 @@ function isUnknownArray(val: unknown): val is unknown[] {
   return Array.isArray(val)
 }
 
-export const userMemeSources = gmSignal<unknown[]>('userMemeSources', [], { validate: isUnknownArray })
+const userMemeSources = gmSignal<unknown[]>('userMemeSources', [], { validate: isUnknownArray })
 
 // 把 signal → registry 的同步绑成一个 effect:首次 read 时立刻 sync,后续每次
 // 用户改写 signal(从 settings UI 或 storage 编辑器)都自动重放。

@@ -1,5 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
+  "tags": ["+public"],
   "workspaces": {
     ".": {
       "entry": ["src/main.tsx", "scripts/**/*.ts", "dev/preview.tsx", "tests/**/*.test.{ts,tsx}"],

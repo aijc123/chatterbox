@@ -17,8 +17,6 @@
  * (vite-plugin-monkey 据此生成 `// @connect`)。
  */
 
-import type { LaplaceInternal } from '@laplace.live/internal'
-
 import type { LaplaceMemeWithSource } from './sbhzm-client'
 
 import { BASE_URL } from './const'
@@ -27,12 +25,6 @@ import { type GmFetchResponse, gmFetch } from './gm-fetch'
 import { appendLog } from './log'
 import { memeContentKey } from './meme-content-key'
 import { cbBackendEnabled, cbBackendHealthDetail, cbBackendHealthState, cbBackendUrlOverride } from './store-meme'
-
-type LaplaceMeme = LaplaceInternal.HTTPS.Workers.MemeWithUser
-
-export interface CbMeme extends LaplaceMeme {
-  _source: 'cb'
-}
 
 /** 后端响应的形状(后端会把 _source 标记每一条:'cb'/'laplace'/'sbhzm')。 */
 interface CbMemeListResponse {
@@ -216,12 +208,6 @@ export async function fetchCbMergedMemes(opts: FetchCbOptions = {}): Promise<CbM
 /** 测试用:清空 cb merged memes 缓存。 */
 export function _clearCbMergedCacheForTests(): void {
   mergedCache._clearForTests()
-}
-
-/** 兼容旧 Phase A/B 签名:返回扁平的 cb-only 数组。Phase C 之后 memes-list 不再用,但留着不删。 */
-export async function fetchCbMemes(): Promise<CbMeme[]> {
-  const merged = await fetchCbMergedMemes({ source: 'cb' })
-  return merged.items.filter((m): m is CbMeme => m._source === 'cb')
 }
 
 export interface CbSubmitResult {

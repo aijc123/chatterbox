@@ -1,16 +1,15 @@
 import type { CustomChatEvent } from './custom-chat-events'
 
 export const CUSTOM_CHAT_MAX_MESSAGES = 220
-export const CUSTOM_CHAT_MAX_RENDER_BATCH = 36
-export const CUSTOM_CHAT_MAX_RENDER_QUEUE = CUSTOM_CHAT_MAX_MESSAGES
+const CUSTOM_CHAT_MAX_RENDER_BATCH = 36
 
 export type CustomChatPriority = 'message' | 'identity' | 'lite' | 'card' | 'critical'
 
 export type CustomChatBadgeType = 'medal' | 'guard' | 'admin' | 'rank' | 'ul' | 'honor' | 'price' | 'other'
 
 export function trimRenderQueue(queue: CustomChatEvent[]): void {
-  if (queue.length > CUSTOM_CHAT_MAX_RENDER_QUEUE) {
-    queue.splice(0, queue.length - CUSTOM_CHAT_MAX_RENDER_QUEUE)
+  if (queue.length > CUSTOM_CHAT_MAX_MESSAGES) {
+    queue.splice(0, queue.length - CUSTOM_CHAT_MAX_MESSAGES)
   }
 }
 

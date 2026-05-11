@@ -39,7 +39,13 @@ if (!GM_getValue(autoBlendDryRunMigrationKey, false)) {
   GM_setValue(autoBlendDryRunMigrationKey, true)
 }
 export const autoBlendDryRun = gmSignal('autoBlendDryRun', false)
+/**
+ * @public Forward-compat GM key — UI removed but GM storage / backup payloads
+ * still round-trip through this signal so old values aren't lost. Not currently
+ * read by any production code path.
+ */
 export const autoBlendAvoidRisky = gmSignal('autoBlendAvoidRisky', true)
+/** @public Forward-compat — see {@link autoBlendAvoidRisky}. */
 export const autoBlendBlockedWords = gmSignal('autoBlendBlockedWords', '抽奖\n加群\n私信\n房管\n举报')
 // 旧的 `autoBlendIncludeReply` 已经移除：自上游 chatterbox 624de4e 起 @ 回复
 // 一律不入候选（@ 是定向对话,不应该被自动跟车放大）。store 里也不再持久化对应

@@ -7,7 +7,7 @@
 // Use a NUL separator that can't appear in `uid` (digits) or chat `text`
 // (Bilibili strips control chars). Avoids `${uid}:${text}` collisions like
 // `uid="1", text="2:hi"` matching `uid="1:2", text="hi"`.
-export const RECENT_DANMAKU_KEY_SEP = '\x00'
+const RECENT_DANMAKU_KEY_SEP = '\x00'
 
 export function recentKey(text: string, uid: string | null): string {
   return `${uid ?? ''}${RECENT_DANMAKU_KEY_SEP}${text}`

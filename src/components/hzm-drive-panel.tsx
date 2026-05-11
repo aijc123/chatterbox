@@ -90,7 +90,7 @@ export function HzmDrivePanelMount() {
   return <HzmDrivePanel source={source} />
 }
 
-export function HzmDrivePanel({ source }: { source: MemeSource }) {
+function HzmDrivePanel({ source }: { source: MemeSource }) {
   const roomId = cachedRoomId.value
   const stats = getDailyStats(roomId)
   const selected = getSelectedTags(roomId)

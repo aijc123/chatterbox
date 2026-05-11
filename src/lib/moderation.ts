@@ -75,7 +75,7 @@ export function formatDuration(seconds: number): string {
   return `${Math.ceil(hours / 24)} 天`
 }
 
-export function durationFromString(text: string): string | null {
+function durationFromString(text: string): string | null {
   const unitMatch = text.match(/(\d+)\s*(秒|分钟|分|小时|天)/)
   if (unitMatch) {
     const value = Number(unitMatch[1])

@@ -13,7 +13,7 @@ export interface RemoteKeywords {
 export const REMOTE_KEYWORDS_MAX_GLOBAL = 1000
 export const REMOTE_KEYWORDS_MAX_PER_ROOM = 500
 export const REMOTE_KEYWORDS_MAX_ROOMS = 200
-export const REMOTE_KEYWORDS_MAX_KEY_LEN = 200
+const REMOTE_KEYWORDS_MAX_KEY_LEN = 200
 export const REMOTE_KEYWORDS_MAX_VALUE_LEN = 200
 
 export function sanitizeKeywordsRecord(input: unknown, maxEntries: number): Record<string, string> {

@@ -70,8 +70,6 @@ import {
 } from './store'
 import { addRandomCharacter, formatDanmakuError, trimText } from './utils'
 
-export { detectTrend, type TrendCandidate, type TrendEvent, type TrendResult } from './auto-blend-trend'
-
 interface TrendRecordEvent {
   ts: number
   uid: string | null

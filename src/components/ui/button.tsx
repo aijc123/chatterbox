@@ -2,8 +2,8 @@ import type { ButtonHTMLAttributes } from 'preact'
 
 import { cn } from '../../lib/cn'
 
-export type ButtonVariant = 'default' | 'secondary' | 'destructive' | 'outline' | 'ghost' | 'link'
-export type ButtonSize = 'sm' | 'default' | 'lg' | 'icon'
+type ButtonVariant = 'default' | 'secondary' | 'destructive' | 'outline' | 'ghost' | 'link'
+type ButtonSize = 'sm' | 'default' | 'lg' | 'icon'
 
 type ButtonBase = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'size' | 'class' | 'className'>
 
