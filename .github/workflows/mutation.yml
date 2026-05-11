@@ -14,11 +14,23 @@ name: Mutation
 #    coverage-by-line numbers actually exercise meaningful behavior?"),
 #    not a per-commit gate.
 #
+# Split layout (two parallel jobs):
+#   - mutation-core    — 11 lighter modules (~700 mutants, ~40 min)
+#   - mutation-heavy   —  3 large modules (wbi.ts 209 LOC,
+#                         moderation.ts 202 LOC, fetch-hijack-helpers.ts
+#                         116 LOC) (~500 mutants, ~40 min)
+# Splitting fits each job under the 60-min ubuntu-latest cap. First scope-
+# expansion attempt (all 14 in one job) hit 71% at 60 min and got SIGKILLed.
+# Reports upload as separate artifacts (`mutation-report-core` and
+# `mutation-report-heavy`).
+#
 # How to invoke:
 #   GitHub Actions → Mutation workflow → Run workflow → master
 # Locally:
 #   npx --yes @stryker-mutator/core@^9 run
-#   (uses stryker.config.json at repo root; report at reports/mutation/)
+#   (uses stryker.config.json at repo root with full 14-module scope;
+#    report at reports/mutation/. Local machines have more cores so the
+#    14-in-one run completes in ~15-25 min depending on CPU count.)
 #
 # Why npx, not devDependency: same bun+Windows picomatch@4.0.4 transitive
 # extraction bug that knocked knip / type-coverage out (see quality.yml
@@ -33,12 +45,22 @@ permissions:
 
 jobs:
   mutation:
+    name: ${{ matrix.shard.name }}
     runs-on: ubuntu-latest
-    # 14 modules / ~600+ mutants — first scope-expansion run finished in
-    # ~14 min for the original 5-module / 317-mutant scope; conservative
-    # 60-min cap leaves headroom for the larger mutate list without risk
-    # of a timeout-kill mid-run.
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - name: core
+            # 11 modules — everything except the three biggest source files.
+            mutate: "src/lib/wbi.ts,src/lib/auto-blend-trend.ts,src/lib/fetch-cache.ts,src/lib/user-blacklist-parsers.ts,src/lib/remote-keywords-sanitize.ts,src/lib/custom-chat-css-sanitize.ts,src/lib/loop-utils.ts,src/lib/meme-room-filter.ts,src/lib/danmaku-direct-helpers.ts,src/lib/custom-chat-render.ts,src/lib/concurrency.ts"
+          - name: heavy
+            # 3 largest modules: moderation, live-ws-helpers, fetch-hijack-helpers.
+            # Each has audit-driven invariants worth fortifying but the LOC
+            # × mutant count blew past the per-job CI budget when bundled
+            # together with `core`.
+            mutate: "src/lib/moderation.ts,src/lib/live-ws-helpers.ts,src/lib/fetch-hijack-helpers.ts"
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v4
@@ -56,13 +78,19 @@ jobs:
         # `npm install -g` lands both in /usr/local/lib/node_modules and resolves
         # cleanly. typescript@^6.0.3 matches root package.json's devDep.
         run: npm install -g @stryker-mutator/core@^9.2.0 typescript@^6.0.3
-      - name: Run Stryker
-        run: stryker run
+      - name: Run Stryker (${{ matrix.shard.name }} shard)
+        # `--mutate` CLI flag overrides the `mutate` field in stryker.config.json
+        # so we can shard at workflow level without juggling multiple config
+        # files. testRunner / commandRunner / thresholds all come from the
+        # shared config. Each shard runs on its own runner filesystem, so both
+        # can write the report to the same `reports/mutation/` path without
+        # collision; the upload-artifact step disambiguates by shard name.
+        run: stryker run --mutate "${{ matrix.shard.mutate }}"
       - name: Upload mutation HTML report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: mutation-report
+          name: mutation-report-${{ matrix.shard.name }}
           path: reports/mutation/
           if-no-files-found: warn
           retention-days: 14

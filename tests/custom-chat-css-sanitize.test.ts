@@ -101,4 +101,124 @@ describe('sanitizeCustomChatCss', () => {
     expect(r.css).not.toContain('@import')
     expect(r.css).not.toContain('javascript:')
   })
+
+  // ---------------------------------------------------------------------------
+  // Mutation-test targeted: pin the exact removed-substring contents so a
+  // mutant that lets the replacer return "Stryker was here!" or skips the
+  // regex with a flipped guard gets caught.
+  // ---------------------------------------------------------------------------
+
+  test('replacer returns EMPTY string, not a sentinel (@import)', () => {
+    // Mutant: the `return ''` in the @import replacer changes to a non-empty
+    // sentinel. The input rule is `@import 'x';` (10 chars). Sanitized
+    // length must drop by at least that count.
+    const before = `@import 'x';`
+    const r = sanitizeCustomChatCss(before)
+    expect(r.css).toBe('') // entire input was an @import; nothing remains
+    expect(r.css.length).toBe(0)
+  })
+
+  test('replacer returns EMPTY string, not a sentinel (expression)', () => {
+    // No nested parens — the [^)]* class stops at the first `)`, so
+    // `expression(alert(1))` would leave a stray `)` behind. With a flat
+    // expression we can pin the exact post-replace string.
+    const before = `.x { width: expression(noNesting); color: red; }`
+    const r = sanitizeCustomChatCss(before)
+    expect(r.css).toBe('.x { width: ; color: red; }')
+  })
+
+  test('replacer returns EMPTY string, not a sentinel (behavior)', () => {
+    const before = `.x { behavior: url(htc.htc); }`
+    const r = sanitizeCustomChatCss(before)
+    expect(r.css).toBe('.x {  }')
+  })
+
+  test('truncated boundary: input at exactly MAX_LENGTH is NOT truncated (kills `>` → `>=`)', () => {
+    const exact = 'a'.repeat(CUSTOM_CHAT_CSS_MAX_LENGTH)
+    const r = sanitizeCustomChatCss(exact)
+    expect(r.truncated).toBe(false)
+    expect(r.css.length).toBe(CUSTOM_CHAT_CSS_MAX_LENGTH)
+  })
+
+  test('truncated boundary: input at MAX_LENGTH+1 IS truncated', () => {
+    const over = 'a'.repeat(CUSTOM_CHAT_CSS_MAX_LENGTH + 1)
+    const r = sanitizeCustomChatCss(over)
+    expect(r.truncated).toBe(true)
+    expect(r.css.length).toBe(CUSTOM_CHAT_CSS_MAX_LENGTH)
+  })
+
+  test('initial-empty result has truncated=FALSE (kills BooleanLiteral mutant on the early-return)', () => {
+    // The early-return shape is { css: '', truncated: false, ... }. If
+    // `truncated` were mutated to `true`, callers might surface a misleading
+    // "truncated content" warning even for an intentionally-empty input.
+    expect(sanitizeCustomChatCss('').truncated).toBe(false)
+    expect(sanitizeCustomChatCss(undefined as unknown as string).truncated).toBe(false)
+    expect(sanitizeCustomChatCss(null as unknown as string).truncated).toBe(false)
+  })
+
+  test('@import regex matches BOTH with-semicolon and without-semicolon endings', () => {
+    // Two @import rules: one terminated, one ending at EOF without ';'.
+    // Mutant variants that drop the `;?` would only strip ONE; assertion
+    // forces both to be removed.
+    const css = `@import 'a.css';\n@import 'b.css'`
+    const r = sanitizeCustomChatCss(css)
+    expect(r.removedImports).toBe(2)
+    expect(r.css).not.toContain('@import')
+  })
+
+  test('@import [^;]* class matches arbitrary content including quotes/parens (kills `[^;]` → `[;]`)', () => {
+    // Mutant that flips `[^;]*` → `[;]*` would only strip @import that
+    // contains semicolons as content (impossible). Assert that an @import
+    // with diverse content (single quotes, parens, spaces) is fully removed.
+    const css = `@import url('https://evil.example/a.css?x=1');\nbody{}`
+    const r = sanitizeCustomChatCss(css)
+    expect(r.removedImports).toBe(1)
+    expect(r.css).toContain('body{}')
+  })
+
+  test('expression regex needs \\s* (whitespace ok), not \\S* (any non-ws)', () => {
+    // Mutant `expression\s*\(...\)` → `expression\S*\(...\)` would only
+    // match if there were a non-ws between `expression` and `(`. The real
+    // CSS often has `expression(`. Assert the no-whitespace form is
+    // stripped (and the WITH-whitespace form too).
+    expect(sanitizeCustomChatCss('.x { x: expression(alert(1)); }').removedLegacyHooks).toBe(1)
+    expect(sanitizeCustomChatCss('.x { x: expression (alert(1)); }').removedLegacyHooks).toBe(1)
+  })
+
+  test('behavior regex needs \\s* before `:` (kills `\\s` → `\\S`)', () => {
+    // Mutant `behavior\s*:` → `behavior\S*:` would only match if a
+    // non-whitespace lived between `behavior` and `:`. Real CSS may have
+    // 0 or 1 whitespace.
+    expect(sanitizeCustomChatCss('.x { behavior:url(a); }').removedLegacyHooks).toBe(1)
+    expect(sanitizeCustomChatCss('.x { behavior :url(a); }').removedLegacyHooks).toBe(1)
+  })
+
+  test('behavior regex [^;]* allows everything-but-semicolon as value', () => {
+    // Mutant `[^;]` → `[;]` would fail to strip non-semicolon content.
+    // Real values like `url(file.htc)` have neither semicolons internally.
+    expect(sanitizeCustomChatCss('.x { behavior: url(file.htc); }').removedLegacyHooks).toBe(1)
+    expect(sanitizeCustomChatCss('.x { behavior: foo bar baz; }').removedLegacyHooks).toBe(1)
+  })
+
+  test('url() scheme regex must require WHITESPACE inside `url(` argument area, then NON-ws scheme', () => {
+    // Mutant `url\(\s*` → `url\(\S*` would change "url(" with optional
+    // whitespace-then-quote to "url(" with non-ws-then-quote. Match for
+    // benign `url( "javascript:..." )` (with leading whitespace) should
+    // still neutralize.
+    expect(
+      sanitizeCustomChatCss('.x { background: url( "javascript:alert(1)" ); }').removedUrlSchemes
+    ).toBe(1)
+    expect(sanitizeCustomChatCss('.x { background: url("javascript:alert(1)"); }').removedUrlSchemes).toBe(1)
+  })
+
+  test('input type guard: non-string returns empty result (kills `||` → `&&`-ish flip)', () => {
+    // `typeof input !== 'string' || input.length === 0` → false mutant
+    // would let non-string input slip through and crash on `.length` or
+    // `.replace`. Confirms safety.
+    expect(() => sanitizeCustomChatCss(undefined as unknown as string)).not.toThrow()
+    expect(() => sanitizeCustomChatCss(null as unknown as string)).not.toThrow()
+    expect(() => sanitizeCustomChatCss(42 as unknown as string)).not.toThrow()
+    expect(() => sanitizeCustomChatCss({} as unknown as string)).not.toThrow()
+    expect(sanitizeCustomChatCss(42 as unknown as string).css).toBe('')
+  })
 })

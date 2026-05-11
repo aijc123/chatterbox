@@ -167,6 +167,28 @@ describe('applyTransforms — defensive', () => {
     })
   })
 
+  test('top-level missing data field does not throw (locks `.data?.forbid_live` optional chain)', () => {
+    // Mutation-test trap: `payload.data?.forbid_live` mutant drops the `?.`
+    // and becomes `payload.data.forbid_live`. With `payload.data` undefined
+    // (no `data` key at top level), accessing `.forbid_live` would TypeError.
+    expect(() => applyTransforms(LIVE_URL, {}, ALL_ON)).not.toThrow()
+    expect(applyTransforms(LIVE_URL, {}, ALL_ON)).toEqual({ kind: 'live', wasBlocking: false })
+
+    expect(() => applyTransforms(SPACE_URL, {}, ALL_ON)).not.toThrow()
+    expect(applyTransforms(SPACE_URL, {}, ALL_ON)).toEqual({ kind: 'space', wasBlocking: false })
+  })
+
+  test('be_relation === null returns wasBlocking:false (kills LogicalOperator `||` → `&&`)', () => {
+    // The space-branch guard is `if (!beRel || typeof beRel !== 'object')`.
+    // For beRel=null: !null=true, typeof null === 'object', so the first
+    // clause alone fires. Mutant flip to `&&`: !beRel=true AND typeof !==
+    // 'object'=false → false → no return → falls through to `.attribute`
+    // access which crashes on null.
+    const data = { data: { be_relation: null } }
+    expect(() => applyTransforms(SPACE_URL, data, ALL_ON)).not.toThrow()
+    expect(applyTransforms(SPACE_URL, data, ALL_ON)).toEqual({ kind: 'space', wasBlocking: false })
+  })
+
   test('cyclic data does not crash the live branch (we touch known fields only)', () => {
     // biome-ignore lint/suspicious/noExplicitAny: building intentional cycle for the test
     const inner: any = { is_forbid: true, forbid_text: 'x' }
@@ -194,8 +216,17 @@ describe('injectSpaceBlockBanner / removeSpaceBlockBanner', () => {
     expect(banner.id).toBe(SPACE_BLOCK_BANNER_ID)
     expect(banner.textContent).toContain('🔓')
     expect(banner.textContent).toContain('Chatterbox')
+    // Lock the exact style fragments — Stryker mutates the strings in the
+    // join() array to `""`, which silently drops them and breaks the
+    // banner's visual contract. Spelling-out each prop catches that.
     expect(banner.style.cssText).toContain('background')
+    expect(banner.style.cssText).toContain('rgb(0 82 63)') // text color
+    expect(banner.style.cssText).toContain('padding: 8px 16px')
+    expect(banner.style.cssText).toContain('font-size: 12px')
+    expect(banner.style.cssText).toContain('text-align: center')
+    expect(banner.style.cssText).toContain('box-sizing: border-box')
     expect(banner.style.cssText).toContain('width: 100%')
+    expect(banner.style.cssText).toContain('line-height: 1')
   })
 
   test('inserts the banner as a direct sibling AFTER the header', () => {

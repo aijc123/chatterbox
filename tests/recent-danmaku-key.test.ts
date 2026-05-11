@@ -89,4 +89,16 @@ describe('recentKey collision-resistance', () => {
     const k = recentKey('hi', '42')
     expect(k.includes('\x00')).toBe(true)
   })
+
+  test('null uid produces a key starting with the separator only (kills `??` → `&&` + sentinel)', () => {
+    // Mutation-test trap: the empty-string fallback `${uid ?? ''}` is
+    // mutable in two ways:
+    //   - `??` → `&&` flips the prefix to the truthy branch ('null' input
+    //     swaps with null input)
+    //   - `''` → '"Stryker was here!"' replaces the fallback with a sentinel
+    // Both mutants only show up if we assert the EXACT output rather than
+    // just inequality.
+    expect(recentKey('hi', null)).toBe('\x00hi')
+    expect(recentKey('hi', '42')).toBe('42\x00hi')
+  })
 })

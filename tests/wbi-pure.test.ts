@@ -336,10 +336,46 @@ describe('ensureWbiKeys', () => {
     expect(getCachedWbiKeys()).toBeNull()
   })
 
-  test('returns null when fetch returns a non-2xx response', async () => {
+  test('returns null when fetch returns a non-2xx response AND does NOT bump parseFailures', async () => {
+    // The `if (!resp.ok) return null` early-return short-circuits BEFORE the
+    // JSON parse. If a mutant flips the guard to `false`, parsing would
+    // attempt to read body "Forbidden" → SyntaxError → catch → parseFailures
+    // bump. Asserting the counter stayed put pins the early-return on a
+    // shared invariant.
+    const before = wbiDiagnostics.parseFailures
     globalThis.fetch = (async () => new Response('Forbidden', { status: 403 })) as typeof fetch
     const keys = await ensureWbiKeys()
     expect(keys).toBeNull()
+    expect(wbiDiagnostics.parseFailures).toBe(before)
+  })
+
+  test('calls fetch with exact URL + method=GET + credentials=include', async () => {
+    // Mutation-test trap: the fetch call has a string-literal URL, a
+    // string-literal method, a string-literal credentials, and a wrapping
+    // {} options object. Stryker mutates each independently — assert ALL
+    // four are pinned by inspecting the actual fetch arguments.
+    let capturedUrl: string | URL | undefined
+    let capturedInit: RequestInit | undefined
+    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+      capturedUrl = url
+      capturedInit = init
+      return new Response(
+        JSON.stringify({
+          data: {
+            wbi_img: {
+              img_url: 'https://x/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png',
+              sub_url: 'https://x/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.png',
+            },
+          },
+        }),
+        { status: 200 }
+      )
+    }) as typeof fetch
+    await ensureWbiKeys()
+    expect(capturedUrl).toBe('https://api.bilibili.com/x/web-interface/nav')
+    expect(capturedInit).toBeDefined()
+    expect(capturedInit?.method).toBe('GET')
+    expect(capturedInit?.credentials).toBe('include')
   })
 
   test('returns null when response body is not valid JSON AND bumps parseFailures', async () => {

@@ -55,6 +55,35 @@ describe('computeJitteredSleepMs', () => {
     expect(computeJitteredSleepMs(0, false)).toBe(1000)
   })
 
+  test('with deterministic random=0.5, jitter is exactly 250ms (locks `* 500` constant)', () => {
+    // Mutation-test trap: `Math.random() * 500` mutated to `Math.random() / 500`
+    // collapses jitter to 0 (random()/500 ∈ [0, 0.002), floored to 0). Both
+    // shapes still produce a non-negative ms in [0, baseMs], so the existing
+    // statistical assertions can't tell them apart. Stub random and lock
+    // the exact subtraction.
+    const realRandom = Math.random
+    Math.random = () => 0.5
+    try {
+      // baseMs=1000, jitter=floor(0.5*500)=250 → 750
+      expect(computeJitteredSleepMs(1, true)).toBe(750)
+      // baseMs=2000, jitter=floor(0.5*500)=250 → 1750
+      expect(computeJitteredSleepMs(2, true)).toBe(1750)
+    } finally {
+      Math.random = realRandom
+    }
+  })
+
+  test('with random=0.999, jitter is 499ms (locks `Math.floor`)', () => {
+    const realRandom = Math.random
+    Math.random = () => 0.999
+    try {
+      // baseMs=1000, jitter=floor(0.999*500)=floor(499.5)=499 → 501
+      expect(computeJitteredSleepMs(1, true)).toBe(501)
+    } finally {
+      Math.random = realRandom
+    }
+  })
+
   test('never returns NaN or non-finite values regardless of jitter flag', () => {
     const inputs: Array<[number, boolean]> = [
       [Number.NaN, true],
