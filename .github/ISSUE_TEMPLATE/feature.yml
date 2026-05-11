@@ -1,0 +1,51 @@
+name: Feature request (功能建议)
+description: 想加新功能 / 改进现有功能
+title: '[Feature] '
+labels: ['enhancement']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        欢迎建议。说清楚 **要解决什么问题** 比直接说 **要加什么按钮** 更有用——很多时候已有的功能能覆盖你的场景。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你想解决的问题
+      description: 不写"想加 X 按钮"，写"我现在做 Y 很麻烦，因为 Z"。
+      placeholder: |
+        例如：自动跟车在多人直播间里偶尔会跟到我不喜欢的梗，每次都要手动加文本黑名单，几十个房间下来很烦。
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: 你期望的解决方式
+      description: 如果有想法，写出来；如果只是知道现状不对、不知道怎么解决，留空也行。
+      placeholder: |
+        例如：希望黑名单能按"主播 UID"分组，进同一个主播的不同直播间复用同一份黑名单。
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 你试过的替代方案
+      description: 是否用过现有功能 / 第三方脚本 / 浏览器拓展先凑合？为什么不够用？
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: 大致影响范围
+      multiple: true
+      options:
+        - 独轮车 (auto-send loop)
+        - 自动跟车 (auto-blend)
+        - 智能辅助驾驶 (HZM / LLM)
+        - Chatterbox Chat 自定义聊天
+        - 粉丝牌巡检 / Guard Room
+        - 烂梗库 / meme
+        - 替换规则
+        - AI evasion / Shadow ban
+        - 语音输入 (STT)
+        - 设置 / UI / 备份
+        - 其它
