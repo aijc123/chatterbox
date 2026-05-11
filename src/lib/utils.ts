@@ -132,6 +132,15 @@ export function splitTextSmart(
     i = cut + skipNext
   }
 
+  // 兜底:输入是 "纯空白且长度 > maxLen" 时,leading-ws-skip 把所有 grapheme
+  // 都消耗掉,parts 留空。早期 return [text] / [text] 处理了空串和 fits 情况,
+  // 但 "全空白且长" 这一支会落到这里返回空数组,破坏隐式契约
+  // (非空输入 → 至少一个 part)。下游 stt-tab / hzm-auto-drive 用 for-of
+  // 处理 segments,空数组 → 一次都不发,看起来像"没反应"。
+  // 这里给 fallback 一条空串,与 splitTextSmart('', maxLen) 的语义对齐
+  // (空输入 → [''])。
+  if (parts.length === 0) parts.push('')
+
   if (parts.length >= 2) {
     const lastG = getGraphemes(parts[parts.length - 1])
     if (lastG.length < minTail) {

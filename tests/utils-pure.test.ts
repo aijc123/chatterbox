@@ -149,6 +149,20 @@ describe('splitTextSmart', () => {
     expect(splitTextSmart('hello', 5)).toEqual(['hello'])
   })
 
+  // 回归测试:audit 时发现的 logic bug #1。
+  // splitTextSmart 在 "纯空白且 graphemes.length > maxLen" 时,leading-ws-skip
+  // 把所有 grapheme 都吃光,parts 留空,return []。这违反隐式契约
+  // (非空输入 → 至少一个 part),下游 stt-tab / hzm-auto-drive 的 for-of
+  // 一次都不发,表现成"没反应"。fast-check fuzz 测试随机生成的字符串极少
+  // 命中全空白长输入,所以保留这条 deterministic 用例做永久 regression。
+  test('all-whitespace input longer than maxLen returns at least one part (regression)', () => {
+    const out = splitTextSmart('   '.repeat(20), 10)
+    expect(out.length).toBeGreaterThan(0)
+    // 同样:tab / 换行 / 中英 ws 混合都不能落空。
+    expect(splitTextSmart('\t\t\t\n\n\n   '.repeat(10), 5).length).toBeGreaterThan(0)
+    expect(splitTextSmart('　'.repeat(50), 8).length).toBeGreaterThan(0) // 中文全角空格
+  })
+
   test('cuts at sentence-ending punctuation closest to maxLen', () => {
     // maxLen 8, "你好。世界很大。再见呀" (12 graphemes). The algo searches backwards
     // from windowEnd-1=7 within `lookback` graphemes and takes the FIRST hit
