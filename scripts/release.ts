@@ -130,15 +130,6 @@ async function main(): Promise<void> {
   await Bun.write(packageJsonUrl, updatedPackageJson)
   await Bun.write(releaseNotesUrl, updatedReleaseNotes)
 
-  console.log('Refreshing Greasy Fork README badges')
-  const badgeResult = run(['bun', 'scripts/update-greasyfork-badges.ts'], { check: false })
-  if (badgeResult.exitCode !== 0) {
-    console.warn(
-      `update-greasyfork-badges.ts exited ${badgeResult.exitCode}; continuing with stale README badges. The 2-hourly cron will retry.`
-    )
-    if (badgeResult.stderr) console.warn(badgeResult.stderr)
-  }
-
   console.log(`Preparing release ${nextVersion}`)
   run(['bun', 'run', 'build'])
 
