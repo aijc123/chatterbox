@@ -1,0 +1,27 @@
+name: Gitleaks
+
+# Secrets scan. CodeQL covers code-pattern vulns; Gitleaks specifically scans
+# commit history / current tree for accidentally-committed credentials, tokens,
+# private keys, API DSNs. Runs on every push + PR; weekly cron catches any
+# leak that slipped past the per-PR scan (e.g. force-pushed history).
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  schedule:
+    - cron: '0 5 * * 1' # Mondays 05:00 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # full history so the scanner can audit prior commits
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
