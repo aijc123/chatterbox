@@ -1,0 +1,56 @@
+name: Quality
+
+# Two non-blocking quality signals that don't fit cleanly into release-check:
+#
+# - Knip: unused exports / unused files / unused devDependencies. Run as
+#   informational only — a finding here is a hint, not a blocker. Once the
+#   long-tail of JS-0067 / JS-R1005 (DeepSource) is cleaned up, can flip to
+#   `--no-exit-code false` to make it required.
+#
+# - type-coverage: percentage of TypeScript code that has explicit types vs
+#   implicit `any`. The project is on TS strict mode, but strict mode allows
+#   widening to `any` at boundaries; type-coverage measures how widely. Two
+#   tsconfigs (app + server) measured separately.
+#
+# Tools are fetched via `npx --yes <pkg>@<pinned>` instead of declared as
+# devDependencies because of a bun + Windows transitive-extraction bug
+# (picomatch@4.0.4) that breaks `bun install` for both tools. Linux CI is
+# unaffected, but pinning to npx keeps the lockfile clean.
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  knip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - name: Install project deps (so knip can resolve imports)
+        run: bun install --frozen-lockfile
+      - name: Run knip
+        run: npx --yes knip@6.12.2 --no-progress --reporter symbols
+        continue-on-error: true # informational; see workflow header
+
+  type-coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - run: bun install --frozen-lockfile
+      - name: Type coverage — src (userscript)
+        run: npx --yes type-coverage@2.29.7 -p tsconfig.app.json --strict --at-least 99
+      - name: Type coverage — server (worker)
+        run: npx --yes type-coverage@2.29.7 -p server/tsconfig.json --strict --at-least 98

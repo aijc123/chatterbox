@@ -1,0 +1,16 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": ["src/main.tsx", "scripts/**/*.ts", "dev/preview.tsx", "tests/**/*.test.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}", "scripts/**/*.ts", "dev/**/*.tsx"],
+      "ignoreDependencies": ["@biomejs/biome"],
+      "ignoreUnresolved": ["$"]
+    },
+    "server": {
+      "entry": ["scripts/**/*.ts", "src/**/*.test.ts", "test/**/*.ts"],
+      "project": ["src/**/*.ts", "scripts/**/*.ts"],
+      "ignoreDependencies": ["cloudflare"]
+    }
+  }
+}
