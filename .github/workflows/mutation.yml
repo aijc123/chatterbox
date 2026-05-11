@@ -44,7 +44,13 @@ jobs:
       - name: Install project deps (stryker's command runner shells out to bun test)
         run: bun install --frozen-lockfile
       - name: Run Stryker
-        run: npx --yes @stryker-mutator/core@^9.2.0 run
+        # `-p typescript` is required because stryker-core's TSConfigPreprocessor
+        # imports `typescript` to parse tsconfig.json — and npx resolves from its
+        # own temp node_modules, not the project's. `disableTypeChecks: true` in
+        # stryker.config.json only skips the type *checker*; the tsconfig
+        # preprocessor still runs whenever there are .ts files to mutate.
+        # Pin typescript to match the project's devDependency to avoid surprises.
+        run: npx --yes -p typescript@^6.0.3 -p @stryker-mutator/core@^9.2.0 stryker run
       - name: Upload mutation HTML report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
