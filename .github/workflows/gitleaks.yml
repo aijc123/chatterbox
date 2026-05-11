@@ -22,12 +22,10 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0 # full history so the scanner can audit prior commits
-      # TODO(security): SHA-pin like every other third-party action in this
-      # repo (codecov-action, setup-bun, dependabot fetch-metadata, etc.).
-      # Floating @v2 lets the upstream repo ship a malicious release into our
-      # CI without explicit consent. Pin to the current `gitleaks-action`
-      # commit SHA via `gh api repos/gitleaks/gitleaks-action/commits/v2`,
-      # then update this line to `gitleaks/gitleaks-action@<sha> # v2.x.y`.
-      - uses: gitleaks/gitleaks-action@v2
+      # SHA pinned to v2.3.9 (resolved 2026-05-11). Refreshable via:
+      #   gh api repos/gitleaks/gitleaks-action/git/refs/tags/v2.3.9 --jq .object.sha
+      # Dependabot's github-actions ecosystem (see .github/dependabot.yml)
+      # opens an upgrade PR when a newer release lands.
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

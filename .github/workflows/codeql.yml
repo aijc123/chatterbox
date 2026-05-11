@@ -1,0 +1,63 @@
+name: CodeQL
+
+# GitHub-hosted SAST. Runs CodeQL's `security-extended` query suite over
+# the userscript (`src/`) AND the worker (`server/`) on every PR + push to
+# master + weekly cron. Findings land in the repository's Security tab
+# (Code scanning alerts) so we get the same triage UI as Dependabot.
+#
+# Why this and not just DeepSource: DeepSource catches stylistic /
+# anti-pattern issues; CodeQL is a semantic analyzer that traces
+# data-flow across function boundaries (taint tracking, prototype
+# pollution, regex DoS). Free for public repos, no third-party signup.
+#
+# Note on language: `javascript-typescript` is the canonical name in v3 —
+# the older `javascript` alias still works but emits a deprecation
+# warning. Both userscript (TS strict) and worker (TS strict) are covered
+# by the single language pack since CodeQL parses both.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  schedule:
+    # Weekly catches alerts that landed via dependency / extractor updates
+    # to the CodeQL action between PR runs.
+    - cron: '0 4 * * 1' # Mondays 04:00 UTC
+
+permissions:
+  # Required by github/codeql-action to upload SARIF results to the
+  # Security tab. `contents: read` is the implicit default; we list it
+  # explicitly so a future `permissions:` tightening at org level doesn't
+  # silently break checkout.
+  actions: read
+  contents: read
+  security-events: write
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ['javascript-typescript']
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Initialize CodeQL
+        # Pinned to the codeql-bundle-v2.25.4 commit (v3 floating tag points
+        # here as of 2026-05-11). Refreshable via:
+        #   gh api repos/github/codeql-action/git/refs/tags/v3 --jq .object.sha
+        uses: github/codeql-action/init@bc0b696b4103f5fe60f15749af68a046868d511a # codeql-bundle-v2.25.4
+        with:
+          languages: ${{ matrix.language }}
+          # security-extended widens the default query suite (security-and-quality
+          # is even broader but adds noise that hurts triage signal).
+          queries: security-extended
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@bc0b696b4103f5fe60f15749af68a046868d511a # codeql-bundle-v2.25.4
+        with:
+          category: '/language:${{ matrix.language }}'
