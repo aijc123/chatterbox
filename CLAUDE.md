@@ -232,7 +232,7 @@ Modules are grouped by subsystem. When adding a new file, drop it next to its pe
 
 Findings from these tools land in the GitHub repo's **Security** tab (Code scanning + Dependabot alerts), not in PR check status. They run on PR + push + cron and are non-blocking by default; flip to required checks per-tool once their backlog is cleaned.
 
-- `.github/workflows/codeql.yml` — CodeQL SAST with the `security-extended` query suite over both `src/` and `server/`. PR + push + weekly cron.
+- **CodeQL** — provided by GitHub's default-setup CodeQL (Settings → Code security & analysis), NOT a workflow file in this repo. Default setup is mutually exclusive with an "advanced configuration" workflow; we picked default for the lower maintenance burden. To switch to a custom query suite (e.g. `security-extended`), disable default setup first, then add a workflow file with `github/codeql-action/init` + `analyze`.
 - `.github/workflows/osv-scanner.yml` — OSV.dev dependency vuln scan against `bun.lock` / `server/bun.lock`. PR + push + daily cron. Distinct from Dependabot: Dependabot opens upgrade PRs; OSV-Scanner produces a current-state SARIF report so unfixed transitive vulns stay visible.
 - `.github/workflows/semgrep.yml` — Semgrep with `p/security-audit`, `p/owasp-top-ten`, `p/javascript`, `p/typescript`, plus any rule files under `.semgrep/`. Drop project-specific rules into that directory (template + examples in `.semgrep/README.md`).
 - `.github/workflows/gitleaks.yml` — secrets scan over commit history.
