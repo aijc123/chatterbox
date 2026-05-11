@@ -1,0 +1,42 @@
+name: Lighthouse
+
+# Audits the GitHub Pages landing page (public/index.html, built into
+# dist/index.html) for performance / accessibility / best-practices / SEO.
+# Runs in CI to catch regressions in the marketing page — the userscript
+# itself is a Greasemonkey/Tampermonkey bundle, not a web page, so it isn't
+# audited here.
+#
+# Failures: only accessibility ≥ 0.9 is enforced as an error; the rest are
+# warnings (visible in the upload report but don't fail CI).
+
+on:
+  pull_request:
+    paths:
+      - 'public/**'
+      - 'vite.config.ts'
+      - '.lighthouserc.json'
+      - '.github/workflows/lighthouse.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'public/**'
+      - 'vite.config.ts'
+      - '.lighthouserc.json'
+      - '.github/workflows/lighthouse.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  lighthouse:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - run: bun install --frozen-lockfile
+      - name: Build static assets
+        run: bun run build
+      - name: Run Lighthouse CI
+        run: bun x lhci autorun
+        env:
+          LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_GITHUB_APP_TOKEN }}

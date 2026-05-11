@@ -1,0 +1,29 @@
+name: Size
+
+# Posts a "+X kB / -Y kB" comment on PRs comparing bundle size to base.
+# Independent from the in-CI `scripts/analyze-bundle.mjs` budget check —
+# that one fails the build on absolute budget; this one is informational and
+# shows the delta inline on the PR.
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  size:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: andresz1/size-limit-action@dd31dce7dcc72a041fd3e49abf0502b13fc4ce05 # v1.8.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          package_manager: bun
+          build_script: build
+          skip_step: install
+          script: bun x size-limit
