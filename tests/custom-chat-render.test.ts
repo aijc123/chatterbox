@@ -12,10 +12,10 @@ import type { CustomChatEvent, CustomChatKind } from '../src/lib/custom-chat-eve
 
 import {
   CUSTOM_CHAT_MAX_MESSAGES,
-  customChatBadgeType,
   type CustomChatBadgeType,
-  customChatPriority,
   type CustomChatPriority,
+  customChatBadgeType,
+  customChatPriority,
   shouldAnimateRenderBatch,
   shouldSuppressCustomChatEvent,
   takeRenderBatch,

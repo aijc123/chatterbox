@@ -205,9 +205,7 @@ describe('sanitizeCustomChatCss', () => {
     // whitespace-then-quote to "url(" with non-ws-then-quote. Match for
     // benign `url( "javascript:..." )` (with leading whitespace) should
     // still neutralize.
-    expect(
-      sanitizeCustomChatCss('.x { background: url( "javascript:alert(1)" ); }').removedUrlSchemes
-    ).toBe(1)
+    expect(sanitizeCustomChatCss('.x { background: url( "javascript:alert(1)" ); }').removedUrlSchemes).toBe(1)
     expect(sanitizeCustomChatCss('.x { background: url("javascript:alert(1)"); }').removedUrlSchemes).toBe(1)
   })
 

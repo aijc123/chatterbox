@@ -1,10 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import {
-  AUTO_BLEND_PRESETS,
-  type AutoBlendPreset,
-  getAutoBlendPresetValues,
-} from '../src/lib/auto-blend-preset-config'
+import { AUTO_BLEND_PRESETS, type AutoBlendPreset, getAutoBlendPresetValues } from '../src/lib/auto-blend-preset-config'
 
 describe('auto-blend presets', () => {
   test('normal preset includes advanced safety defaults', () => {
@@ -83,18 +79,23 @@ describe('getAutoBlendPresetValues', () => {
   // The function spreads the preset and tacks on four hard-coded values.
   // Pin each tacked-on value across all three presets so the StringLiteral /
   // BooleanLiteral / number mutations get killed.
-  test.each(['safe', 'normal', 'hot'] as const)(
-    '%s preset: extra fields are requireDistinctUsers=true, sendCount=1, sendAllTrending=false, useReplacements=true',
-    (preset: AutoBlendPreset) => {
-      const v = getAutoBlendPresetValues(preset)
-      expect(v.requireDistinctUsers).toBe(true)
-      expect(v.sendCount).toBe(1)
-      expect(v.sendAllTrending).toBe(false)
-      expect(v.useReplacements).toBe(true)
-    }
-  )
+  test.each([
+    'safe',
+    'normal',
+    'hot',
+  ] as const)('%s preset: extra fields are requireDistinctUsers=true, sendCount=1, sendAllTrending=false, useReplacements=true', (preset: AutoBlendPreset) => {
+    const v = getAutoBlendPresetValues(preset)
+    expect(v.requireDistinctUsers).toBe(true)
+    expect(v.sendCount).toBe(1)
+    expect(v.sendAllTrending).toBe(false)
+    expect(v.useReplacements).toBe(true)
+  })
 
-  test.each(['safe', 'normal', 'hot'] as const)('%s preset: all base fields preserved verbatim', (preset: AutoBlendPreset) => {
+  test.each([
+    'safe',
+    'normal',
+    'hot',
+  ] as const)('%s preset: all base fields preserved verbatim', (preset: AutoBlendPreset) => {
     const base = AUTO_BLEND_PRESETS[preset]
     const v = getAutoBlendPresetValues(preset)
     expect(v.label).toBe(base.label)

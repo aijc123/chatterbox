@@ -30,7 +30,7 @@ describe('auto-blend blacklist', () => {
     expect(isAutoBlendBlacklistedUid(null)).toBe(false)
   })
 
-  test('returns false for empty-string uid (locks the `uid !== \'\'` short-circuit)', () => {
+  test("returns false for empty-string uid (locks the `uid !== ''` short-circuit)", () => {
     // Without the `uid !== ''` clause, `'' in {'': true}` could pass — and
     // worse, `'' in {}` happens to be false but `'' in {someKey: …}` is also
     // false, so this branch is only observable when blacklist actually has
