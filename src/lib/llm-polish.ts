@@ -69,10 +69,11 @@ const FEATURE_LABELS: Record<LlmPromptFeature, string> = {
  * 缺失"作为可恢复的状态展示，而不是把整个面板灰掉。
  */
 export function isLlmApiConfigured(): boolean {
-  if (!llmApiKey.value.trim()) return false
-  if (!llmModel.value.trim()) return false
-  if (llmProvider.value === 'openai-compat' && !llmBaseURL.value.trim()) return false
-  return true
+  return (
+    llmApiKey.value.trim() !== '' &&
+    llmModel.value.trim() !== '' &&
+    (llmProvider.value !== 'openai-compat' || llmBaseURL.value.trim() !== '')
+  )
 }
 
 /**

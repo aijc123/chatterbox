@@ -188,7 +188,7 @@ export async function fetchCbMergedMemes(opts: FetchCbOptions = {}): Promise<CbM
 
         const items = body.items
           .filter(
-            (m): m is LaplaceMemeWithSource => !!m && typeof m.content === 'string' && m.content.trim().length > 0
+            (m): m is LaplaceMemeWithSource => m != null && typeof m.content === 'string' && m.content.trim().length > 0
           )
           .map(m => {
             // 后端通常已经 _source 标好;但万一漏标,fallback 到 'cb'。
@@ -199,9 +199,9 @@ export async function fetchCbMergedMemes(opts: FetchCbOptions = {}): Promise<CbM
         return {
           items,
           sources: {
-            laplace: !!body.sources?.laplace,
-            sbhzm: !!body.sources?.sbhzm,
-            cb: !!body.sources?.cb,
+            laplace: Boolean(body.sources?.laplace),
+            sbhzm: Boolean(body.sources?.sbhzm),
+            cb: Boolean(body.sources?.cb),
           },
           fatal: false,
         }
@@ -279,7 +279,7 @@ export async function submitCbMeme(content: string, opts: SubmitOptions = {}): P
     typeof json.status === 'string' && ['pending', 'approved', 'rejected'].includes(json.status)
       ? (json.status as CbSubmitResult['status'])
       : 'pending'
-  return { id, status, dedup: !!json.dedup }
+  return { id, status, dedup: Boolean(json.dedup) }
 }
 
 // ---------------------------------------------------------------------------

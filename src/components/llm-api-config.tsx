@@ -221,6 +221,7 @@ export function LlmApiConfigPanel({ showTestConnection = true }: LlmApiConfigPan
           <button
             type='button'
             disabled={!apiKeyConfigured || testStatus.value === 'testing'}
+            // skipcq: JS-0098 — `void` discards the floating Promise from the async handler so the click stays sync-typed for React.
             onClick={() => void handleTestLLM()}
             title='发一个最小请求验证 key/路由能跑通；不消耗你的实际配额'
           >

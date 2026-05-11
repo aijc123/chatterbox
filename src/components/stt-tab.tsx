@@ -170,7 +170,7 @@ export function SttTab() {
     }
   }
 
-  const toggle = async () => {
+  const toggle = () => {
     if (state.value === 'stopped') {
       const apiKey = sonioxApiKey.value.trim()
       if (!apiKey) {

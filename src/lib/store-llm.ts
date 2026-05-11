@@ -137,7 +137,7 @@ const isNonNegativeInt = (v: unknown): v is number => typeof v === 'number' && N
 // 提示词列表后不会被这里"还原"。设计参考 upstream 0c8706f 的同位策略。
 const SEED_KEY = 'llmPromptsGlobalSeeded'
 if (!GM_getValue<boolean>(SEED_KEY, false)) {
-  const existing = GM_getValue<unknown>('llmPromptsGlobal', undefined)
+  const existing = GM_getValue<unknown>('llmPromptsGlobal')
   if (existing === undefined || (Array.isArray(existing) && existing.length === 0)) {
     GM_setValue('llmPromptsGlobal', [DEFAULT_GLOBAL_PROMPT])
   }

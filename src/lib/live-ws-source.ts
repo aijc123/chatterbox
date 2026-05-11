@@ -115,7 +115,7 @@ if (typeof window !== 'undefined') {
 }
 
 function nonEmptyFields(fields: Array<CustomChatField | null | undefined>): CustomChatField[] {
-  return fields.filter((field): field is CustomChatField => !!field?.value)
+  return fields.filter((field): field is CustomChatField => field?.value != null && field.value !== '')
 }
 
 function yuanFromGiftPrice(price: unknown): string {

@@ -11,12 +11,20 @@ import { cachedRoomId, localGlobalRules, localRoomRules, remoteKeywords, replace
  * The effect below re-runs when the room id resolves.
  */
 export function buildReplacementMap(): void {
+  // Touch all 4 signals up-front so the @preact/signals `effect` that wraps
+  // this function subscribes to all of them, regardless of which branches
+  // the body actually walks. Otherwise, when rid is null we skip the
+  // localRoomRules read entirely and a later edit to room rules wouldn't
+  // re-fire the effect.
   const rid = cachedRoomId.value
+  const rk = remoteKeywords.value
+  const localGlobal = localGlobalRules.value
+  const localRoom = localRoomRules.value
+
   if (rid === null && replacementMap.value !== null) return
 
   const map = new Map<string, string>()
 
-  const rk = remoteKeywords.value
   if (rk) {
     const globalKeywords = rk.global?.keywords ?? {}
     for (const [from, to] of Object.entries(globalKeywords)) {
@@ -32,12 +40,12 @@ export function buildReplacementMap(): void {
     }
   }
 
-  for (const rule of localGlobalRules.value) {
+  for (const rule of localGlobal) {
     if (rule.from) map.set(rule.from, rule.to ?? '')
   }
 
   if (rid !== null) {
-    const roomRules = localRoomRules.value[String(rid)] ?? []
+    const roomRules = localRoom[String(rid)] ?? []
     for (const rule of roomRules) {
       if (rule.from) map.set(rule.from, rule.to ?? '')
     }
@@ -48,12 +56,10 @@ export function buildReplacementMap(): void {
 
 // Auto-rebuild whenever the cached room id, remote keywords, or local rules
 // change. This makes manual `buildReplacementMap()` calls idempotent and
-// guarantees the map tracks the active room across SPA navigation.
+// guarantees the map tracks the active room across SPA navigation. The
+// effect's subscriptions come from `buildReplacementMap` reading all four
+// signals up-front (see comment inside the function).
 effect(() => {
-  cachedRoomId.value
-  remoteKeywords.value
-  localGlobalRules.value
-  localRoomRules.value
   buildReplacementMap()
 })
 

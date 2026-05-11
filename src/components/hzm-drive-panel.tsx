@@ -26,7 +26,6 @@ import {
   hzmPauseKeywordsOverride,
   hzmRateLimitPerMin,
   hzmStrictHeuristic,
-  llmApiKey,
   sendMsg,
   setBlacklistTags,
   setSelectedTags,
@@ -175,6 +174,7 @@ export function HzmDrivePanel({ source }: { source: MemeSource }) {
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '.5em', alignItems: 'center' }}>
+          {/* skipcq: JS-0098 — `void` discards the floating Promise from the async toggle so the click handler stays sync-typed for React. */}
           <button type='button' className={isOn ? 'cb-danger' : 'cb-primary'} onClick={() => void toggleEnabled()}>
             {isOn ? '停车' : '开车'}
           </button>

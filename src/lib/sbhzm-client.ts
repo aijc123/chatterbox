@@ -228,7 +228,7 @@ async function fetchRandomFallback(source: MemeSource): Promise<RawSbhzmMeme[]> 
     )
   }
   const all = await Promise.all(tasks)
-  return all.filter((x): x is RawSbhzmMeme => !!x?.content)
+  return all.filter((x): x is RawSbhzmMeme => x?.content != null && x.content !== '')
 }
 
 /**

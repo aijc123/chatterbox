@@ -51,7 +51,7 @@ let inflight: Promise<void> | null = null
  */
 export async function refreshTrendingMemes(force = false): Promise<void> {
   const now = Date.now()
-  if (!force && now - lastFetchAt < TTL_MS) return
+  if (!force && now - lastFetchAt < TTL_MS) return undefined
   if (inflight) return inflight
 
   inflight = (async () => {

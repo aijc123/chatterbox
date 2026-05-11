@@ -104,7 +104,7 @@ function handleMessage(ev: DanmakuEvent): void {
   const key = foldKey(text)
   const existing = foldByKey.get(key)
 
-  if (existing && existing.node.isConnected && now - existing.lastSeen <= FOLD_WINDOW_MS) {
+  if (existing?.node.isConnected && now - existing.lastSeen <= FOLD_WINDOW_MS) {
     if (existing.node !== ev.node) {
       ev.node.setAttribute(HIDDEN_ATTR, '1')
     }

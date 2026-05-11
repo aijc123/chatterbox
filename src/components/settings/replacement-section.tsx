@@ -287,7 +287,7 @@ export function CloudReplacementSection({ query = '' }: { query?: string }) {
 
   const didInit = useRef(false)
   useEffect(() => {
-    if (didInit.current) return
+    if (didInit.current) return undefined
     didInit.current = true
     const ls = remoteKeywordsLastSync.value
     if (!ls || Date.now() - ls > SYNC_INTERVAL) {

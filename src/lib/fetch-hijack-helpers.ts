@@ -55,7 +55,7 @@ export function applyTransforms(url: string, data: any, opts: HijackOpts): Trans
   if (opts.unlockForbidLive && url.includes(GET_INFO_BY_USER_PATTERN)) {
     const forbid = data?.data?.forbid_live
     if (!forbid) return { kind: 'live', wasBlocking: false }
-    const wasBlocking = !!forbid.is_forbid
+    const wasBlocking = Boolean(forbid.is_forbid)
     forbid.is_forbid = false
     forbid.forbid_text = ''
     return { kind: 'live', wasBlocking }

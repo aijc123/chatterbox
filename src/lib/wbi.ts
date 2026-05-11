@@ -109,6 +109,8 @@ export function _setCachedWbiKeysForTests(keys: BilibiliWbiKeys | null): void {
  */
 export async function waitForWbiKeys(timeout = 5000, interval = 100): Promise<boolean> {
   const startTime = Date.now()
+  // skipcq: JS-0092 - cachedWbiKeys is mutated by the XHR-intercept callback
+  // installed at module load; this is a polling wait, not a do-nothing loop.
   while (!cachedWbiKeys) {
     if (Date.now() - startTime > timeout) {
       return false

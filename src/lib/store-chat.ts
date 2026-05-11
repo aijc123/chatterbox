@@ -42,7 +42,7 @@ export const customChatPerfDebug = gmSignal('customChatPerfDebug', false)
 // 所以正名为"折叠"。已经持久化过 customChatCardMode 的本地配置不丢失。
 const customChatFoldRenameKey = 'customChatFoldRenamed'
 if (!GM_getValue(customChatFoldRenameKey, false)) {
-  const legacy = GM_getValue<unknown>('customChatCardMode', undefined)
+  const legacy = GM_getValue<unknown>('customChatCardMode')
   if (typeof legacy === 'boolean') GM_setValue('customChatFoldMode', legacy)
   GM_setValue(customChatFoldRenameKey, true)
 }

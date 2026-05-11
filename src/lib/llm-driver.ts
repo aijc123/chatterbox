@@ -396,18 +396,18 @@ async function postAnthropicPolish(opts: ChatCompletionOptions): Promise<string>
  * Anthropic / OpenAI / DeepSeek / Moonshot / OpenRouter work without CORS
  * pre-flight failures — same constraint as the meme-picking code above.
  */
-export async function chatCompletionViaLlm(opts: ChatCompletionOptions): Promise<string> {
-  if (!opts.apiKey.trim()) throw new Error('请先配置 API key')
-  if (!opts.model.trim()) throw new Error('请先选择模型')
-  if (!opts.systemPrompt.trim()) throw new Error('系统提示词为空')
-  if (!opts.userText.trim()) throw new Error('输入内容为空')
+export function chatCompletionViaLlm(opts: ChatCompletionOptions): Promise<string> {
+  if (!opts.apiKey.trim()) return Promise.reject(new Error('请先配置 API key'))
+  if (!opts.model.trim()) return Promise.reject(new Error('请先选择模型'))
+  if (!opts.systemPrompt.trim()) return Promise.reject(new Error('系统提示词为空'))
+  if (!opts.userText.trim()) return Promise.reject(new Error('输入内容为空'))
 
   if (opts.provider === 'anthropic') return postAnthropicPolish(opts)
   if (opts.provider === 'openai') return postOpenAIChatPolish(opts)
 
   // openai-compat
   const base = (opts.baseURL ?? '').trim()
-  if (!base) throw new Error('openai-compat 需要填 base URL（在「智能辅助驾驶」里设置）')
+  if (!base) return Promise.reject(new Error('openai-compat 需要填 base URL（在「智能辅助驾驶」里设置）'))
   return postOpenAIChatPolish(opts, buildOpenAICompatChatURL(base))
 }
 

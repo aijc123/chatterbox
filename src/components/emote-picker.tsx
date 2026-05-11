@@ -93,7 +93,7 @@ export function EmotePicker({ open, anchorRef, onSend, onClose }: EmotePickerPro
   }, [isOpen])
 
   useEffect(() => {
-    if (!isOpen) return
+    if (!isOpen) return undefined
     const onResize = () => {
       pos.value = computePosFor(anchorRef.current)
     }
@@ -131,7 +131,7 @@ export function EmotePicker({ open, anchorRef, onSend, onClose }: EmotePickerPro
     //   - fetch errored → show the message + retry
     //   - fetch in flight → loading
     //   - genuinely empty (no packages for this room) → calm message
-    const inRoom = !!cachedRoomId.value
+    const inRoom = cachedRoomId.value !== null
     const fetchError = emoticonFetchError.value
     const fetching = emoticonFetchInFlight !== null
     let message: string

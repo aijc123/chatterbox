@@ -503,6 +503,7 @@ export function AutoBlendControls() {
           条件满足时，会以你的账号自动发送弹幕。第一次开启建议先打开下方的「试运行」观察效果。
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '.5em', alignItems: 'center' }}>
+          {/* skipcq: JS-0098 — `void` discards the floating Promise from the async toggle so the click handler stays sync-typed for React. */}
           <button type='button' className={isOn ? 'cb-danger' : 'cb-primary'} onClick={() => void toggleEnabled()}>
             {isOn ? '停止跟车' : '开始跟车'}
           </button>

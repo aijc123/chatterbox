@@ -87,16 +87,16 @@ const BADGE_SELECTORS = [
 export function isValidDanmakuNode(node: HTMLElement): boolean {
   if (!node.classList.contains('chat-item') || !node.classList.contains('danmaku-item')) return false
   const count = node.classList.length
-  if (count === 2) return true
-  if (node.classList.contains('chat-colorful-bubble') && node.classList.contains('has-bubble') && count === 4)
-    return true
-  if (node.classList.contains('has-bubble') && count === 3) return true
   // 表情贴纸（"哈哈"/"NICE"/"[xxx 表情包]" 等）：dataset.danmaku 是表情名，可参与 +1、
   // 自动跟车、去重折叠。形状有 `chat-emoticon bulge-emoticon`（4 类）以及加了气泡装饰
   // `chat-colorful-bubble has-bubble chat-emoticon bulge-emoticon`（6 类）。放宽到只要
   // 同时含 chat-emoticon + bulge-emoticon 即接受，避免数 class 数量被 B 站新装饰打破。
-  if (node.classList.contains('chat-emoticon') && node.classList.contains('bulge-emoticon')) return true
-  return false
+  return (
+    count === 2 ||
+    (node.classList.contains('chat-colorful-bubble') && node.classList.contains('has-bubble') && count === 4) ||
+    (node.classList.contains('has-bubble') && count === 3) ||
+    (node.classList.contains('chat-emoticon') && node.classList.contains('bulge-emoticon'))
+  )
 }
 
 function cleanInlineText(value: string | null | undefined): string {
@@ -105,8 +105,8 @@ function cleanInlineText(value: string | null | undefined): string {
 
 function isBadNameCandidate(value: string, text = ''): boolean {
   if (!value || value === text || value.length > 36) return true
-  if (/通过活动|查看我的装扮|获得|装扮|荣耀|粉丝牌|用户等级|头像|复制|举报|回复|关闭/.test(value)) return true
-  return /^[\d\s:：/.-]+$/.test(value)
+  if (/通过活动|查看我的装扮|获得|装扮|荣耀|粉丝牌|用户等级|头像|复制|举报|回复|关闭/u.test(value)) return true
+  return /^[\d\s:：/.-]+$/u.test(value)
 }
 
 function firstUsefulText(el: Element | null): string | null {
@@ -140,7 +140,7 @@ function extractBadges(node: HTMLElement, text: string): string[] {
       el.getAttribute('data-title') || el.getAttribute('title') || el.getAttribute('aria-label') || el.textContent
     )
     if (!value || value === text || value.length > 18) continue
-    if (/^(头像|复制|回复|举报|关闭)$/.test(value)) continue
+    if (/^(头像|复制|回复|举报|关闭)$/u.test(value)) continue
     if (!badges.includes(value)) badges.push(value)
     if (badges.length >= 5) break
   }

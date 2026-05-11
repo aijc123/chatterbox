@@ -102,7 +102,7 @@ app.onError((err, c) => {
  */
 export default {
   fetch: app.fetch.bind(app),
-  async scheduled(_event: ScheduledEvent, env: AppBindings, ctx: ExecutionContext) {
+  scheduled(_event: ScheduledEvent, env: AppBindings, ctx: ExecutionContext) {
     ctx.waitUntil(
       (async () => {
         const t0 = Date.now()

@@ -186,7 +186,7 @@ export function AutoSendControls() {
               id='persistSendState'
               type='checkbox'
               disabled={cachedRoomId.value === null}
-              checked={cachedRoomId.value !== null && !!persistSendState.value[String(cachedRoomId.value)]}
+              checked={cachedRoomId.value !== null && Boolean(persistSendState.value[String(cachedRoomId.value)])}
               onInput={e => {
                 const roomId = cachedRoomId.value
                 if (roomId === null) return

@@ -28,7 +28,11 @@ export function Checkbox({ label, id, disabled, className, ...props }: CheckboxP
   if (label === undefined || label === null || label === false) return input
 
   return (
-    <Label htmlFor={id} disabled={!!disabled} className='lc-inline-flex lc-items-center lc-gap-1 lc-cursor-pointer'>
+    <Label
+      htmlFor={id}
+      disabled={Boolean(disabled)}
+      className='lc-inline-flex lc-items-center lc-gap-1 lc-cursor-pointer'
+    >
       {input}
       {label}
     </Label>

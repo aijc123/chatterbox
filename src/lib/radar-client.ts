@@ -307,6 +307,9 @@ export async function reportRadarObservation(payload: RadarReportPayload): Promi
   // round-trip. Only keep buckets that match the server's validateBucket
   // contract: 300-aligned bucket_ts, positive room_id/channel_uid,
   // distinct_uid_count <= msg_count, both non-negative ints.
+  // skipcq: JS-W1041 — guards-then-pass mirrors the server's validateBucket
+  // contract field-by-field; collapsing into one boolean expression hurts
+  // readability when the rules change.
   const filtered = payload.buckets.filter(b => {
     if (!b || typeof b !== 'object') return false
     if (!Number.isInteger(b.bucket_ts) || b.bucket_ts % 300 !== 0) return false

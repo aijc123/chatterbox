@@ -21,7 +21,7 @@ export function CustomChatSection({ query = '' }: { query?: string }) {
     const draft = cssDraft.value
     if (draft === customChatCss.value) {
       cssStatus.value = 'saved'
-      return
+      return undefined
     }
     cssStatus.value = 'pending'
     const timer = setTimeout(() => {

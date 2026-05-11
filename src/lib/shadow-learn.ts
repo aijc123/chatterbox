@@ -52,7 +52,9 @@ export function learnShadowRules(input: LearnShadowRulesInput): void {
   const roomKey = String(input.roomId)
   const currentByRoom = localRoomRules.value
   const existingRules = currentByRoom[roomKey] ?? []
-  const existingFroms = new Set(existingRules.map(r => r.from).filter((s): s is string => !!s))
+  const existingFroms = new Set(
+    existingRules.map(r => r.from).filter((s): s is string => typeof s === 'string' && s.length > 0)
+  )
 
   const newRules: Array<{ from: string; to: string }> = []
   const learnedFroms: string[] = []

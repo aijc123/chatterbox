@@ -411,7 +411,7 @@ export function MemesList() {
   useEffect(() => {
     // 在有专属梗源的房间（如灰泽满），即使梗库面板折叠也要拉取——
     // 智能辅助驾驶面板独立于此面板，需要 memes 数据才能选梗。
-    if (!memesPanelOpen.value && !memeSource) return
+    if (!memesPanelOpen.value && !memeSource) return undefined
     void loadMemes()
     const timer = setInterval(() => void loadMemes({ silent: true }), MEME_RELOAD_INTERVAL)
     return () => clearInterval(timer)

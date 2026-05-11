@@ -1254,7 +1254,7 @@ function scheduleRerenderMessages(options: { refreshFrozenSnapshot?: boolean } =
   const token = rerenderToken
   pendingRerender = {
     token,
-    refreshFrozenSnapshot: !!options.refreshFrozenSnapshot || !!pendingRerender?.refreshFrozenSnapshot,
+    refreshFrozenSnapshot: Boolean(options.refreshFrozenSnapshot) || Boolean(pendingRerender?.refreshFrozenSnapshot),
   }
   requestChatFrame()
 }
@@ -1333,8 +1333,10 @@ function syncComposerFromStore(): void {
 }
 
 function isNativeSendBox(el: HTMLElement): boolean {
-  return !!el.querySelector(
-    'input[type="text"], textarea, input:not([type="submit"]):not([type="hidden"]):not([type="radio"]):not([type="checkbox"]):not([type="range"]):not([type="number"]):not([type="button"]):not([type="image"]):not([type="reset"]):not([type="file"]):not([type="color"])'
+  return (
+    el.querySelector(
+      'input[type="text"], textarea, input:not([type="submit"]):not([type="hidden"]):not([type="radio"]):not([type="checkbox"]):not([type="range"]):not([type="number"]):not([type="button"]):not([type="image"]):not([type="reset"]):not([type="file"]):not([type="color"])'
+    ) !== null
   )
 }
 
@@ -1378,7 +1380,7 @@ function hideSiblingNativeElements(hideSendBox: boolean, hideNative: boolean): v
 }
 
 function updateNativeVisibility(): void {
-  const mounted = !!root?.isConnected && !!root.querySelector('.lc-chat-composer')
+  const mounted = Boolean(root?.isConnected) && root?.querySelector('.lc-chat-composer') != null
   const nativeMounted = mounted && !rootUsesFallbackHost
   const shouldHideNative = nativeMounted && customChatHideNative.value
   document.documentElement.classList.toggle('lc-custom-chat-mounted', nativeMounted)
@@ -1707,7 +1709,7 @@ function mount(container: HTMLElement): void {
   const host = historyPanel?.parentElement ?? container.parentElement
   if (!host) return
   root = createRoot()
-  rootOutsideHistory = !!historyPanel && host !== historyPanel
+  rootOutsideHistory = historyPanel !== null && host !== historyPanel
   root.dataset.theme = customChatTheme.value
   host.appendChild(root)
   updateNativeVisibility()

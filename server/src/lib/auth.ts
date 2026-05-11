@@ -84,4 +84,5 @@ export const requireAdmin = createMiddleware<AppEnv>(async (c, next) => {
   }
   c.set('actor', actor)
   await next()
+  return undefined
 })

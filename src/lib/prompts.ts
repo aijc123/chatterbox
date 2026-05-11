@@ -60,6 +60,8 @@ export function getActiveFeaturePrompt(feature: LlmPromptFeature): string {
       return llmPromptsAutoBlend.value[llmActivePromptAutoBlend.value] ?? ''
     case 'autoSend':
       return llmPromptsAutoSend.value[llmActivePromptAutoSend.value] ?? ''
+    default:
+      return ''
   }
 }
 

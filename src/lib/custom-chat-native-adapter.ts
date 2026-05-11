@@ -17,7 +17,7 @@ export const NATIVE_SCAN_DEBOUNCE_MS = 16
 export function shouldScanNativeEventNode(node: HTMLElement, rootId: string): boolean {
   if (node.closest(`#${rootId}`)) return false
   if (node.classList.contains('danmaku-item')) return false
-  return node.matches(NATIVE_EVENT_SELECTOR) || !!node.querySelector(NATIVE_EVENT_SELECTOR)
+  return node.matches(NATIVE_EVENT_SELECTOR) || node.querySelector(NATIVE_EVENT_SELECTOR) !== null
 }
 
 // ── Pure string helpers ──────────────────────────────────────────────────────
@@ -108,9 +108,9 @@ export function usefulBadgeText(raw: string, uname: string): string | null {
 export function isNoiseEventText(text: string): boolean {
   const clean = compactText(text)
   if (!clean) return true
-  if (/^(头像|匿名|复制|举报|回复|关闭|更多|展开|收起|弹幕|礼物|SC|进场|通知|暂停|清屏|状态|显示)$/.test(clean))
+  if (/^(头像|匿名|复制|举报|回复|关闭|更多|展开|收起|弹幕|礼物|SC|进场|通知|暂停|清屏|状态|显示)$/u.test(clean))
     return true
-  return /^搜索\s*user:/.test(clean)
+  return /^搜索\s*user:/u.test(clean)
 }
 
 // ── Avatar URL ───────────────────────────────────────────────────────────────
@@ -162,14 +162,14 @@ export function nativeAvatar(node: HTMLElement): string | undefined {
 
 export function nativeKind(node: HTMLElement, text: string): CustomChatKind | null {
   const signal = `${node.className} ${text}`
-  if (/super[-_ ]?chat|superchat|醒目留言|醒目|￥|¥|\bSC\b/i.test(signal)) return 'superchat'
-  if (/舰长|提督|总督|大航海|guard|privilege|开通|续费/i.test(signal)) return 'guard'
-  if (/红包|red[-_ ]?envelop/i.test(signal)) return 'redpacket'
-  if (/天选|lottery|抽奖/i.test(signal)) return 'lottery'
-  if (/关注|follow/i.test(signal)) return 'follow'
-  if (/点赞|like/i.test(signal)) return 'like'
-  if (/分享|share/i.test(signal)) return 'share'
-  if (/gift|礼物|赠送|投喂|送出|小花花|辣条|电池|x\s*\d+/i.test(signal)) return 'gift'
+  if (/super[-_ ]?chat|superchat|醒目留言|醒目|￥|¥|\bSC\b/iu.test(signal)) return 'superchat'
+  if (/舰长|提督|总督|大航海|guard|privilege|开通|续费/iu.test(signal)) return 'guard'
+  if (/红包|red[-_ ]?envelop/iu.test(signal)) return 'redpacket'
+  if (/天选|lottery|抽奖/iu.test(signal)) return 'lottery'
+  if (/关注|follow/iu.test(signal)) return 'follow'
+  if (/点赞|like/iu.test(signal)) return 'like'
+  if (/分享|share/iu.test(signal)) return 'share'
+  if (/gift|礼物|赠送|投喂|送出|小花花|辣条|电池|x\s*\d+/iu.test(signal)) return 'gift'
   return null
 }
 
@@ -184,9 +184,9 @@ export function nativeBadges(node: HTMLElement, text: string, uname: string): st
     badges.push(clean)
     if (badges.length >= 3) break
   }
-  if (/总督/i.test(text)) badges.unshift('GUARD 1')
-  else if (/提督/i.test(text)) badges.unshift('GUARD 2')
-  else if (/舰长/i.test(text)) badges.unshift('GUARD 3')
+  if (/总督/iu.test(text)) badges.unshift('GUARD 1')
+  else if (/提督/iu.test(text)) badges.unshift('GUARD 2')
+  else if (/舰长/iu.test(text)) badges.unshift('GUARD 3')
   return [...new Set(badges)]
 }
 
@@ -218,9 +218,9 @@ export function parseNativeEvent(node: HTMLElement, ctx: NativeParseContext): Cu
     fields.push({ key: 'gift-count', label: '数量', value: `x${giftMatch[2]}`, kind: 'count' })
   }
   if (kind === 'guard') {
-    const guard = /总督/.test(text) ? '总督' : /提督/.test(text) ? '提督' : '舰长'
+    const guard = /总督/u.test(text) ? '总督' : /提督/u.test(text) ? '提督' : '舰长'
     fields.push({ key: 'guard-level', label: '等级', value: guard, kind: 'level' })
-    const month = text.match(/(\d+)\s*(个月|月)/)?.[1]
+    const month = text.match(/(\d+)\s*(个月|月)/u)?.[1]
     if (month) fields.push({ key: 'guard-months', label: '月份', value: `${month}个月`, kind: 'duration' })
   }
   return {
