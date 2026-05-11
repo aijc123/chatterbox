@@ -1,0 +1,150 @@
+name: Fuzz & Soak
+
+# Property-based fuzz tests and long-running soak tests for memory bounds.
+# These complement the regular `test:client` / `test:server` suites by
+# probing inputs and time-windows that hand-written tests don't cover.
+#
+# Triggers:
+#   - PRs that touch /tests/fuzz/, /scripts/soak-*.mjs, /src/lib/, or this
+#     workflow itself → run with default low-iteration counts so PR feedback
+#     stays fast (~1 min)
+#   - Manual workflow_dispatch → same as PR but with caller-controlled inputs
+#   - Weekly cron (Mondays 06:00 UTC) → heavier 10 000-iteration fuzz pass +
+#     5-minute soak; catches latent bugs that low iteration counts miss
+#
+# Failures here gate `master` for fuzz (cheap, fast) but NOT for soak
+# (slower, runs without the rest of the validate matrix). See the `needs:`
+# in `ci.yml` to add fuzz as a required check once it has run a few weeks
+# without false positives.
+
+on:
+  pull_request:
+    paths:
+      - 'tests/fuzz/**'
+      - 'scripts/soak-*.mjs'
+      - 'src/lib/**'
+      - '.github/workflows/fuzz-and-soak.yml'
+  workflow_dispatch:
+    inputs:
+      fuzz_runs:
+        description: 'fast-check runs per property'
+        required: false
+        default: '500'
+      soak_duration_ms:
+        description: 'Soak duration in ms (per target)'
+        required: false
+        default: '60000'
+  schedule:
+    - cron: '0 6 * * 1' # Mondays 06:00 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: Fuzz tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - run: bun install --frozen-lockfile
+
+      - name: Decide fuzz iteration count
+        id: runs
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_RUNS: ${{ github.event.inputs.fuzz_runs }}
+        run: |
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            echo "n=10000" >> "$GITHUB_OUTPUT"
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ] && [ -n "$INPUT_RUNS" ]; then
+            echo "n=$INPUT_RUNS" >> "$GITHUB_OUTPUT"
+          else
+            echo "n=200" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run fuzz tests
+        env:
+          FAST_CHECK_NUM_RUNS: ${{ steps.runs.outputs.n }}
+        run: bun run test:fuzz
+
+  soak:
+    name: Soak (memory bounds)
+    # Skip on PRs (too slow for PR feedback); run on cron + manual dispatch.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - run: bun install --frozen-lockfile
+
+      - name: Decide soak duration
+        id: dur
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_DUR: ${{ github.event.inputs.soak_duration_ms }}
+        run: |
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            # Cron: 5 min per target. Two targets = ~10 min total.
+            echo "ms=300000" >> "$GITHUB_OUTPUT"
+          elif [ -n "$INPUT_DUR" ]; then
+            echo "ms=$INPUT_DUR" >> "$GITHUB_OUTPUT"
+          else
+            echo "ms=60000" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run soak
+        env:
+          SOAK_DURATION_MS: ${{ steps.dur.outputs.ms }}
+        run: bun run soak:cache
+
+  loadtest:
+    name: Load test backend (against ephemeral wrangler dev)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - run: bun install --frozen-lockfile
+      - run: cd server && bun install --frozen-lockfile
+
+      - name: Apply D1 migrations to local dev DB
+        working-directory: server
+        run: bunx wrangler d1 migrations apply chatterbox-cloud --local
+
+      - name: Start wrangler dev (background)
+        working-directory: server
+        run: |
+          nohup bunx wrangler dev --local --port 8787 > wrangler.log 2>&1 &
+          echo $! > wrangler.pid
+          # Wait for the server to come up (max 30s).
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8787/memes?perPage=1 >/dev/null 2>&1; then
+              echo "wrangler dev is up"; exit 0
+            fi
+            sleep 1
+          done
+          echo "wrangler dev did not come up in 30s"
+          cat wrangler.log
+          exit 1
+
+      - name: Seed a few memes so the read endpoints have data
+        run: |
+          curl -fsS -X POST http://127.0.0.1:8787/memes/bulk-mirror \
+            -H 'content-type: application/json' \
+            -d '{"source":"laplace","items":[{"content":"loadtest-seed-1","id":1},{"content":"loadtest-seed-2","id":2},{"content":"loadtest-seed-3","id":3}]}'
+
+      - name: Run load test
+        env:
+          LOAD_TARGET_URL: http://127.0.0.1:8787
+          LOAD_DURATION: '15'
+          LOAD_CONNECTIONS: '10'
+        run: bun run loadtest:server
+
+      - name: Stop wrangler dev
+        if: always()
+        working-directory: server
+        run: |
+          if [ -f wrangler.pid ]; then
+            kill "$(cat wrangler.pid)" || true
+          fi

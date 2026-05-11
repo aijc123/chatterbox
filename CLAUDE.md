@@ -46,6 +46,21 @@ bun run check
 # Focused checks
 bun run test:auto-blend
 bun run verify:auto-blend-ui
+
+# Property-based fuzz tests (fast-check). Default 100 runs/property; bump
+# via FAST_CHECK_NUM_RUNS=N. CI runs 200 on PR, 10000 on weekly cron.
+bun run test:fuzz
+
+# Long-running soak: drives synthetic high-volume traffic through bounded
+# data structures (FetchCache LRU, etc.) and asserts they stay within
+# their declared cap. Default 30s; SOAK_DURATION_MS=300000 for 5 min.
+bun run soak:cache
+
+# HTTP load test against a running chatterbox-cloud backend (defaults to
+# local wrangler dev on :8787). NEVER point at production. See
+# scripts/load-test-backend.mjs for env knobs (LOAD_DURATION,
+# LOAD_CONNECTIONS, LOAD_SCENARIO, LOAD_MAX_P99_MS).
+bun run loadtest:server
 ```
 
 Do NOT run bare `bun test` from the repo root. It (a) drops `--isolate`, so `mock.module(...)`

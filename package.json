@@ -43,7 +43,10 @@
     "release:minor": "bun scripts/release.ts minor",
     "release:major": "bun scripts/release.ts major",
     "test:auto-blend": "bun scripts/test-auto-blend.ts",
-    "verify:auto-blend-ui": "bun scripts/verify-auto-blend-ui.ts"
+    "verify:auto-blend-ui": "bun scripts/verify-auto-blend-ui.ts",
+    "test:fuzz": "bun test --isolate tests/fuzz",
+    "soak:cache": "bun scripts/soak-cache-bounds.mjs",
+    "loadtest:server": "bun scripts/load-test-backend.mjs"
   },
   "dependencies": {
     "@laplace.live/ws": "^7.1.10",
@@ -58,6 +61,8 @@
     "@preact/preset-vite": "^2.10.5",
     "@size-limit/file": "^12.1.0",
     "@types/bun": "^1.3.13",
+    "autocannon": "^8.0.0",
+    "fast-check": "^4.4.0",
     "happy-dom": "^20.9.0",
     "size-limit": "^12.1.0",
     "typescript": "^6.0.3",
