@@ -1,0 +1,29 @@
+{
+  "$schema": "https://unpkg.com/@stryker-mutator/core@9/schema/stryker-schema.json",
+  "_comment": "Mutation testing config. Manual-trigger only (workflow_dispatch). See .github/workflows/mutation.yml for the rationale: bun's test runner has no programmatic API (oven-sh/bun#26191), so stryker-js falls back to spawning the full CLI per mutant — too slow for every push. Scope limited to pure-function modules with strong unit tests so a manual run completes in single-digit minutes.",
+  "packageManager": "npm",
+  "reporters": ["clear-text", "progress", "html"],
+  "testRunner": "command",
+  "commandRunner": {
+    "command": "bun test --isolate tests/wbi-pure.test.ts tests/wbi-diagnostics.test.ts tests/wbi-sentinel.test.ts tests/auto-blend.test.ts tests/fetch-cache.test.ts tests/user-blacklist-parsers.test.ts tests/remote-keywords-sanitize.test.ts"
+  },
+  "coverageAnalysis": "off",
+  "disableTypeChecks": true,
+  "mutate": [
+    "src/lib/wbi.ts",
+    "src/lib/auto-blend-trend.ts",
+    "src/lib/fetch-cache.ts",
+    "src/lib/user-blacklist-parsers.ts",
+    "src/lib/remote-keywords-sanitize.ts"
+  ],
+  "thresholds": {
+    "high": 80,
+    "low": 60,
+    "break": null
+  },
+  "htmlReporter": {
+    "fileName": "reports/mutation/mutation-report.html"
+  },
+  "tempDirName": ".stryker-tmp",
+  "cleanTempDir": true
+}

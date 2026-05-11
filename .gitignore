@@ -31,6 +31,10 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .cache
 *.tsbuildinfo
 
+# Stryker mutation testing (workflow_dispatch only, see .github/workflows/mutation.yml)
+.stryker-tmp
+reports/mutation
+
 # IntelliJ based IDEs
 .idea
 
