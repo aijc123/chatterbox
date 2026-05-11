@@ -49,8 +49,13 @@ jobs:
         with:
           node-version: '22'
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-      - run: bun install --frozen-lockfile
+      - name: Install root deps
+        run: bun install --frozen-lockfile
+      - name: Install server deps (separate package, needs own node_modules for type resolution)
+        run: bun install --frozen-lockfile
+        working-directory: server
       - name: Type coverage — src (userscript)
         run: npx --yes type-coverage@2.29.7 -p tsconfig.app.json --strict --at-least 99
       - name: Type coverage — server (worker)
-        run: npx --yes type-coverage@2.29.7 -p server/tsconfig.json --strict --at-least 98
+        run: npx --yes type-coverage@2.29.7 -p tsconfig.json --strict --at-least 98
+        working-directory: server

@@ -7,8 +7,9 @@ name: Size
 
 on:
   pull_request:
-  push:
-    branches: [master]
+# andresz1/size-limit-action only supports pull_request events (it errors
+# with "No PR found" on push). For master-branch absolute-budget checks,
+# `scripts/analyze-bundle.mjs` already runs in the CI workflow.
 
 permissions:
   contents: read
