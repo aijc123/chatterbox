@@ -14,23 +14,37 @@ name: Mutation
 #    coverage-by-line numbers actually exercise meaningful behavior?"),
 #    not a per-commit gate.
 #
-# Split layout (two parallel jobs):
-#   - mutation-core    — 11 lighter modules (~700 mutants, ~40 min)
-#   - mutation-heavy   —  3 large modules (wbi.ts 209 LOC,
-#                         moderation.ts 202 LOC, fetch-hijack-helpers.ts
-#                         116 LOC) (~500 mutants, ~40 min)
-# Splitting fits each job under the 60-min ubuntu-latest cap. First scope-
-# expansion attempt (all 14 in one job) hit 71% at 60 min and got SIGKILLed.
-# Reports upload as separate artifacts (`mutation-report-core` and
-# `mutation-report-heavy`).
+# Scope expansion (2026-05): the 14-module baseline (~1500 LOC, ~1065 mutants,
+# 90.23% score) was widened to 30 modules (~2800 LOC) by promoting all
+# remaining pure-function modules with dedicated unit tests (Tier A small
+# utilities, Tier B medium-LOC modules, Tier C: md5 + 3 auto-blend formatters).
+# `auto-blend-presets.ts` is the one notable holdout — it's an orchestrator
+# that fans into GM_*-backed store signals, which doesn't survive stryker's
+# per-mutant CLI spawn without leaking `mock.module('$')` across files (see
+# CLAUDE.md note + feedback_bun_test_mocks).
+#
+# Split layout (six parallel jobs, each ~20–30 min target):
+#   - core-a            (5 light original-core modules)
+#   - core-b            (5 light original-core modules)
+#   - heavy-a           (wbi + moderation — 411 LOC, ~500 mutants)
+#   - heavy-b           (live-ws-helpers + fetch-hijack-helpers + md5)
+#   - additions-small   (Tier A 8 small modules + light Tier C formatters)
+#   - additions-big     (Tier B 4 medium modules + auto-blend-status)
+#
+# Rationale for splitting from 2 → 6 shards: when the test suite doubled
+# (18 → 36 test files) per-mutant runtime roughly doubled too (each mutant
+# spawns the full `bun test --isolate` over all 36 files, ~21s baseline
+# locally, slower on 4-vCPU CI runners). The old 2-shard config would have
+# blown the 60-min cap; six shards run in parallel under workflow_dispatch
+# and are easy to rebalance if any one creeps up.
 #
 # How to invoke:
 #   GitHub Actions → Mutation workflow → Run workflow → master
 # Locally:
 #   npx --yes @stryker-mutator/core@^9 run
-#   (uses stryker.config.json at repo root with full 14-module scope;
+#   (uses stryker.config.json at repo root with full 30-module scope;
 #    report at reports/mutation/. Local machines have more cores so the
-#    14-in-one run completes in ~15-25 min depending on CPU count.)
+#    30-in-one run completes in ~40-60 min depending on CPU count.)
 #
 # Why npx, not devDependency: same bun+Windows picomatch@4.0.4 transitive
 # extraction bug that knocked knip / type-coverage out (see quality.yml
@@ -52,15 +66,31 @@ jobs:
       fail-fast: false
       matrix:
         shard:
-          - name: core
-            # 11 modules — everything except the three biggest source files.
-            mutate: "src/lib/wbi.ts,src/lib/auto-blend-trend.ts,src/lib/fetch-cache.ts,src/lib/user-blacklist-parsers.ts,src/lib/remote-keywords-sanitize.ts,src/lib/custom-chat-css-sanitize.ts,src/lib/loop-utils.ts,src/lib/meme-room-filter.ts,src/lib/danmaku-direct-helpers.ts,src/lib/custom-chat-render.ts,src/lib/concurrency.ts"
-          - name: heavy
-            # 3 largest modules: moderation, live-ws-helpers, fetch-hijack-helpers.
-            # Each has audit-driven invariants worth fortifying but the LOC
-            # × mutant count blew past the per-job CI budget when bundled
-            # together with `core`.
-            mutate: "src/lib/moderation.ts,src/lib/live-ws-helpers.ts,src/lib/fetch-hijack-helpers.ts"
+          - name: core-a
+            # First half of the original-core modules (lighter LOC, more
+            # branches per module so still meaningful coverage).
+            mutate: "src/lib/auto-blend-trend.ts,src/lib/fetch-cache.ts,src/lib/user-blacklist-parsers.ts,src/lib/remote-keywords-sanitize.ts,src/lib/custom-chat-css-sanitize.ts"
+          - name: core-b
+            # Second half of original-core.
+            mutate: "src/lib/loop-utils.ts,src/lib/meme-room-filter.ts,src/lib/danmaku-direct-helpers.ts,src/lib/custom-chat-render.ts,src/lib/concurrency.ts"
+          - name: heavy-a
+            # wbi (209 LOC) + moderation (202 LOC) — the two densest modules
+            # in the project. Paired so neither overruns its own shard.
+            mutate: "src/lib/wbi.ts,src/lib/moderation.ts"
+          - name: heavy-b
+            # live-ws-helpers + fetch-hijack-helpers (116 LOC) + md5 (145 LOC).
+            # md5 has many constants but few branches; pairing it with the
+            # two original-heavy modules balances mutant count.
+            mutate: "src/lib/live-ws-helpers.ts,src/lib/fetch-hijack-helpers.ts,src/lib/md5.ts"
+          - name: additions-small
+            # Tier A (8 small utilities, 323 LOC total) + light Tier C
+            # formatters (auto-blend-preset-config 72 LOC, meme-content-key
+            # 17 LOC). All small modules — collective LOC ≈ 412.
+            mutate: "src/lib/version-update.ts,src/lib/custom-chat-pricing.ts,src/lib/cn.ts,src/lib/auto-blend-blacklist.ts,src/lib/platform.ts,src/lib/emote-picker-position.ts,src/lib/clipboard.ts,src/lib/sbhzm-freshness-probe.ts,src/lib/meme-content-key.ts,src/lib/auto-blend-preset-config.ts"
+          - name: additions-big
+            # Tier B (4 medium-LOC modules, 640 LOC) + auto-blend-status
+            # (111 LOC, the most branch-heavy Tier C module). ≈ 751 LOC.
+            mutate: "src/lib/utils.ts,src/lib/meme-sources.ts,src/lib/laplace-client.ts,src/lib/shadow-suggestion.ts,src/lib/auto-blend-status.ts"
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v4
@@ -82,7 +112,7 @@ jobs:
         # `--mutate` CLI flag overrides the `mutate` field in stryker.config.json
         # so we can shard at workflow level without juggling multiple config
         # files. testRunner / commandRunner / thresholds all come from the
-        # shared config. Each shard runs on its own runner filesystem, so both
+        # shared config. Each shard runs on its own runner filesystem, so all
         # can write the report to the same `reports/mutation/` path without
         # collision; the upload-artifact step disambiguates by shard name.
         run: stryker run --mutate "${{ matrix.shard.mutate }}"

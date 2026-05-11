@@ -29,6 +29,29 @@ describe('auto-blend blacklist', () => {
     expect(isAutoBlendBlacklistedUid('1002')).toBe(false)
     expect(isAutoBlendBlacklistedUid(null)).toBe(false)
   })
+
+  test('returns false for empty-string uid (locks the `uid !== \'\'` short-circuit)', () => {
+    // Without the `uid !== ''` clause, `'' in {'': true}` could pass — and
+    // worse, `'' in {}` happens to be false but `'' in {someKey: …}` is also
+    // false, so this branch is only observable when blacklist actually has
+    // an empty-string key.
+    autoBlendUserBlacklist.value = { '': 'sentinel', '1001': 'blocked-user' }
+    expect(isAutoBlendBlacklistedUid('')).toBe(false)
+    // Sanity: the '1001' entry still matches under the same blacklist.
+    expect(isAutoBlendBlacklistedUid('1001')).toBe(true)
+  })
+
+  test('all three conditions are AND-ed (locks `&&` against `||` mutation)', () => {
+    autoBlendUserBlacklist.value = { '1001': 'blocked' }
+    // null uid + uid not in map → null path
+    expect(isAutoBlendBlacklistedUid(null)).toBe(false)
+    // empty uid + uid not in map → '' path
+    expect(isAutoBlendBlacklistedUid('')).toBe(false)
+    // non-null non-empty uid not in map → 'in' check fails
+    expect(isAutoBlendBlacklistedUid('9999')).toBe(false)
+    // all three pass
+    expect(isAutoBlendBlacklistedUid('1001')).toBe(true)
+  })
 })
 
 describe('isAutoBlendBlacklistedText', () => {

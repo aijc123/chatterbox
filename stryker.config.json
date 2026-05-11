@@ -1,11 +1,11 @@
 {
   "$schema": "https://unpkg.com/@stryker-mutator/core@9/schema/stryker-schema.json",
-  "_comment": "Mutation testing config. Manual-trigger only (workflow_dispatch). See .github/workflows/mutation.yml for the rationale: bun's test runner has no programmatic API (oven-sh/bun#26191), so stryker-js falls back to spawning the full CLI per mutant — too slow for every push. Scope limited to pure-function modules with strong unit tests so a manual run completes in single-digit minutes.",
+  "_comment": "Mutation testing config. Manual-trigger only (workflow_dispatch). See .github/workflows/mutation.yml for the rationale: bun's test runner has no programmatic API (oven-sh/bun#26191), so stryker-js falls back to spawning the full CLI per mutant — too slow for every push. Scope: 30 pure-function modules under src/lib/, each backed by a dedicated test file. auto-blend-presets.ts is intentionally NOT in scope — it's an orchestrator that fans into store signals (GM_*-backed gm-signal), which doesn't survive stryker's per-mutant CLI spawn without leaking mocks across files (see CLAUDE.md note on mock.module leakage).",
   "packageManager": "npm",
   "reporters": ["clear-text", "progress", "html"],
   "testRunner": "command",
   "commandRunner": {
-    "command": "bun test --isolate tests/wbi-pure.test.ts tests/wbi-diagnostics.test.ts tests/wbi-sentinel.test.ts tests/wbi-xhr-hijack.test.ts tests/auto-blend.test.ts tests/fetch-cache.test.ts tests/user-blacklist-parsers.test.ts tests/remote-keywords-sanitize.test.ts tests/custom-chat-css-sanitize.test.ts tests/moderation.test.ts tests/loop-jitter.test.ts tests/meme-room-filter.test.ts tests/recent-danmaku-key.test.ts tests/live-ws-helpers-extras.test.ts tests/fetch-hijack-helpers.test.ts tests/danmaku-direct-helpers.test.ts tests/custom-chat-render.test.ts tests/api-concurrency.test.ts"
+    "command": "bun test --isolate tests/wbi-pure.test.ts tests/wbi-diagnostics.test.ts tests/wbi-sentinel.test.ts tests/wbi-xhr-hijack.test.ts tests/auto-blend.test.ts tests/fetch-cache.test.ts tests/user-blacklist-parsers.test.ts tests/remote-keywords-sanitize.test.ts tests/custom-chat-css-sanitize.test.ts tests/moderation.test.ts tests/loop-jitter.test.ts tests/meme-room-filter.test.ts tests/recent-danmaku-key.test.ts tests/live-ws-helpers-extras.test.ts tests/fetch-hijack-helpers.test.ts tests/danmaku-direct-helpers.test.ts tests/custom-chat-render.test.ts tests/api-concurrency.test.ts tests/version-update.test.ts tests/custom-chat-pricing.test.ts tests/cn.test.ts tests/auto-blend-blacklist.test.ts tests/platform.test.ts tests/platform-warn.test.ts tests/emote-picker-position.test.ts tests/clipboard.test.ts tests/sbhzm-freshness-probe.test.ts tests/utils-pure.test.ts tests/utils-extract-room.test.ts tests/meme-sources.test.ts tests/laplace-client.test.ts tests/shadow-suggestion.test.ts tests/md5.test.ts tests/meme-content-key.test.ts tests/auto-blend-status.test.ts tests/auto-blend-preset.test.ts"
   },
   "coverageAnalysis": "off",
   "disableTypeChecks": true,
@@ -23,7 +23,23 @@
     "src/lib/fetch-hijack-helpers.ts",
     "src/lib/danmaku-direct-helpers.ts",
     "src/lib/custom-chat-render.ts",
-    "src/lib/concurrency.ts"
+    "src/lib/concurrency.ts",
+    "src/lib/version-update.ts",
+    "src/lib/custom-chat-pricing.ts",
+    "src/lib/cn.ts",
+    "src/lib/auto-blend-blacklist.ts",
+    "src/lib/platform.ts",
+    "src/lib/emote-picker-position.ts",
+    "src/lib/clipboard.ts",
+    "src/lib/sbhzm-freshness-probe.ts",
+    "src/lib/utils.ts",
+    "src/lib/meme-sources.ts",
+    "src/lib/laplace-client.ts",
+    "src/lib/shadow-suggestion.ts",
+    "src/lib/md5.ts",
+    "src/lib/meme-content-key.ts",
+    "src/lib/auto-blend-status.ts",
+    "src/lib/auto-blend-preset-config.ts"
   ],
   "thresholds": {
     "high": 80,

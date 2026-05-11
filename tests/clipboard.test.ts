@@ -121,4 +121,107 @@ describe('copyTextToClipboard', () => {
     await copyTextToClipboard('cleanup-check')
     expect(document.body.children.length).toBe(before)
   })
+
+  // Mutation-testing fortifications below: the previous tests cover the
+  // three behavioral paths but never assert on the textarea's setup, so all
+  // the StringLiteral mutants on the hidden-textarea CSS / readonly attr
+  // survive. We tap createElement to capture the textarea and pin every
+  // field after the helper finishes.
+  describe('textarea-fallback configuration (StringLiteral kill-zone)', () => {
+    let captured: HTMLTextAreaElement | null = null
+    let originalCreateElement: typeof document.createElement | undefined
+
+    beforeEach(() => {
+      captured = null
+      originalCreateElement = document.createElement.bind(document)
+      // We snapshot the textarea's properties INSIDE the execCommand stub
+      // because the helper removes the element from the DOM immediately
+      // after `execCommand` returns — by the time the test resumes the
+      // textarea is detached.
+      document.execCommand = ((cmd: string) => {
+        execCommandCalls++
+        // At this moment the textarea is the most recently created child of
+        // document.body. The previous beforeEach replaced execCommand
+        // already; this version layers on top.
+        const body = document.body
+        const last = body.lastElementChild
+        if (last && last.tagName === 'TEXTAREA') {
+          captured = last as HTMLTextAreaElement
+        }
+        if (cmd === 'copy') return execCommandReturn
+        return false
+      }) as typeof document.execCommand
+    })
+
+    afterEach(() => {
+      // restore createElement just in case a later test replaces document
+      if (originalCreateElement) document.createElement = originalCreateElement
+    })
+
+    test('textarea.value is the EXACT text passed in (locks `textarea.value = text`)', async () => {
+      installNavigatorClipboard('missing')
+      execCommandReturn = true
+      await copyTextToClipboard('hello-fallback-payload')
+      expect(captured).not.toBeNull()
+      expect(captured?.value).toBe('hello-fallback-payload')
+    })
+
+    test('textarea has readonly attribute set to empty string', async () => {
+      installNavigatorClipboard('missing')
+      execCommandReturn = true
+      await copyTextToClipboard('x')
+      expect(captured?.hasAttribute('readonly')).toBe(true)
+      // The setAttribute call passes '' — pinning this kills the
+      // StringLiteral mutant on line 37.
+      expect(captured?.getAttribute('readonly')).toBe('')
+    })
+
+    test('textarea position is "fixed" (locks the StringLiteral)', async () => {
+      installNavigatorClipboard('missing')
+      execCommandReturn = true
+      await copyTextToClipboard('x')
+      expect(captured?.style.position).toBe('fixed')
+    })
+
+    test('textarea top is "0" (read back as "0px" — happy-dom normalizes dimension props)', async () => {
+      installNavigatorClipboard('missing')
+      execCommandReturn = true
+      await copyTextToClipboard('x')
+      // happy-dom stores `style.top = '0'` as '0px'. The mutation we care
+      // about is `'0'` → `''` or `'Stryker was here!'`. Either of those
+      // would read back differently than '0px'.
+      expect(captured?.style.top).toBe('0px')
+    })
+
+    test('textarea left is "0" (read back as "0px")', async () => {
+      installNavigatorClipboard('missing')
+      execCommandReturn = true
+      await copyTextToClipboard('x')
+      expect(captured?.style.left).toBe('0px')
+    })
+
+    test('textarea opacity is "0" (locks the StringLiteral)', async () => {
+      installNavigatorClipboard('missing')
+      execCommandReturn = true
+      await copyTextToClipboard('x')
+      expect(captured?.style.opacity).toBe('0')
+    })
+
+    test('textarea pointerEvents is "none" (locks the StringLiteral)', async () => {
+      installNavigatorClipboard('missing')
+      execCommandReturn = true
+      await copyTextToClipboard('x')
+      expect(captured?.style.pointerEvents).toBe('none')
+    })
+
+    test('textarea is appended to document.body (not somewhere else)', async () => {
+      installNavigatorClipboard('missing')
+      execCommandReturn = true
+      await copyTextToClipboard('x')
+      expect(captured?.parentNode).toBeNull() // already removed by now
+      // But it was appended before being removed — the execCommand stub
+      // wouldn't have captured it otherwise.
+      expect(captured).not.toBeNull()
+    })
+  })
 })
