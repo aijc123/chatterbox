@@ -14,6 +14,7 @@
 
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 
+import { md5 } from '../src/lib/md5'
 import {
   _extractWbiKeysForTests,
   _getMixinKeyForTests,
@@ -22,6 +23,7 @@ import {
   ensureWbiKeys,
   getCachedWbiKeys,
   waitForWbiKeys,
+  wbiDiagnostics,
 } from '../src/lib/wbi'
 
 describe('extractWbiKeys', () => {
@@ -177,6 +179,62 @@ describe('encodeWbi', () => {
     // Space → +, & → %26, = → %3D (encodeURIComponent uses %20 for space).
     expect(out).toContain(`q=${encodeURIComponent('hello world&foo=bar')}`)
   })
+
+  test('locks the exact w_rid bytes for a fixed input + frozen wts', () => {
+    // Mutation-test trap: many of the surviving mutants on encodeWbi (operator
+    // swap on img_key + sub_key concat, sorted-query `&` separator becoming
+    // empty, `Object.keys().sort()` becoming `Object.keys()`, etc.) only
+    // change the BYTES that go into md5 — not the shape of the output. Tests
+    // that only check `/[0-9a-f]{32}/` accept any sig. Lock the exact value
+    // by replaying the documented spec ourselves.
+    const realDateNow = Date.now
+    Date.now = () => 1_700_000_000_000
+    try {
+      // Intentionally pass keys in non-alphabetical order; the EMITTED prefix
+      // must keep insertion order, the SIGNED query must be sorted.
+      const out = encodeWbi({ foo: 'bar', baz: 'qux' }, wbiKeys)
+      const mixin_key = _getMixinKeyForTests(wbiKeys.img_key + wbiKeys.sub_key)
+      // sorted: baz < foo < wts → 'baz=qux&foo=bar&wts=1700000000'
+      const expectedSig = md5(`baz=qux&foo=bar&wts=1700000000${mixin_key}`)
+      expect(out).toBe(`foo=bar&baz=qux&w_rid=${expectedSig}&wts=1700000000`)
+    } finally {
+      Date.now = realDateNow
+    }
+  })
+
+  test('signing is order-invariant; emitted prefix is order-preserving', () => {
+    // Two key orderings of the SAME params: the unsorted prefix must differ
+    // (insertion order preserved) but w_rid must MATCH (sorted before sign).
+    const realDateNow = Date.now
+    Date.now = () => 1_700_000_000_000
+    try {
+      const a = encodeWbi({ z: '1', a: '2' }, wbiKeys)
+      const b = encodeWbi({ a: '2', z: '1' }, wbiKeys)
+      expect(a.startsWith('z=1&a=2&')).toBe(true)
+      expect(b.startsWith('a=2&z=1&')).toBe(true)
+      const aRid = a.match(/w_rid=([0-9a-f]{32})/)?.[1]
+      const bRid = b.match(/w_rid=([0-9a-f]{32})/)?.[1]
+      expect(aRid).toBeDefined()
+      expect(aRid).toBe(bRid)
+    } finally {
+      Date.now = realDateNow
+    }
+  })
+
+  test('undefined/null values in params do not throw and serialize as empty string', () => {
+    // Kills the `paramsWithWts[key]?.toString() ?? ''` → `paramsWithWts[key].toString()`
+    // OptionalChaining mutant. If `?.` is dropped, calling .toString() on
+    // undefined throws → this test (and presumably the production caller)
+    // would crash. The empty-string fallback is the documented contract.
+    const out = encodeWbi(
+      { defined: 'yes', undef: undefined as unknown as string, nul: null as unknown as string },
+      wbiKeys
+    )
+    expect(out).toContain('defined=yes')
+    expect(out).toContain('undef=')
+    expect(out).toContain('nul=')
+    expect(out).toMatch(/w_rid=[0-9a-f]{32}/)
+  })
 })
 
 describe('waitForWbiKeys', () => {
@@ -284,17 +342,25 @@ describe('ensureWbiKeys', () => {
     expect(keys).toBeNull()
   })
 
-  test('returns null when response body is not valid JSON', async () => {
+  test('returns null when response body is not valid JSON AND bumps parseFailures', async () => {
+    // Asserts the counter increment so a mutant that flips `++` to `--` (or
+    // drops the increment entirely) gets caught. Without the counter check
+    // the function looks the same to a caller — but the DevTools triage
+    // path (`window.__chatterboxWbiParseFailures`) loses signal.
+    const before = wbiDiagnostics.parseFailures
     globalThis.fetch = (async () => new Response('<html>oops</html>', { status: 200 })) as typeof fetch
     const keys = await ensureWbiKeys()
     expect(keys).toBeNull()
+    expect(wbiDiagnostics.parseFailures).toBe(before + 1)
   })
 
-  test('returns null when response is JSON but missing wbi_img', async () => {
+  test('returns null when response is JSON but missing wbi_img AND bumps extractMisses', async () => {
+    const before = wbiDiagnostics.extractMisses
     globalThis.fetch = (async () =>
       new Response(JSON.stringify({ data: { other: 'value' } }), { status: 200 })) as typeof fetch
     const keys = await ensureWbiKeys()
     expect(keys).toBeNull()
+    expect(wbiDiagnostics.extractMisses).toBe(before + 1)
   })
 
   test('caches and returns keys when fetch succeeds with a well-formed payload', async () => {

@@ -120,6 +120,17 @@ describe('extractUnameFromDanmakuItem', () => {
     expect(extractUnameFromDanmakuItem(item)).toBe(null)
   })
 
+  test('keeps a 32-char username at the exact MAX_UNAME_LENGTH boundary (locks <= vs <)', () => {
+    // Mutation-test trap: the length check is `clean.length <= 32`. A mutant
+    // flipping to `<` would reject names of exactly 32 graphemes (some Asian
+    // display names land right at this limit). Asserts the boundary case is
+    // KEPT, complementing the existing 50-char test that asserts oversize is
+    // rejected.
+    const exactly32 = 'a'.repeat(32)
+    const item = makeItem(`<div class="chat-item danmaku-item"><span class="user-name">${exactly32}</span></div>`)
+    expect(extractUnameFromDanmakuItem(item)).toBe(exactly32)
+  })
+
   test('normalizes consecutive whitespace to a single space', () => {
     const item = makeItem('<div class="chat-item danmaku-item"><span class="user-name">  阿\t\n茶  </span></div>')
     expect(extractUnameFromDanmakuItem(item)).toBe('阿 茶')

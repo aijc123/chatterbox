@@ -34,7 +34,11 @@ permissions:
 jobs:
   mutation:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 14 modules / ~600+ mutants — first scope-expansion run finished in
+    # ~14 min for the original 5-module / 317-mutant scope; conservative
+    # 60-min cap leaves headroom for the larger mutate list without risk
+    # of a timeout-kill mid-run.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v4

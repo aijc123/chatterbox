@@ -5,7 +5,7 @@
   "reporters": ["clear-text", "progress", "html"],
   "testRunner": "command",
   "commandRunner": {
-    "command": "bun test --isolate tests/wbi-pure.test.ts tests/wbi-diagnostics.test.ts tests/wbi-sentinel.test.ts tests/auto-blend.test.ts tests/fetch-cache.test.ts tests/user-blacklist-parsers.test.ts tests/remote-keywords-sanitize.test.ts"
+    "command": "bun test --isolate tests/wbi-pure.test.ts tests/wbi-diagnostics.test.ts tests/wbi-sentinel.test.ts tests/wbi-xhr-hijack.test.ts tests/auto-blend.test.ts tests/fetch-cache.test.ts tests/user-blacklist-parsers.test.ts tests/remote-keywords-sanitize.test.ts tests/custom-chat-css-sanitize.test.ts tests/moderation.test.ts tests/loop-jitter.test.ts tests/meme-room-filter.test.ts tests/recent-danmaku-key.test.ts tests/live-ws-helpers-extras.test.ts tests/fetch-hijack-helpers.test.ts tests/danmaku-direct-helpers.test.ts tests/custom-chat-render.test.ts tests/api-concurrency.test.ts"
   },
   "coverageAnalysis": "off",
   "disableTypeChecks": true,
@@ -14,7 +14,16 @@
     "src/lib/auto-blend-trend.ts",
     "src/lib/fetch-cache.ts",
     "src/lib/user-blacklist-parsers.ts",
-    "src/lib/remote-keywords-sanitize.ts"
+    "src/lib/remote-keywords-sanitize.ts",
+    "src/lib/custom-chat-css-sanitize.ts",
+    "src/lib/moderation.ts",
+    "src/lib/loop-utils.ts",
+    "src/lib/meme-room-filter.ts",
+    "src/lib/live-ws-helpers.ts",
+    "src/lib/fetch-hijack-helpers.ts",
+    "src/lib/danmaku-direct-helpers.ts",
+    "src/lib/custom-chat-render.ts",
+    "src/lib/concurrency.ts"
   ],
   "thresholds": {
     "high": 80,

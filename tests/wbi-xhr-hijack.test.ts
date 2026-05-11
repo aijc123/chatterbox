@@ -178,6 +178,23 @@ describe('wbi XHR hijack — load handler parsing branches', () => {
   })
 })
 
+describe('wbi module load side-effect — DevTools triage attach', () => {
+  test('attaches wbiDiagnostics to window.__chatterboxWbiParseFailures', () => {
+    // The IIFE at the top of wbi.ts runs at import time:
+    //   if (typeof window !== 'undefined') {
+    //     window.__chatterboxWbiParseFailures = wbiDiagnostics
+    //   }
+    // beforeAll() above installs a synthetic `window` BEFORE we import the
+    // cache-busted wbi module, so the guard takes the truthy branch. Asserts
+    // both that the global got the property AND that it points at the SAME
+    // instance as the exported `wbiDiagnostics` — so a mutant that empties
+    // the if-body or flips the guard to false gets caught.
+    const w = (globalThis as { window?: Record<string, unknown> }).window
+    expect(w).toBeDefined()
+    expect(w?.__chatterboxWbiParseFailures).toBe(mod.wbiDiagnostics)
+  })
+})
+
 describe('wbi XHR hijack — _setCachedWbiKeysForTests', () => {
   test('round-trip set → read → reset', () => {
     mod._setCachedWbiKeysForTests({ img_key: 'X', sub_key: 'Y' })

@@ -14,6 +14,11 @@ import {
   sanitizeRemoteKeywords,
 } from '../src/lib/remote-keywords-sanitize'
 
+// Local re-export — used by the boundary test below. Kept private to the
+// production module so callers can't lean on it; the test reaches in via
+// the same module export surface as the public functions.
+const REMOTE_KEYWORDS_MAX_KEY_LEN = 200
+
 describe('sanitizeKeywordsRecord', () => {
   test('keeps well-formed string entries', () => {
     expect(sanitizeKeywordsRecord({ foo: 'bar', baz: 'qux' }, 100)).toEqual({ foo: 'bar', baz: 'qux' })
@@ -70,6 +75,42 @@ describe('sanitizeKeywordsRecord', () => {
     // We strip whitespace-only, not all-whitespace-containing — replacing
     // " hello " with " hi " is a legitimate use case.
     expect(sanitizeKeywordsRecord({ ' hello ': 'world' }, 100)).toEqual({ ' hello ': 'world' })
+  })
+
+  test('FROM length boundary: exactly MAX_KEY_LEN is kept; +1 is dropped (locks > vs >=)', () => {
+    // Mutant flip from `from.length > REMOTE_KEYWORDS_MAX_KEY_LEN` to `>=`
+    // would drop the boundary case (the at-limit key). Without this test
+    // both versions look identical against the existing oversize-drop test.
+    const exactKey = 'x'.repeat(REMOTE_KEYWORDS_MAX_KEY_LEN) // length === 200
+    const overKey = 'x'.repeat(REMOTE_KEYWORDS_MAX_KEY_LEN + 1) // length === 201
+    expect(sanitizeKeywordsRecord({ [exactKey]: 'kept' }, 100)).toEqual({ [exactKey]: 'kept' })
+    expect(sanitizeKeywordsRecord({ [overKey]: 'dropped' }, 100)).toEqual({})
+  })
+
+  test('TO length boundary: exactly MAX_VALUE_LEN is kept; +1 is dropped (locks > vs >=)', () => {
+    const exactVal = 'v'.repeat(REMOTE_KEYWORDS_MAX_VALUE_LEN)
+    const overVal = 'v'.repeat(REMOTE_KEYWORDS_MAX_VALUE_LEN + 1)
+    expect(sanitizeKeywordsRecord({ ok: exactVal }, 100)).toEqual({ ok: exactVal })
+    expect(sanitizeKeywordsRecord({ ok: overVal }, 100)).toEqual({})
+  })
+
+  test('non-string TO does not crash on .length and the entry is dropped', () => {
+    // Mutation-test trap: the `typeof to !== 'string'` half of the L25 guard
+    // is what prevents the next line's `to.length` from blowing up on `null`
+    // or `undefined`. If a mutant disables the guard, this call would throw
+    // a TypeError. Assert non-throw explicitly so the regression surfaces.
+    expect(() =>
+      sanitizeKeywordsRecord(
+        { a: 'ok', b: null as unknown as string, c: undefined as unknown as string, d: 42 as unknown as string },
+        100
+      )
+    ).not.toThrow()
+    expect(
+      sanitizeKeywordsRecord(
+        { a: 'ok', b: null as unknown as string, c: undefined as unknown as string, d: 42 as unknown as string },
+        100
+      )
+    ).toEqual({ a: 'ok' })
   })
 })
 
@@ -130,5 +171,39 @@ describe('sanitizeRemoteKeywords', () => {
       rooms: [null, 'not an object', { room: '101', keywords: { foo: 'bar' } }],
     })
     expect(out.rooms).toEqual([{ room: '101', keywords: { foo: 'bar' } }])
+  })
+
+  test('non-object/null/array globalSection is ignored (does not populate result.global)', () => {
+    // Mutant flip on the global-section guard would let non-objects through
+    // and crash on `(globalSection as Record).keywords`. We pass each falsy
+    // shape and assert the function (a) doesn't throw and (b) leaves
+    // `result.global` undefined (the safe default).
+    expect(sanitizeRemoteKeywords({ global: null })).toEqual({})
+    expect(sanitizeRemoteKeywords({ global: 'not an object' })).toEqual({})
+    expect(sanitizeRemoteKeywords({ global: [] })).toEqual({})
+    expect(sanitizeRemoteKeywords({ global: 42 })).toEqual({})
+  })
+
+  test('non-array rooms is ignored (does not iterate non-iterables)', () => {
+    // Locks the `if (Array.isArray(obj.rooms))` guard. A mutant flipping to
+    // `true` would attempt to iterate a non-iterable (or treat an object
+    // map as an array) and either crash or produce garbage room entries.
+    expect(sanitizeRemoteKeywords({ rooms: null })).toEqual({})
+    expect(sanitizeRemoteKeywords({ rooms: 'string' })).toEqual({})
+    expect(sanitizeRemoteKeywords({ rooms: { 'not': 'an array' } })).toEqual({})
+    expect(sanitizeRemoteKeywords({ rooms: 42 })).toEqual({})
+  })
+
+  test('top-level non-object/null/array input returns {} without throwing', () => {
+    // Existing "returns empty object for non-object inputs" only covers a
+    // happy-path assertion. Tighten by verifying the function never throws
+    // on hostile inputs — `null.global` would crash if the top-level guard
+    // were removed.
+    expect(() => sanitizeRemoteKeywords(null)).not.toThrow()
+    expect(() => sanitizeRemoteKeywords(undefined)).not.toThrow()
+    expect(() => sanitizeRemoteKeywords([1, 2, 3])).not.toThrow()
+    expect(() => sanitizeRemoteKeywords('hostile')).not.toThrow()
+    expect(() => sanitizeRemoteKeywords(42)).not.toThrow()
+    expect(() => sanitizeRemoteKeywords(true)).not.toThrow()
   })
 })
