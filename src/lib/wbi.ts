@@ -3,7 +3,12 @@ import type { BilibiliWbiKeys } from '../types'
 import { md5 } from './md5'
 
 /** WBI keys captured by XHR hijack; set when /x/web-interface/nav response is received. */
-export let cachedWbiKeys: BilibiliWbiKeys | null = null
+let cachedWbiKeys: BilibiliWbiKeys | null = null
+
+/** Read accessor for the WBI key cache. Use this instead of importing the mutable binding directly. */
+export function getCachedWbiKeys(): BilibiliWbiKeys | null {
+  return cachedWbiKeys
+}
 
 /**
  * Diagnostic counter incremented every time a `nav` XHR response cannot be

@@ -261,7 +261,9 @@ function MessageBlacklistPanel() {
 
       <div style={{ margin: '.5em 0', display: 'grid', gap: '.35em' }}>
         <div className='cb-note'>
-          黑名单中的弹幕(精确匹配,trim 后)永远不会触发自动跟车。适合屏蔽 "666"、"+1"、"哈哈哈" 这类无意义高频水弹幕。
+          {
+            '黑名单中的弹幕(精确匹配,trim 后)永远不会触发自动跟车。适合屏蔽 "666"、"+1"、"哈哈哈" 这类无意义高频水弹幕。'
+          }
         </div>
 
         {entries.length > 0 ? (

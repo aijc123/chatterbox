@@ -80,6 +80,21 @@ const RECENT_DANMAKU_MAX = 500
 
 const STARTUP_FAILURE_LOG_INTERVAL = 60_000
 
+/**
+ * Diagnostic counters incremented whenever `asNumber` / `asString` swap a
+ * surprisingly-shaped WS payload field for a fallback. Numbers staying at 0
+ * across a full session implies B 站's payload shape matches our types;
+ * non-zero values usually mean a schema change shipped upstream and one of
+ * the chat features is silently degrading. Inspect via
+ * `window.__chatterboxLiveWsCoercion` from DevTools when triaging issues
+ * about missing prices / blank usernames / wrong gift counts.
+ */
+export const liveWsCoercionDiagnostics = { numberFallbacks: 0, stringFallbacks: 0 }
+if (typeof window !== 'undefined') {
+  ;(window as unknown as { __chatterboxLiveWsCoercion?: typeof liveWsCoercionDiagnostics }).__chatterboxLiveWsCoercion =
+    liveWsCoercionDiagnostics
+}
+
 function asRecord(value: unknown): UnknownRecord {
   return typeof value === 'object' && value !== null ? (value as UnknownRecord) : {}
 }
@@ -97,21 +112,6 @@ function asNumber(value: unknown, fallback = 0): number {
   // shapes (string-where-number, object-where-number, NaN/Infinity).
   if (value !== undefined && value !== null) liveWsCoercionDiagnostics.numberFallbacks++
   return fallback
-}
-
-/**
- * Diagnostic counters incremented whenever `asNumber` / `asString` swap a
- * surprisingly-shaped WS payload field for a fallback. Numbers staying at 0
- * across a full session implies B 站's payload shape matches our types;
- * non-zero values usually mean a schema change shipped upstream and one of
- * the chat features is silently degrading. Inspect via
- * `window.__chatterboxLiveWsCoercion` from DevTools when triaging issues
- * about missing prices / blank usernames / wrong gift counts.
- */
-export const liveWsCoercionDiagnostics = { numberFallbacks: 0, stringFallbacks: 0 }
-if (typeof window !== 'undefined') {
-  ;(window as unknown as { __chatterboxLiveWsCoercion?: typeof liveWsCoercionDiagnostics }).__chatterboxLiveWsCoercion =
-    liveWsCoercionDiagnostics
 }
 
 function nonEmptyFields(fields: Array<CustomChatField | null | undefined>): CustomChatField[] {

@@ -292,12 +292,6 @@ export async function fetchSbhzmFirstPage(source: MemeSource): Promise<SbhzmMeme
   return [...byContent.values()].map(normalizeMeme).filter((m): m is SbhzmMeme => m !== null)
 }
 
-/** 测试用：清空内存缓存。 */
-export function _clearSbhzmCacheForTests(): void {
-  memoryCache.clear()
-  tagsCache = null
-}
-
 // ---------------------------------------------------------------------------
 // Tag 字典 + 上传
 // ---------------------------------------------------------------------------
@@ -308,6 +302,12 @@ export interface SbhzmTagInfo {
 }
 
 let tagsCache: { ts: number; data: SbhzmTagInfo[] } | null = null
+
+/** 测试用：清空内存缓存。 */
+export function _clearSbhzmCacheForTests(): void {
+  memoryCache.clear()
+  tagsCache = null
+}
 
 /**
  * 拉 sbhzm 全量 tag 字典。一小时内存缓存。

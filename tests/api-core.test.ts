@@ -36,7 +36,7 @@ mock.module('../src/lib/custom-chat-events', () => ({
 const realWbi = await import('../src/lib/wbi')
 mock.module('../src/lib/wbi', () => ({
   ...realWbi,
-  cachedWbiKeys: null,
+  getCachedWbiKeys: () => null,
   encodeWbi: () => '',
 }))
 

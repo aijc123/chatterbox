@@ -18,9 +18,9 @@ import {
   _extractWbiKeysForTests,
   _getMixinKeyForTests,
   _resetCachedWbiKeysForTests,
-  cachedWbiKeys,
   encodeWbi,
   ensureWbiKeys,
+  getCachedWbiKeys,
   waitForWbiKeys,
 } from '../src/lib/wbi'
 
@@ -215,7 +215,7 @@ describe('waitForWbiKeys', () => {
       )) as typeof fetch
     try {
       await ensureWbiKeys()
-      expect(cachedWbiKeys).not.toBeNull()
+      expect(getCachedWbiKeys()).not.toBeNull()
       const start = Date.now()
       const ok = await waitForWbiKeys(1000, 50)
       const elapsed = Date.now() - start
@@ -275,7 +275,7 @@ describe('ensureWbiKeys', () => {
     }) as typeof fetch
     const keys = await ensureWbiKeys()
     expect(keys).toBeNull()
-    expect(cachedWbiKeys).toBeNull()
+    expect(getCachedWbiKeys()).toBeNull()
   })
 
   test('returns null when fetch returns a non-2xx response', async () => {
@@ -315,6 +315,6 @@ describe('ensureWbiKeys', () => {
       img_key: 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
       sub_key: 'ffffffffffffffffffffffffffffffff',
     })
-    expect(cachedWbiKeys).toEqual(keys)
+    expect(getCachedWbiKeys()).toEqual(keys)
   })
 })

@@ -30,7 +30,7 @@ import {
   sendMsg,
 } from './store'
 import { processMessages } from './utils'
-import { cachedWbiKeys, encodeWbi, waitForWbiKeys } from './wbi'
+import { encodeWbi, getCachedWbiKeys, waitForWbiKeys } from './wbi'
 
 let currentAbort: AbortController | null = null
 
@@ -112,14 +112,15 @@ export async function loop(): Promise<void> {
         buildReplacementMap()
 
         await waitForWbiKeys()
-        if (cachedWbiKeys) {
+        const wbiKeys = getCachedWbiKeys()
+        if (wbiKeys) {
           try {
             const configQuery = encodeWbi(
               {
                 room_id: String(roomId),
                 web_location: getSpmPrefix(),
               },
-              cachedWbiKeys
+              wbiKeys
             )
             const configUrl = `${BASE_URL.BILIBILI_GET_DM_CONFIG}?${configQuery}`
             const configResp: DanmakuConfigResponse = await fetch(configUrl, {

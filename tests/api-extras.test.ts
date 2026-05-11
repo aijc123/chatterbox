@@ -51,7 +51,10 @@ const wbiCalls: WbiCall[] = []
 const realWbi = await import('../src/lib/wbi')
 mock.module('../src/lib/wbi', () => ({
   ...realWbi,
-  cachedWbiKeys: { img_key: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', sub_key: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' },
+  getCachedWbiKeys: () => ({
+    img_key: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    sub_key: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+  }),
   encodeWbi: (params: Record<string, unknown>, keys: BilibiliWbiKeys) => {
     wbiCalls.push({ params, keys })
     return 'web_location=999.88&w_rid=signed&wts=1700000000'

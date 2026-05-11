@@ -72,7 +72,7 @@ function collapseRepeatedString(s: string): string {
 
 export function parseBadgeLevel(raw: string): number | null {
   const text = compactText(raw)
-  const match = text.match(/^(?:UL|LV)\s*(\d{1,3})$/i) ?? text.match(/^用户等级[:：]?\s*(\d{1,3})$/)
+  const match = text.match(/^(?:UL|LV)\s*(\d{1,3})$/iu) ?? text.match(/^用户等级[:：]?\s*(\d{1,3})$/u)
   if (!match) return null
   const value = Number(match[1])
   return Number.isFinite(value) && value >= 0 ? value : null
@@ -83,11 +83,11 @@ export function formatBadgeLevel(level: number): string {
 }
 
 export function cleanDisplayName(value: string): string {
-  return compactText(value).replace(/\s*[：:]\s*$/, '')
+  return compactText(value).replace(/\s*[：:]\s*$/u, '')
 }
 
 export function isBadDisplayName(value: string): boolean {
-  return !value || /通过活动|查看我的装扮|获得|装扮|荣耀|粉丝牌|用户等级|头像|复制|举报|回复|关闭/.test(value)
+  return !value || /通过活动|查看我的装扮|获得|装扮|荣耀|粉丝牌|用户等级|头像|复制|举报|回复|关闭/u.test(value)
 }
 
 export function usefulBadgeText(raw: string, uname: string): string | null {
@@ -95,12 +95,12 @@ export function usefulBadgeText(raw: string, uname: string): string | null {
   const text =
     level === null
       ? compactText(raw)
-          .replace(/^粉丝牌[:：]?/, '')
-          .replace(/^荣耀[:：]?/, '')
-          .replace(/^用户等级[:：]?/, '')
+          .replace(/^粉丝牌[:：]?/u, '')
+          .replace(/^荣耀[:：]?/u, '')
+          .replace(/^用户等级[:：]?/u, '')
       : formatBadgeLevel(level)
   if (!text || text.length > 16) return null
-  if (/这是\s*TA\s*的|TA 的|TA的|荣耀|粉丝|复制|举报|回复|关闭|头像/.test(text)) return null
+  if (/这是\s*TA\s*的|TA 的|TA的|荣耀|粉丝|复制|举报|回复|关闭|头像/u.test(text)) return null
   if (uname && (text === uname || text.startsWith(`${uname} `) || text.startsWith(`${uname}　`))) return null
   return text
 }

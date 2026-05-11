@@ -76,12 +76,11 @@ const realWbi = await import('../src/lib/wbi')
 let wbiCachedSeed: { img_key: string; sub_key: string } | null = null
 mock.module('../src/lib/wbi', () => ({
   ...realWbi,
-  // Apply the seed eagerly: real `cachedWbiKeys` is a live `export let`, so the
-  // loop module reads through it. `_setCachedWbiKeysForTests` writes the same
-  // internal binding the production code reads.
+  // Apply the seed eagerly: `_setCachedWbiKeysForTests` writes the same
+  // internal binding that `getCachedWbiKeys()` reads in production.
   waitForWbiKeys: async () => {
     if (wbiCachedSeed) realWbi._setCachedWbiKeysForTests(wbiCachedSeed)
-    return realWbi.cachedWbiKeys !== null
+    return realWbi.getCachedWbiKeys() !== null
   },
   encodeWbi: () => 'mock-wbi-query',
 }))

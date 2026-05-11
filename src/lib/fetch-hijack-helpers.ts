@@ -48,12 +48,19 @@ export function shouldHijackUrl(url: string, opts: HijackOpts): boolean {
  * must never throw — uncaught errors here would break the page's own
  * response consumer.
  */
-// biome-ignore lint/suspicious/noExplicitAny: parsed JSON shape from B站 is not stable
-export function applyTransforms(url: string, data: any, opts: HijackOpts): TransformResult {
+interface BlockPayloadShape {
+  data?: {
+    forbid_live?: { is_forbid?: boolean; forbid_text?: string }
+    be_relation?: { attribute?: number }
+  }
+}
+
+export function applyTransforms(url: string, data: unknown, opts: HijackOpts): TransformResult {
   if (!url || data === null || typeof data !== 'object') return NULL_RESULT
+  const payload = data as BlockPayloadShape
 
   if (opts.unlockForbidLive && url.includes(GET_INFO_BY_USER_PATTERN)) {
-    const forbid = data?.data?.forbid_live
+    const forbid = payload.data?.forbid_live
     if (!forbid) return { kind: 'live', wasBlocking: false }
     const wasBlocking = Boolean(forbid.is_forbid)
     forbid.is_forbid = false
@@ -62,7 +69,7 @@ export function applyTransforms(url: string, data: any, opts: HijackOpts): Trans
   }
 
   if (opts.unlockSpaceBlock && url.includes(ACC_RELATION_PATTERN)) {
-    const beRel = data?.data?.be_relation
+    const beRel = payload.data?.be_relation
     if (!beRel || typeof beRel !== 'object') return { kind: 'space', wasBlocking: false }
     if (beRel.attribute === 128) {
       beRel.attribute = 0

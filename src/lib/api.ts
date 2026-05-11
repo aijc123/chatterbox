@@ -10,7 +10,7 @@ import { describeRestrictionDuration, type RestrictionSignal, scanRestrictionSig
 import { buildReplacementMap } from './replacement'
 import { availableDanmakuColors, cachedEmoticonPackages, cachedRoomId, cachedStreamerUid } from './store'
 import { extractRoomNumber } from './utils'
-import { cachedWbiKeys, encodeWbi } from './wbi'
+import { encodeWbi, getCachedWbiKeys } from './wbi'
 
 /** Default Bilibili danmaku color palette (used when room config not loaded). */
 const DEFAULT_DANMAKU_COLORS = [
@@ -604,12 +604,13 @@ export async function sendDanmaku(message: string, roomId: number, csrfToken: st
 
   try {
     let query = ''
-    if (cachedWbiKeys) {
+    const wbiKeys = getCachedWbiKeys()
+    if (wbiKeys) {
       query = encodeWbi(
         {
           web_location: getSpmPrefix(),
         },
-        cachedWbiKeys
+        wbiKeys
       )
     }
 

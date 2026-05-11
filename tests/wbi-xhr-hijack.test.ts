@@ -127,7 +127,7 @@ describe('wbi XHR hijack — load handler parsing branches', () => {
     })
     xhr.send()
     xhr.fireLoad()
-    expect(mod.cachedWbiKeys).toEqual({
+    expect(mod.getCachedWbiKeys()).toEqual({
       img_key: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       sub_key: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
     })
@@ -136,7 +136,7 @@ describe('wbi XHR hijack — load handler parsing branches', () => {
   test('matching URL + malformed JSON bumps parseFailures AND clears any prior cache', () => {
     // Seed a "stale" cache so we can verify the clear behavior.
     mod._setCachedWbiKeysForTests({ img_key: 'STALE_a', sub_key: 'STALE_b' })
-    expect(mod.cachedWbiKeys).not.toBeNull()
+    expect(mod.getCachedWbiKeys()).not.toBeNull()
 
     const before = mod.wbiDiagnostics.parseFailures
     const xhr = newXhr()
@@ -146,7 +146,7 @@ describe('wbi XHR hijack — load handler parsing branches', () => {
     xhr.fireLoad()
     expect(mod.wbiDiagnostics.parseFailures).toBe(before + 1)
     // Critical: stale cache MUST be wiped so callers fall back to ensureWbiKeys.
-    expect(mod.cachedWbiKeys).toBeNull()
+    expect(mod.getCachedWbiKeys()).toBeNull()
   })
 
   test('matching URL + JSON without wbi_img bumps extractMisses BUT preserves a prior cache', () => {
@@ -158,7 +158,7 @@ describe('wbi XHR hijack — load handler parsing branches', () => {
     xhr.send()
     xhr.fireLoad()
     expect(mod.wbiDiagnostics.extractMisses).toBe(before + 1)
-    expect(mod.cachedWbiKeys).toEqual({ img_key: 'OK_a', sub_key: 'OK_b' })
+    expect(mod.getCachedWbiKeys()).toEqual({ img_key: 'OK_a', sub_key: 'OK_b' })
   })
 
   test('substring match: any URL CONTAINING /x/web-interface/nav triggers the hijack', () => {
@@ -174,16 +174,16 @@ describe('wbi XHR hijack — load handler parsing branches', () => {
     })
     xhr.send()
     xhr.fireLoad()
-    expect(mod.cachedWbiKeys?.img_key).toBe('cccccccccccccccccccccccccccccccc')
+    expect(mod.getCachedWbiKeys()?.img_key).toBe('cccccccccccccccccccccccccccccccc')
   })
 })
 
 describe('wbi XHR hijack — _setCachedWbiKeysForTests', () => {
   test('round-trip set → read → reset', () => {
     mod._setCachedWbiKeysForTests({ img_key: 'X', sub_key: 'Y' })
-    expect(mod.cachedWbiKeys).toEqual({ img_key: 'X', sub_key: 'Y' })
+    expect(mod.getCachedWbiKeys()).toEqual({ img_key: 'X', sub_key: 'Y' })
     mod._setCachedWbiKeysForTests(null)
-    expect(mod.cachedWbiKeys).toBeNull()
+    expect(mod.getCachedWbiKeys()).toBeNull()
   })
 })
 

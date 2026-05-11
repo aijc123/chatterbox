@@ -504,7 +504,7 @@ function displayName(message: CustomChatEvent): string {
       name = cleanDisplayName(name.slice(badge.length))
     }
   }
-  const medalPrefix = name.match(/^[^\s:：]{1,10}\s+\d{1,3}\s+(.{1,32})$/)
+  const medalPrefix = name.match(/^[^\s:：]{1,10}\s+\d{1,3}\s+(.{1,32})$/u)
   const medalName = cleanDisplayName(medalPrefix?.[1] ?? '')
   if (medalName && !isBadDisplayName(medalName)) name = medalName
   name = cleanDisplayName(name)
@@ -538,9 +538,9 @@ function normalizeBadges(message: CustomChatEvent, name = displayName(message)):
 
 function guardLevel(message: CustomChatEvent): string | null {
   const value = `${message.text} ${message.badges.join(' ')} ${message.rawCmd ?? ''}`
-  if (/总督|GUARD\s*1|舰队\s*1|privilege[_-]?type["':\s]*1/i.test(value)) return '1'
-  if (/提督|GUARD\s*2|舰队\s*2|privilege[_-]?type["':\s]*2/i.test(value)) return '2'
-  if (/舰长|GUARD\s*3|舰队\s*3|privilege[_-]?type["':\s]*3/i.test(value)) return '3'
+  if (/总督|GUARD\s*1|舰队\s*1|privilege[_-]?type["':\s]*1/iu.test(value)) return '1'
+  if (/提督|GUARD\s*2|舰队\s*2|privilege[_-]?type["':\s]*2/iu.test(value)) return '2'
+  if (/舰长|GUARD\s*3|舰队\s*3|privilege[_-]?type["':\s]*3/iu.test(value)) return '3'
   return null
 }
 
@@ -601,7 +601,7 @@ function cardFields(
       fallback.push({
         key: 'gift-name',
         label: '礼物',
-        value: giftMatch[1].replace(/^.*?(投喂|赠送|送出)\s*/, ''),
+        value: giftMatch[1].replace(/^.*?(投喂|赠送|送出)\s*/u, ''),
         kind: 'text',
       })
     if (giftMatch?.[2]) fallback.push({ key: 'gift-count', label: '数量', value: `x${giftMatch[2]}`, kind: 'count' })
