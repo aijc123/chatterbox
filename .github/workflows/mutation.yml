@@ -43,14 +43,17 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
       - name: Install project deps (stryker's command runner shells out to bun test)
         run: bun install --frozen-lockfile
+      - name: Install Stryker + TypeScript globally
+        # Why global, not npx: stryker-core's TSConfigPreprocessor unconditionally
+        # imports `typescript` to parse tsconfig.json (the `disableTypeChecks:
+        # true` setting only skips the type checker, not the preprocessor). npx's
+        # `-p X -p Y` doesn't reliably co-locate multiple packages in one
+        # node_modules, so stryker-core's ESM resolver couldn't find typescript.
+        # `npm install -g` lands both in /usr/local/lib/node_modules and resolves
+        # cleanly. typescript@^6.0.3 matches root package.json's devDep.
+        run: npm install -g @stryker-mutator/core@^9.2.0 typescript@^6.0.3
       - name: Run Stryker
-        # `-p typescript` is required because stryker-core's TSConfigPreprocessor
-        # imports `typescript` to parse tsconfig.json — and npx resolves from its
-        # own temp node_modules, not the project's. `disableTypeChecks: true` in
-        # stryker.config.json only skips the type *checker*; the tsconfig
-        # preprocessor still runs whenever there are .ts files to mutate.
-        # Pin typescript to match the project's devDependency to avoid surprises.
-        run: npx --yes -p typescript@^6.0.3 -p @stryker-mutator/core@^9.2.0 stryker run
+        run: stryker run
       - name: Upload mutation HTML report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
