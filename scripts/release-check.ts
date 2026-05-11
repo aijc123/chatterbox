@@ -34,6 +34,15 @@ const steps: Step[] = [
     },
   },
   {
+    // Fails fast (no install / build cost upstream of it) if anyone drops
+    // `--isolate` from a `bun test` invocation. Cross-file mock.module leaks
+    // silently produce wrong test results — see `scripts/check-test-isolate.ts`.
+    name: 'Test isolation guard (--isolate present on every bun test)',
+    fn: () => {
+      run(['bun', 'scripts/check-test-isolate.ts'])
+    },
+  },
+  {
     name: 'Unit tests (bun test)',
     fn: () => {
       // Scope to tests/ — server/ has its own vitest pool-workers suite that
