@@ -23,20 +23,28 @@ name: Mutation
 # per-mutant CLI spawn without leaking `mock.module('$')` across files (see
 # CLAUDE.md note + feedback_bun_test_mocks).
 #
-# Split layout (six parallel jobs, each ~20–30 min target):
+# Split layout (eight parallel jobs, each ~25–50 min target):
 #   - core-a            (5 light original-core modules)
 #   - core-b            (5 light original-core modules)
-#   - heavy-a           (wbi + moderation — 411 LOC, ~500 mutants)
-#   - heavy-b           (live-ws-helpers + fetch-hijack-helpers + md5)
+#   - heavy-wbi         (wbi.ts alone — 209 LOC, ~350 mutants)
+#   - heavy-mod         (moderation.ts alone — 202 LOC, ~350 mutants)
+#   - heavy-misc        (live-ws-helpers + fetch-hijack-helpers + md5)
 #   - additions-small   (Tier A 8 small modules + light Tier C formatters)
-#   - additions-big     (Tier B 4 medium modules + auto-blend-status)
+#   - additions-utils   (utils + auto-blend-status — 315 LOC)
+#   - additions-memes   (meme-sources + laplace-client + shadow-suggestion)
 #
-# Rationale for splitting from 2 → 6 shards: when the test suite doubled
-# (18 → 36 test files) per-mutant runtime roughly doubled too (each mutant
-# spawns the full `bun test --isolate` over all 36 files, ~21s baseline
-# locally, slower on 4-vCPU CI runners). The old 2-shard config would have
-# blown the 60-min cap; six shards run in parallel under workflow_dispatch
-# and are easy to rebalance if any one creeps up.
+# Rationale for splitting from 2 → 6 → 8 shards: when the test suite
+# doubled (18 → 36 test files) per-mutant runtime roughly doubled too
+# (each mutant spawns the full `bun test --isolate` over all 36 files,
+# ~21s baseline locally, ~25–30s on 4-vCPU CI runners with stryker's
+# default concurrency = cpu_count - 1 = 3). With round-4's scope at 30
+# modules / ~2090 mutants, six shards still left two (heavy-a combining
+# wbi+moderation, and additions-big combining 5 medium modules) projected
+# to blow the 60-min cap. Splitting those two AND raising the per-job
+# timeout from 60 → 120 minutes gives comfortable headroom on every
+# shard. (GitHub-hosted runners cap at 360 min on public repos, so 120
+# is well within the platform limit; we keep it conservative so a hung
+# job is killed sooner.)
 #
 # How to invoke:
 #   GitHub Actions → Mutation workflow → Run workflow → master
@@ -61,7 +69,11 @@ jobs:
   mutation:
     name: ${{ matrix.shard.name }}
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # 120 min cap — 2× headroom over the projected 50-min worst-case shard.
+    # GitHub-hosted runners on public repos accept up to 360 min; we keep
+    # it lower so a hung shard (e.g. stryker stuck on a single timeout)
+    # gets killed before burning a full quota slot.
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -73,11 +85,16 @@ jobs:
           - name: core-b
             # Second half of original-core.
             mutate: "src/lib/loop-utils.ts,src/lib/meme-room-filter.ts,src/lib/danmaku-direct-helpers.ts,src/lib/custom-chat-render.ts,src/lib/concurrency.ts"
-          - name: heavy-a
-            # wbi (209 LOC) + moderation (202 LOC) — the two densest modules
-            # in the project. Paired so neither overruns its own shard.
-            mutate: "src/lib/wbi.ts,src/lib/moderation.ts"
-          - name: heavy-b
+          - name: heavy-wbi
+            # wbi.ts (209 LOC) on its own — the single densest module in
+            # the project. Previously paired with moderation in heavy-a;
+            # the pair projected to ~70 min on 4-vCPU CI, over the 60-min
+            # cap. Splitting drops each piece to ~35 min.
+            mutate: "src/lib/wbi.ts"
+          - name: heavy-mod
+            # moderation.ts (202 LOC) on its own. See heavy-wbi rationale.
+            mutate: "src/lib/moderation.ts"
+          - name: heavy-misc
             # live-ws-helpers + fetch-hijack-helpers (116 LOC) + md5 (145 LOC).
             # md5 has many constants but few branches; pairing it with the
             # two original-heavy modules balances mutant count.
@@ -87,10 +104,17 @@ jobs:
             # formatters (auto-blend-preset-config 72 LOC, meme-content-key
             # 17 LOC). All small modules — collective LOC ≈ 412.
             mutate: "src/lib/version-update.ts,src/lib/custom-chat-pricing.ts,src/lib/cn.ts,src/lib/auto-blend-blacklist.ts,src/lib/platform.ts,src/lib/emote-picker-position.ts,src/lib/clipboard.ts,src/lib/sbhzm-freshness-probe.ts,src/lib/meme-content-key.ts,src/lib/auto-blend-preset-config.ts"
-          - name: additions-big
-            # Tier B (4 medium-LOC modules, 640 LOC) + auto-blend-status
-            # (111 LOC, the most branch-heavy Tier C module). ≈ 751 LOC.
-            mutate: "src/lib/utils.ts,src/lib/meme-sources.ts,src/lib/laplace-client.ts,src/lib/shadow-suggestion.ts,src/lib/auto-blend-status.ts"
+          - name: additions-utils
+            # utils.ts (204) + auto-blend-status.ts (111) — 315 LOC. Split
+            # off from the old additions-big shard (which combined all
+            # Tier B + auto-blend-status at 751 LOC, projecting ~100 min
+            # on CI).
+            mutate: "src/lib/utils.ts,src/lib/auto-blend-status.ts"
+          - name: additions-memes
+            # meme-sources (246) + laplace-client (108) + shadow-suggestion
+            # (82) — 436 LOC. The meme + shadow cluster, sister-shard to
+            # additions-utils.
+            mutate: "src/lib/meme-sources.ts,src/lib/laplace-client.ts,src/lib/shadow-suggestion.ts"
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v4
