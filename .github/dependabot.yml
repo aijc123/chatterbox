@@ -38,3 +38,32 @@ updates:
         update-types: ['version-update:semver-major']
       - dependency-name: '@biomejs/biome'
         update-types: ['version-update:semver-major']
+
+  # `server/` is the chatterbox-cloud Cloudflare Worker — it has its own
+  # bun.lock independent from the userscript. Without this entry, server
+  # dependency upgrades had to be done by hand. OSV-Scanner does report
+  # vulns against server/bun.lock (it walks the whole tree), but only
+  # Dependabot opens the upgrade PRs.
+  - package-ecosystem: 'bun'
+    directory: '/server'
+    schedule:
+      interval: 'weekly'
+      day: 'monday'
+    open-pull-requests-limit: 5
+    groups:
+      dev-dependencies:
+        dependency-type: 'development'
+        update-types:
+          - 'minor'
+          - 'patch'
+      hono:
+        patterns:
+          - 'hono'
+          - '@hono/*'
+    ignore:
+      # Wrangler / @cloudflare/workers-types majors usually come with a
+      # required wrangler.jsonc / runtime change — review by hand.
+      - dependency-name: 'wrangler'
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@cloudflare/workers-types'
+        update-types: ['version-update:semver-major']

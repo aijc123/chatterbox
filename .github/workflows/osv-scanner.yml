@@ -1,0 +1,50 @@
+name: OSV-Scanner
+
+# Dependency vulnerability scan via Google's OSV.dev database.
+#
+# How this differs from Dependabot (which we already have):
+#   - Dependabot opens an upgrade PR per advisory; it tells you "fix it"
+#     but doesn't surface a *current* report of which versions are still
+#     vulnerable in the locked tree.
+#   - OSV-Scanner walks `bun.lockb` / `bun.lock` + `server/bun.lock` and
+#     emits SARIF into Code scanning, so unfixed transitive vulns stay
+#     visible until resolved.
+#   - OSV.dev pulls from GitHub Advisories, RustSec, PyPI, npm, Go vuln,
+#     etc. — broader source than Dependabot for some ecosystems (we only
+#     have npm / GitHub Actions here, but the same workflow keeps working
+#     if we ever add another language).
+#
+# Reusable workflow contract:
+#   - PR runs use `osv-scanner-reusable-pr.yml` to limit findings to the
+#     diff (no noise from existing alerts).
+#   - Push / cron runs use `osv-scanner-reusable.yml` for full-tree.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  schedule:
+    # Daily catches advisories published since the last PR run; the worker
+    # ships dependencies that are user-facing in their effect (a single
+    # vulnerable Cloudflare Workers package can leak D1 data).
+    - cron: '30 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  # The reusable workflow declares the same set internally; listing here
+  # makes it obvious at the call-site what's being granted.
+  actions: read
+  contents: read
+  security-events: write
+
+jobs:
+  scan-pr:
+    if: github.event_name == 'pull_request'
+    # Pinned to v2.3.8 commit. Refreshable via:
+    #   gh api repos/google/osv-scanner-action/git/refs/tags/v2.3.8 --jq .object.sha
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
+
+  scan-scheduled:
+    if: github.event_name != 'pull_request'
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8

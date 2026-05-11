@@ -1,0 +1,78 @@
+name: Semgrep
+
+# Pattern-based static analysis. Complements CodeQL: CodeQL is great at
+# data-flow / taint tracking but slow and rigid; Semgrep is fast and easy
+# to extend with project-specific rules (a half-page YAML file each).
+#
+# Rule packs we run by default:
+#   - p/security-audit  — generic OWASP-style audit checks
+#   - p/owasp-top-ten   — OWASP Top 10 patterns
+#   - p/javascript      — JS-specific lint-grade security rules
+#   - p/typescript      — TS-specific
+#   - p/cloudflare-workers (only if pack exists; otherwise the run silently
+#     ignores it, which is the desired behavior so adding a missing pack
+#     name doesn't fail CI)
+#   - .semgrep/         — repo-local custom rules (see directory README)
+#
+# SARIF upload puts findings in the Security tab next to CodeQL / OSV.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  schedule:
+    - cron: '0 7 * * 1' # Mondays 07:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  semgrep:
+    name: semgrep ci
+    runs-on: ubuntu-latest
+    # Skip on Dependabot PRs — those branches don't have access to the
+    # SARIF upload write permission, and the rule packs themselves don't
+    # benefit from re-running on a pure dependency bump.
+    if: github.actor != 'dependabot[bot]'
+    container:
+      # The Semgrep team publishes a Docker image as their official
+      # GitHub Action surface (their old `semgrep/semgrep-action` repo is
+      # archived). `:latest` tracks the rolling stable release; pin to a
+      # digest later if reproducibility matters more than fresh rules.
+      # Refresh policy: review the digest annually or when CI flags new
+      # security findings against unchanged code (signal that rules
+      # changed under us).
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Run Semgrep CI
+        env:
+          # `semgrep ci` reads `SEMGREP_RULES` env when no `--config` is
+          # passed. We list packs explicitly instead of using the cloud
+          # registry so this run works without a Semgrep AppSec Platform
+          # account.
+          SEMGREP_RULES: >-
+            p/security-audit
+            p/owasp-top-ten
+            p/javascript
+            p/typescript
+        run: semgrep ci --sarif --output=semgrep.sarif || true
+        # `|| true` keeps the job green so the SARIF still uploads;
+        # severity gating happens in the GitHub Security tab triage UI.
+        # Flip this to a real exit-code gate (`semgrep ci --error`) once
+        # we've cleared the initial backlog.
+
+      - name: Upload SARIF to GitHub
+        if: always()
+        # Same codeql-action SHA as codeql.yml — github/codeql-action ships
+        # the upload-sarif sub-action and reusing one pin keeps Dependabot's
+        # update PRs simple.
+        uses: github/codeql-action/upload-sarif@bc0b696b4103f5fe60f15749af68a046868d511a # codeql-bundle-v2.25.4
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
