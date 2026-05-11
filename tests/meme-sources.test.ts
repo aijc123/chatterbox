@@ -61,6 +61,184 @@ describe('DEFAULT_MEME_SOURCES contract', () => {
     expect(builtin?.pauseKeywords).toContain('够了')
     expect(builtin?.pauseKeywords).toContain('别刷了')
   })
+
+  // Mutation-test fortification: pin every literal in the 灰泽满直播间
+  // entry. Stryker mutates each StringLiteral, ArrayDeclaration, and
+  // ObjectLiteral inside DEFAULT_MEME_SOURCES; the shallow assertions above
+  // only catch a handful. This single `toEqual` kills ~28 StringLiteral
+  // mutants in one go without bloating the suite.
+  test('built-in 灰泽满直播间 entry matches the exact spec (kills constant-data mutants)', () => {
+    const builtin = DEFAULT_MEME_SOURCES[String(SAMPLE_BUILTIN_ROOM_ID)]
+    expect(builtin).toEqual({
+      roomId: 1713546334,
+      name: '灰泽满烂梗库',
+      listEndpoint: 'https://sbhzm.cn/api/public/memes',
+      randomEndpoint: 'https://sbhzm.cn/api/public/memes/random',
+      defaultTags: ['满弟', '喷绿冻', '老弥'],
+      keywordToTag: {
+        '冲耳朵|耳朵痛|实习医生|医生|住院|医院': '满弟',
+        '绿冻|绿茬|喷.*绿|路人.*骂': '喷绿冻',
+        '困|睡|累|休息|床|被子|起床': '老弥',
+        '可爱|心动|心疼|爱.*(?:灰|满)|宝贝|乖': '爱灰泽满',
+        '傻逼|讨厌|喷.*(?:灰|满)|骂.*(?:灰|满)|烦死|滚': '喷灰泽满',
+        '茶|奶茶|龙井|绿茶': '茶',
+        '富|有钱|sc|大哥|舰长|豪|订阅': '富',
+        '原话|刚.*说|刚才.*说|你.*说.*过': '原话',
+        '黄桃|罐头': '黄桃',
+        '丈育|文盲|不识字': '丈育',
+        'hololive|holo|宝钟|姫|崎波': 'hololive',
+        'nijisanji|彩虹社|niji|社团': 'nijisanji',
+        '东野圭吾|侦探|推理|嫌疑人': '东野圭吾',
+        '同事|公司|周报|加班|上班': '同事',
+        '满爸|爸爸|父亲': '满爸',
+        '群魔乱舞|聚众|互喷|对骂': '群魔乱舞',
+      },
+      pauseKeywords: ['歇歇', '够了', '别刷了', '刷够了', '烦', '不要刷', '停一下'],
+      submitPage: 'https://sbhzm.cn/submit',
+    })
+  })
+
+  test('DEFAULT_MEME_SOURCES has exactly one entry (locks ObjectLiteral mutation)', () => {
+    // If somebody adds a second built-in, this test will helpfully scream so
+    // they can update the audit comments + this lock.
+    expect(Object.keys(DEFAULT_MEME_SOURCES).sort()).toEqual(['1713546334'])
+  })
+})
+
+// Length-cap boundary fortification. The constants URL_MAX_LEN (500),
+// NAME_MAX_LEN (64), TAG_MAX_LEN (64), TAGS_MAX_COUNT (32), PAUSE_MAX_COUNT
+// (64), KEYWORD_PATTERN_MAX_LEN (256), KEYWORD_MAP_MAX_ENTRIES (256) are
+// all targets of EqualityOperator / ArithmeticOperator mutations. The
+// existing tests cover them with generous overshoot (200 chars vs 64, 100
+// pauses vs 64) which doesn't pin the exact boundary. Below are the strict
+// `=` / `+1` cases.
+describe('validateMemeSource — exact length-cap boundaries', () => {
+  test('listEndpoint accepts a URL exactly 500 chars long (locks `> 500` not `>= 500`)', () => {
+    // URL = 'https://example.com/' (20) + 480 chars = 500 total.
+    const url = `https://example.com/${'a'.repeat(480)}`
+    expect(url.length).toBe(500)
+    expect(validateMemeSource({ roomId: 1, name: 'n', listEndpoint: url })?.listEndpoint).toBe(url)
+  })
+
+  test('listEndpoint rejects 501 chars (locks `> 500` not `>= 501`)', () => {
+    const url = `https://example.com/${'a'.repeat(481)}`
+    expect(url.length).toBe(501)
+    expect(validateMemeSource({ roomId: 1, name: 'n', listEndpoint: url })).toBeNull()
+  })
+
+  test('name accepts up to 64 chars verbatim; longer is sliced to exactly 64', () => {
+    const out64 = validateMemeSource({
+      roomId: 1,
+      name: 'a'.repeat(64),
+      listEndpoint: 'https://example.com/',
+    })
+    expect(out64?.name.length).toBe(64)
+    const out65 = validateMemeSource({
+      roomId: 1,
+      name: 'a'.repeat(65),
+      listEndpoint: 'https://example.com/',
+    })
+    expect(out65?.name.length).toBe(64) // sliced
+  })
+
+  test('defaultTags: tag of length exactly 64 is accepted (locks `> TAG_MAX_LEN`)', () => {
+    const out = validateMemeSource({
+      roomId: 1,
+      name: 'n',
+      listEndpoint: 'https://example.com/',
+      defaultTags: ['a'.repeat(64), 'a'.repeat(65)],
+    })
+    expect(out?.defaultTags).toEqual(['a'.repeat(64)])
+  })
+
+  test('defaultTags: exactly 32 tags kept verbatim (locks `>= TAGS_MAX_COUNT`)', () => {
+    const tagsIn = Array.from({ length: 32 }, (_, i) => `tag${i}`)
+    const out = validateMemeSource({
+      roomId: 1,
+      name: 'n',
+      listEndpoint: 'https://example.com/',
+      defaultTags: tagsIn,
+    })
+    expect(out?.defaultTags?.length).toBe(32)
+    expect(out?.defaultTags?.[31]).toBe('tag31')
+  })
+
+  test('pauseKeywords: exactly 64 entries kept verbatim', () => {
+    const pauseIn = Array.from({ length: 64 }, (_, i) => `p${i}`)
+    const out = validateMemeSource({
+      roomId: 1,
+      name: 'n',
+      listEndpoint: 'https://example.com/',
+      pauseKeywords: pauseIn,
+    })
+    expect(out?.pauseKeywords?.length).toBe(64)
+  })
+
+  test('keywordToTag: pattern key exactly 256 chars accepted (locks `> 256`)', () => {
+    const longKey = 'a'.repeat(256)
+    const out = validateMemeSource({
+      roomId: 1,
+      name: 'n',
+      listEndpoint: 'https://example.com/',
+      keywordToTag: { [longKey]: 'tag' },
+    })
+    expect(out?.keywordToTag?.[longKey]).toBe('tag')
+  })
+
+  test('keywordToTag: pattern key 257 chars rejected', () => {
+    const tooLong = 'a'.repeat(257)
+    const out = validateMemeSource({
+      roomId: 1,
+      name: 'n',
+      listEndpoint: 'https://example.com/',
+      keywordToTag: { [tooLong]: 'tag' },
+    })
+    expect(out?.keywordToTag).toBeUndefined()
+  })
+
+  test('keywordToTag: tag value of exactly 64 chars accepted', () => {
+    const tag64 = 'a'.repeat(64)
+    const out = validateMemeSource({
+      roomId: 1,
+      name: 'n',
+      listEndpoint: 'https://example.com/',
+      keywordToTag: { k: tag64 },
+    })
+    expect(out?.keywordToTag?.k).toBe(tag64)
+  })
+})
+
+describe('validateMemeSource — http loopback variants', () => {
+  // The `host.startsWith('[') && host.endsWith(']')` strip handles IPv6
+  // bracket notation; mutations on the `&&` and the bracket literals
+  // survive without coverage of the bracket-strip path.
+  test('http://[::1]:port/path also accepted (locks bracket-strip logic)', () => {
+    const out = validateMemeSource({
+      roomId: 1,
+      name: 'n',
+      listEndpoint: 'http://[::1]:8787/api',
+    })
+    expect(out?.listEndpoint).toBe('http://[::1]:8787/api')
+  })
+
+  test('http://[2001:db8::1]/ — non-loopback IPv6 is rejected', () => {
+    // Bracket-strip works, but the host doesn't match localhost/127.0.0.1/::1.
+    const out = validateMemeSource({
+      roomId: 1,
+      name: 'n',
+      listEndpoint: 'http://[2001:db8::1]/api',
+    })
+    expect(out).toBeNull()
+  })
+
+  test('"ws://localhost/api" is rejected — only http: / https: protocols are accepted', () => {
+    const out = validateMemeSource({
+      roomId: 1,
+      name: 'n',
+      listEndpoint: 'ws://localhost/api',
+    })
+    expect(out).toBeNull()
+  })
 })
 
 describe('validateMemeSource — top-level shape', () => {

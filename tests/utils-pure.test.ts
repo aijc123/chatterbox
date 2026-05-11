@@ -240,6 +240,166 @@ describe('splitTextSmart', () => {
       }
     }
   })
+
+  // Mutation-test fortification: SENTENCE_PUNCT and CLAUSE_PUNCT are
+  // 7+7 explicit character sets at module level. Each character gets a
+  // StringLiteral mutant (`'.'` → `""`) plus an ArrayDeclaration mutant
+  // (whole list → []). To kill every member individually we exercise the
+  // cut behavior for each character.
+  describe('SENTENCE_PUNCT membership lock', () => {
+    // Layout: 5 fillers + punct + 3 trailers → punct sits at index 5 of a
+    // 9-grapheme window. With maxLen=8 the cut search runs over j=7..0 and
+    // finds the punct at index 5 → cut at index 6.
+    test.each([
+      '.',
+      '?',
+      '!',
+      '。',
+      '？',
+      '！',
+      '…',
+    ])('cuts AFTER sentence punctuation %s (kills the StringLiteral mutant on that char)', (punct: string) => {
+      const text = `aaaaa${punct}bbb`
+      const out = splitTextSmart(text, 8, { lookback: 7 })
+      // The first chunk must end with the punctuation we expect.
+      expect(out[0].endsWith(punct)).toBe(true)
+      expect(out[0]).toBe(`aaaaa${punct}`)
+      expect(out[1]).toBe('bbb')
+    })
+  })
+
+  describe('CLAUSE_PUNCT membership lock', () => {
+    // Same layout as above, but using clause punctuation in a context where
+    // there's NO sentence-ending punctuation, so the clause-fallback loop
+    // gets used.
+    test.each([
+      ',',
+      ';',
+      ':',
+      '、',
+      '，',
+      '；',
+      '：',
+    ])('cuts AFTER clause punctuation %s when no sentence-ending punct in window', (punct: string) => {
+      const text = `aaaaa${punct}bbb`
+      const out = splitTextSmart(text, 8, { lookback: 7 })
+      expect(out[0]).toBe(`aaaaa${punct}`)
+      expect(out[1]).toBe('bbb')
+    })
+  })
+
+  // Mutation-test fortification: the search loops on lines 106 / 113 / 121
+  // contain `cut = j + 1` (arithmetic) and `break` (block-statement) that
+  // survive. We need behavioral assertions on cut position.
+  describe('cut-loop arithmetic lock', () => {
+    test('cut position is `j + 1` not `j` (so punctuation stays with the first chunk)', () => {
+      // Critical contract: when we find a sentence-ending punct at index j,
+      // we cut at index j+1 so the punctuation is included in the first
+      // chunk, not orphaned at the start of the next. Mutation `cut = j`
+      // would put the punct at the START of the next chunk.
+      const out = splitTextSmart('hello.world', 8, { lookback: 7 })
+      expect(out[0]).toBe('hello.')
+      expect(out[1]).toBe('world')
+      // If `cut = j` mutation was alive, we'd see ['hello', '.world'].
+      expect(out[0].endsWith('.')).toBe(true)
+      expect(out[1].startsWith('.')).toBe(false)
+    })
+
+    test('clause cut also at `j + 1` (mutation symmetry)', () => {
+      const out = splitTextSmart('hello,world', 8, { lookback: 7 })
+      expect(out[0]).toBe('hello,')
+      expect(out[1]).toBe('world')
+    })
+
+    test('whitespace cut at `j` (not j+1) AND consumed (skipNext=1)', () => {
+      // Whitespace branch is different — cut = j (NOT j + 1) and we set
+      // skipNext = 1 so the space is consumed. Mutations to either of these
+      // would either include the space in the chunks or drop a non-space
+      // character.
+      const out = splitTextSmart('hello world bye', 8, { lookback: 7 })
+      // Cut at the space → 'hello' + 'world bye' (the second piece is short
+      // enough to be the final chunk after the loop sees no more max-len
+      // splits).
+      // Importantly: 'hello' does not include the space.
+      expect(out[0]).toBe('hello')
+      expect(out[0].endsWith(' ')).toBe(false)
+      // Second chunk does not start with the consumed space.
+      expect(out[1].startsWith(' ')).toBe(false)
+    })
+
+    test('search prefers latest occurrence in window (loop scans backwards)', () => {
+      // Two periods in the window — the loop scans j from windowEnd-1
+      // downward, so the LATER one (closer to maxLen) wins. Mutation that
+      // flipped the loop direction (e.g. `j++` instead of `j--`) would pick
+      // the EARLIER one.
+      const out = splitTextSmart('a.bcde.fghij', 8, { lookback: 8 })
+      // Window covers indices 0..7 (8 graphemes = "a.bcde.f"). Periods at
+      // 1 and 6. Loop picks index 6 → cut at 7.
+      expect(out[0]).toBe('a.bcde.')
+      expect(out[1]).toBe('fghij')
+    })
+  })
+
+  // Default lookback / minTail computation: `lookback ?? Math.max(4,
+  // Math.floor(maxLen / 3))` and `Math.min(maxLen, opts.minTail ??
+  // Math.max(3, Math.floor(maxLen / 8)))`. These survive Math.* method
+  // swaps and constant mutations.
+  describe('default lookback / minTail computation', () => {
+    test('default lookback for maxLen=30 is floor(30/3)=10 (so a period 10 graphemes back is still found)', () => {
+      // Place a sentence period exactly 10 graphemes before maxLen=30. Default
+      // lookback should reach it. With maxLen=30 and no opts:
+      //   lookback = max(4, floor(30/3)) = 10
+      //   minBreak = i + maxLen - lookback = 0 + 30 - 10 = 20
+      //   loop scans j=29..20 looking for sentence punct
+      // Put '.' at index 20 (the earliest j the loop reaches) — should be found.
+      const text = `${'a'.repeat(20)}.${'b'.repeat(20)}`
+      const out = splitTextSmart(text, 30)
+      // First chunk ends with the period at index 20.
+      expect(out[0]).toBe(`${'a'.repeat(20)}.`)
+    })
+
+    test('default lookback for maxLen=30 does NOT reach a period 11 graphemes back', () => {
+      // Period at index 19 → minBreak=20 → scan never inspects index 19 →
+      // sentence search fails → falls through to clause / hard-cut. No
+      // clause punct here, no whitespace, so hard cut at maxLen=30.
+      const text = `${'a'.repeat(19)}.${'b'.repeat(20)}`
+      const out = splitTextSmart(text, 30)
+      // Hard cut at 30 → first chunk = first 30 chars (period included
+      // because the period is at index 19, well inside the first 30).
+      expect(out[0].length).toBe(30)
+    })
+
+    test('default lookback floor is 4 even for small maxLen (max(4, …))', () => {
+      // maxLen=6 → floor(6/3)=2, but max(4, 2)=4. So lookback=4, minBreak=2.
+      // Put a period at index 2 — should be found.
+      const text = `aa.${'b'.repeat(10)}`
+      const out = splitTextSmart(text, 6)
+      expect(out[0]).toBe('aa.')
+    })
+
+    test('default minTail is max(3, floor(maxLen / 8)) and capped at maxLen', () => {
+      // maxLen=10 → floor(10/8)=1, max(3, 1)=3. With a tail of 1 grapheme
+      // the rebalance should transfer 2 from the previous chunk.
+      const text = '一'.repeat(11)
+      const out = splitTextSmart(text, 10)
+      // Without rebalance: ['一'.repeat(10), '一'].
+      // With minTail=3: tail must be >=3 → tail becomes '一一一', prev
+      // shrinks to 8.
+      expect(out).toHaveLength(2)
+      expect(out[1].length).toBeGreaterThanOrEqual(3)
+      expect(out[0].length + out[1].length).toBe(11)
+    })
+
+    test('minTail is clamped at maxLen (Math.min upper bound)', () => {
+      // opts.minTail=100, maxLen=4 → effective minTail = min(4, 100) = 4.
+      // So tail can be at most 4. The implementation already enforces this
+      // via Math.min — pinning that the cap actually wins.
+      const out = splitTextSmart('abcdefghij', 4, { minTail: 100 })
+      for (const chunk of out) {
+        expect(chunk.length).toBeLessThanOrEqual(4)
+      }
+    })
+  })
 })
 
 describe('addRandomCharacter', () => {
