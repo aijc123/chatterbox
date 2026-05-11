@@ -28,4 +28,4 @@ jobs:
           package_manager: bun
           build_script: build
           skip_step: install
-          script: bun x size-limit
+          script: bun x size-limit --json
