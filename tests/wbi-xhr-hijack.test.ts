@@ -31,7 +31,12 @@ class FakeXhr {
   listeners: Record<string, Array<() => void>> = {}
 
   addEventListener(name: string, fn: () => void): void {
-    ;(this.listeners[name] ??= []).push(fn)
+    let list = this.listeners[name]
+    if (!list) {
+      list = []
+      this.listeners[name] = list
+    }
+    list.push(fn)
   }
 
   open(_method: string, _url: string, _async?: boolean, _u?: string | null, _p?: string | null): void {
@@ -193,10 +198,7 @@ describe('wbi XHR hijack — _setCachedWbiKeysForTests', () => {
 
 describe('wbi (cache-busted instance) — pure-helper coverage assist', () => {
   test('encodeWbi produces a wts/w_rid suffix', () => {
-    const out = mod.encodeWbi(
-      { x: '1' },
-      { img_key: 'a'.repeat(32), sub_key: 'b'.repeat(32) }
-    )
+    const out = mod.encodeWbi({ x: '1' }, { img_key: 'a'.repeat(32), sub_key: 'b'.repeat(32) })
     expect(out).toMatch(/w_rid=[0-9a-f]{32}/)
     expect(out).toMatch(/wts=\d+/)
   })
@@ -284,8 +286,7 @@ describe('wbi (cache-busted instance) — pure-helper coverage assist', () => {
   test('ensureWbiKeys falls through fetch — missing wbi_img bumps extractMisses', async () => {
     mod._resetCachedWbiKeysForTests()
     const original = globalThis.fetch
-    globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ data: {} }), { status: 200 })) as typeof fetch
+    globalThis.fetch = (async () => new Response(JSON.stringify({ data: {} }), { status: 200 })) as typeof fetch
     const before = mod.wbiDiagnostics.extractMisses
     try {
       const keys = await mod.ensureWbiKeys()

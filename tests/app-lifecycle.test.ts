@@ -71,11 +71,9 @@ beforeAll(() => {
 
 afterAll(() => {
   if (realWindow) Object.defineProperty(globalThis, 'window', { value: realWindow, configurable: true })
-  if (realDocument)
-    Object.defineProperty(globalThis, 'document', { value: realDocument, configurable: true })
+  if (realDocument) Object.defineProperty(globalThis, 'document', { value: realDocument, configurable: true })
   if (realHistory) Object.defineProperty(globalThis, 'history', { value: realHistory, configurable: true })
-  if (realLocation)
-    Object.defineProperty(globalThis, 'location', { value: realLocation, configurable: true })
+  if (realLocation) Object.defineProperty(globalThis, 'location', { value: realLocation, configurable: true })
   if (realSetTimeout) globalThis.setTimeout = realSetTimeout
   if (realClearTimeout) globalThis.clearTimeout = realClearTimeout
   if (realSetInterval) globalThis.setInterval = realSetInterval

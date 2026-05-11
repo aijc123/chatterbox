@@ -289,7 +289,7 @@ describe('submitCbMeme', () => {
     expect(out).toEqual({ id: 42, status: 'pending', dedup: false })
     expect(captured[0].method).toBe('POST')
     expect(captured[0].url).toMatch(/\/memes$/)
-    const body = JSON.parse(captured[0].body!)
+    const body = JSON.parse(captured[0].body ?? '')
     expect(body.content).toBe('new meme')
   })
 
@@ -303,7 +303,7 @@ describe('submitCbMeme', () => {
   test('passes optional tagNames / roomId / uid / username in body', async () => {
     responder = () => ({ status: 200, body: JSON.stringify({ id: 1, status: 'pending' }) })
     await submitCbMeme('content', { tagNames: ['tag1', 'tag2'], roomId: 99, uid: 12345, username: 'alice' })
-    const body = JSON.parse(captured[0].body!)
+    const body = JSON.parse(captured[0].body ?? '')
     expect(body.tagNames).toEqual(['tag1', 'tag2'])
     expect(body.roomId).toBe(99)
     expect(body.uid).toBe(12345)
@@ -313,7 +313,7 @@ describe('submitCbMeme', () => {
   test("omits opts that aren't provided", async () => {
     responder = () => ({ status: 200, body: JSON.stringify({ id: 1, status: 'pending' }) })
     await submitCbMeme('content')
-    const body = JSON.parse(captured[0].body!)
+    const body = JSON.parse(captured[0].body ?? '')
     expect(body.tagNames).toBeUndefined()
     expect(body.roomId).toBeUndefined()
     expect(body.uid).toBeUndefined()
@@ -371,7 +371,7 @@ describe('reportCbMemeCopy + flushCbCopyBatchForTests', () => {
     expect(await p3).toBe(5)
     expect(captured).toHaveLength(1)
     expect(captured[0].url).toMatch(/\/memes\/copy\/batch$/)
-    const body = JSON.parse(captured[0].body!)
+    const body = JSON.parse(captured[0].body ?? '')
     expect(body.items).toEqual([100, 101, 100]) // flattened, server aggregates
   })
 
@@ -579,7 +579,7 @@ describe('mirrorToCbBackend', () => {
     )
     expect(captured).toHaveLength(1)
     expect(captured[0].url).toMatch(/\/memes\/bulk-mirror$/)
-    const body = JSON.parse(captured[0].body!)
+    const body = JSON.parse(captured[0].body ?? '')
     expect(body.source).toBe('laplace')
     expect(body.items).toHaveLength(2)
     // _source is stripped before sending.
@@ -617,7 +617,7 @@ describe('mirrorToCbBackend', () => {
       'laplace'
     )
     expect(captured).toHaveLength(1)
-    const body = JSON.parse(captured[0].body!)
+    const body = JSON.parse(captured[0].body ?? '')
     expect(body.items).toHaveLength(1)
     expect(body.items[0].content).toBe('good')
   })

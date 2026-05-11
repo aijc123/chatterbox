@@ -143,7 +143,7 @@ describe('FetchCache.get — in-flight deduplication', () => {
     const p1 = cache.get({ key: 'k', ttlMs: 1000, fetcher })
     const p2 = cache.get({ key: 'k', ttlMs: 1000, fetcher })
     expect(calls).toBe(1) // both share one fetcher invocation
-    resolveFetcher!('shared-value')
+    resolveFetcher?.('shared-value')
     expect(await p1).toBe('shared-value')
     expect(await p2).toBe('shared-value')
   })
@@ -184,7 +184,7 @@ describe('FetchCache.get — in-flight deduplication', () => {
     // doesn't fire.
     const c1 = p1.catch(e => e)
     const c2 = p2.catch(e => e)
-    rejectFetcher!(new Error('boom'))
+    rejectFetcher?.(new Error('boom'))
     expect((await c1).message).toBe('boom')
     expect((await c2).message).toBe('boom')
   })
@@ -217,7 +217,7 @@ describe('FetchCache.get — in-flight deduplication', () => {
     }
     const p1 = cache.get({ key: 'k', ttlMs: 1000, fetcher: fetcher1 })
     const c1 = p1.catch(e => e) // attach handler first
-    rejectFirst!(new Error('down'))
+    rejectFirst?.(new Error('down'))
     expect((await c1).message).toBe('down')
     const out = await cache.get({ key: 'k', ttlMs: 1000, fetcher: fetcher2 })
     expect(out).toBe('recovery')
@@ -297,7 +297,7 @@ describe('FetchCache._clearForTests', () => {
     })
     expect(secondCalls).toBe(1)
     // Resolve the original to avoid hanging.
-    resolveFetcher!('original')
+    resolveFetcher?.('original')
     expect(await inFlightP).toBe('original')
     expect(await p2).toBe('fresh')
   })

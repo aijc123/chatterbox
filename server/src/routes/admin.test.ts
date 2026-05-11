@@ -113,8 +113,8 @@ describe('requireAdmin — audit log on failure', () => {
     const row = await env.DB.prepare("SELECT payload_json FROM contributions WHERE action = 'auth_fail'").first<{
       payload_json: string
     }>()
-    expect(row).not.toBeNull()
-    const payload = JSON.parse(row!.payload_json)
+    if (!row) throw new Error('expected an auth_fail row')
+    const payload = JSON.parse(row.payload_json)
     expect(payload.reason).toBe('missing_bearer')
     expect(payload.path).toBe('/admin/pending')
     expect(payload.hashPrefix).toBeNull()
@@ -128,8 +128,8 @@ describe('requireAdmin — audit log on failure', () => {
     const row = await env.DB.prepare(
       "SELECT payload_json FROM contributions WHERE action = 'auth_fail' ORDER BY id DESC LIMIT 1"
     ).first<{ payload_json: string }>()
-    expect(row).not.toBeNull()
-    const payload = JSON.parse(row!.payload_json)
+    if (!row) throw new Error('expected an auth_fail row')
+    const payload = JSON.parse(row.payload_json)
     expect(payload.reason).toBe('unknown_or_revoked')
     // hashPrefix = first 8 hex chars of sha-256(plaintext) — proves we logged a fingerprint
     // but stored nothing reversible.

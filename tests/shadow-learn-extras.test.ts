@@ -94,8 +94,9 @@ describe('learnShadowRules — extra branches', () => {
       originalMessage: 'y',
     })
     const rules = localRoomRules.value['7']
-    expect(rules?.length).toBe(2)
-    const froms = rules!.map(r => r.from)
+    if (!rules) throw new Error('expected rules for room 7')
+    expect(rules.length).toBe(2)
+    const froms = rules.map(r => r.from)
     expect(froms).toEqual(expect.arrayContaining(['good', 'also-good']))
     const log = appendLogCalls.find(l => l.includes('已学到'))
     expect(log).toContain('good')
@@ -123,9 +124,10 @@ describe('learnShadowRules — extra branches', () => {
       })
     }
     const rules = localRoomRules.value['3']
-    expect(rules!.length).toBe(50)
+    if (!rules) throw new Error('expected rules for room 3')
+    expect(rules.length).toBe(50)
     // Newest preserved (eviction takes from the start).
-    expect(rules!.at(-1)?.from).toBe('word-59')
+    expect(rules.at(-1)?.from).toBe('word-59')
   })
 })
 

@@ -88,11 +88,11 @@ describe('prepareChatButton', () => {
 const RealWheelEvent = (globalThis as { WheelEvent?: typeof WheelEvent }).WheelEvent
 const NEED_WHEELEVENT_SHIM = !RealWheelEvent
 
-class WheelEventShim {
-  static readonly DOM_DELTA_PIXEL = 0
-  static readonly DOM_DELTA_LINE = 1
-  static readonly DOM_DELTA_PAGE = 2
-}
+const WheelEventShim = {
+  DOM_DELTA_PIXEL: 0,
+  DOM_DELTA_LINE: 1,
+  DOM_DELTA_PAGE: 2,
+} as const
 
 beforeAll(() => {
   if (NEED_WHEELEVENT_SHIM) {

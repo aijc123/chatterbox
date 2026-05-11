@@ -185,13 +185,13 @@ describe('queryClusterRank', () => {
       }),
     })
     const out = await queryClusterRank('草')
-    expect(out).not.toBeNull()
-    expect(out!.clusterId).toBe(42)
-    expect(out!.similarity).toBe(0.92)
-    expect(out!.currentRankToday).toBe(7)
-    expect(out!.heatScore).toBe(1.5)
-    expect(out!.slopeScore).toBe(0.3)
-    expect(out!.isTrending).toBe(true)
+    if (!out) throw new Error('expected non-null cluster-rank result')
+    expect(out.clusterId).toBe(42)
+    expect(out.similarity).toBe(0.92)
+    expect(out.currentRankToday).toBe(7)
+    expect(out.heatScore).toBe(1.5)
+    expect(out.slopeScore).toBe(0.3)
+    expect(out.isTrending).toBe(true)
   })
 
   test('matched=false → null (caller treats as "no signal")', async () => {
@@ -261,12 +261,12 @@ describe('queryClusterRank', () => {
       body: JSON.stringify({ matched: true, clusterId: 1 }),
     })
     const out = await queryClusterRank('草')
-    expect(out).not.toBeNull()
-    expect(out!.similarity).toBe(0)
-    expect(out!.currentRankToday).toBeNull()
-    expect(out!.heatScore).toBe(0)
-    expect(out!.slopeScore).toBe(0)
-    expect(out!.isTrending).toBe(false)
+    if (!out) throw new Error('expected non-null cluster-rank result')
+    expect(out.similarity).toBe(0)
+    expect(out.currentRankToday).toBeNull()
+    expect(out.heatScore).toBe(0)
+    expect(out.slopeScore).toBe(0)
+    expect(out.isTrending).toBe(false)
   })
 })
 
@@ -307,11 +307,11 @@ describe('fetchTodayRadar', () => {
   test('limit param is clamped to [1, 100] and rounded', async () => {
     responder = () => ({ status: 200, body: clusterListBody([]) })
     await fetchTodayRadar(0)
-    expect(captured.at(-1)!.url).toContain('limit=1')
+    expect(captured.at(-1)?.url).toContain('limit=1')
     await fetchTodayRadar(1000)
-    expect(captured.at(-1)!.url).toContain('limit=100')
+    expect(captured.at(-1)?.url).toContain('limit=100')
     await fetchTodayRadar(15.7)
-    expect(captured.at(-1)!.url).toContain('limit=15')
+    expect(captured.at(-1)?.url).toContain('limit=15')
   })
 
   test('non-2xx → []', async () => {
@@ -442,7 +442,7 @@ describe('reportRadarObservation', () => {
     expect(captured).toHaveLength(1)
     expect(captured[0].method).toBe('POST')
     expect(captured[0].url).toMatch(/\/radar\/report$/)
-    const body = JSON.parse(captured[0].body!)
+    const body = JSON.parse(captured[0].body ?? '')
     expect(body.reporter_uid).toBe(12345678)
     expect(typeof body.client_version).toBe('string')
     expect(body.client_version.length).toBeGreaterThan(0)
@@ -516,7 +516,7 @@ describe('reportRadarObservation', () => {
     }
     await reportRadarObservation({ reporter_uid: 1, buckets })
     expect(captured).toHaveLength(1)
-    const body = JSON.parse(captured[0].body!)
+    const body = JSON.parse(captured[0].body ?? '')
     expect(body.buckets.length).toBe(100)
   })
 
@@ -532,7 +532,7 @@ describe('reportRadarObservation', () => {
       ],
     })
     expect(captured).toHaveLength(1)
-    const body = JSON.parse(captured[0].body!)
+    const body = JSON.parse(captured[0].body ?? '')
     expect(body.buckets).toHaveLength(2)
     expect(body.buckets[0].bucket_ts).toBe(BASE_BUCKET)
     expect(body.buckets[1].bucket_ts).toBe(BASE_BUCKET + 600)

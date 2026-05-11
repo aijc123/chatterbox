@@ -160,7 +160,7 @@ describe('startHzmAutoDrive — wiring', () => {
   test('subscribes to danmaku stream and stores recent danmu via the subscription', async () => {
     await startHzmAutoDrive({ source, getMemes: () => POOL })
     expect(activeSubscription).not.toBeNull()
-    activeSubscription!.onMessage?.({
+    activeSubscription?.onMessage?.({
       node: {} as never,
       text: '观众发言1',
       uname: 'u1',
@@ -168,7 +168,7 @@ describe('startHzmAutoDrive — wiring', () => {
       badges: [],
       isReply: false,
     })
-    activeSubscription!.onMessage?.({
+    activeSubscription?.onMessage?.({
       node: {} as never,
       text: '观众发言2',
       uname: 'u2',
@@ -183,7 +183,7 @@ describe('startHzmAutoDrive — wiring', () => {
 
   test('subscription ignores empty-text events', async () => {
     await startHzmAutoDrive({ source, getMemes: () => POOL })
-    activeSubscription!.onMessage?.({ node: {} as never, text: '', uname: 'u', uid: '1', badges: [], isReply: false })
+    activeSubscription?.onMessage?.({ node: {} as never, text: '', uname: 'u', uid: '1', badges: [], isReply: false })
     expect(_getRecentDanmuForTests()).toHaveLength(0)
   })
 
@@ -241,7 +241,7 @@ describe('stopHzmAutoDrive — cleanup', () => {
 
   test('clears recent danmu buffer', async () => {
     await startHzmAutoDrive({ source, getMemes: () => POOL })
-    activeSubscription!.onMessage?.({
+    activeSubscription?.onMessage?.({
       node: {} as never,
       text: 'x',
       uname: 'u',
@@ -287,7 +287,7 @@ describe('first tick — runs immediately on start', () => {
     hzmActivityMinDanmu.value = 0
     // Force activity so we get past the gate; force keyword pickup by filling pool with a known-content meme.
     await startHzmAutoDrive({ source, getMemes: () => [meme('强制候选', ['通用'])] })
-    activeSubscription!.onMessage?.({
+    activeSubscription?.onMessage?.({
       node: {} as never,
       text: 'trigger',
       uname: 'u',
@@ -307,7 +307,7 @@ describe('pause keyword override (via _runOneTickForTests)', () => {
     hzmActivityMinDanmu.value = 0
     hzmPauseKeywordsOverride.value = '安静'
     await startHzmAutoDrive({ source, getMemes: () => POOL })
-    activeSubscription!.onMessage?.({
+    activeSubscription?.onMessage?.({
       node: {} as never,
       text: '请大家安静一下',
       uname: 'u',
@@ -326,7 +326,7 @@ describe('pause keyword override (via _runOneTickForTests)', () => {
     hzmActivityMinDanmu.value = 0
     hzmPauseKeywordsOverride.value = '[unclosed\nvalid-pattern'
     await startHzmAutoDrive({ source, getMemes: () => POOL })
-    activeSubscription!.onMessage?.({
+    activeSubscription?.onMessage?.({
       node: {} as never,
       text: 'something with valid-pattern in it',
       uname: 'u',
@@ -358,7 +358,7 @@ describe('pause keyword override (via _runOneTickForTests)', () => {
       .replace(/\\\w/g, 'a') // \d/\s/\w → 'a'
       .replace(/[.*+?^${}()|[\]\\]/g, '') // strip metacharacters
     if (!plainTrigger) plainTrigger = 'fallback'
-    activeSubscription!.onMessage?.({
+    activeSubscription?.onMessage?.({
       node: {} as never,
       text: plainTrigger,
       uname: 'u',
@@ -382,7 +382,7 @@ describe('rate limit (via _runOneTickForTests)', () => {
     hzmRateLimitPerMin.value = 1
     // First tick (the auto one) will try to send. Wait for any microtasks.
     await startHzmAutoDrive({ source, getMemes: () => POOL })
-    activeSubscription!.onMessage?.({
+    activeSubscription?.onMessage?.({
       node: {} as never,
       text: 'open the gate',
       uname: 'u',
@@ -415,7 +415,7 @@ describe('sendOne — direct send path (via _runOneTickForTests)', () => {
     hzmRateLimitPerMin.value = 100
     enqueueResult = { success: true, message: '', isEmoticon: false }
     await startHzmAutoDrive({ source, getMemes: () => POOL })
-    activeSubscription!.onMessage?.({
+    activeSubscription?.onMessage?.({
       node: {} as never,
       text: 'open the gate',
       uname: 'u',
@@ -439,7 +439,7 @@ describe('sendOne — direct send path (via _runOneTickForTests)', () => {
     hzmActivityMinDanmu.value = 0
     enqueueResult = { success: false, message: '', isEmoticon: false, cancelled: true, error: 'preempted' }
     await startHzmAutoDrive({ source, getMemes: () => POOL })
-    activeSubscription!.onMessage?.({
+    activeSubscription?.onMessage?.({
       node: {} as never,
       text: 'open the gate',
       uname: 'u',
@@ -460,7 +460,7 @@ describe('sendOne — direct send path (via _runOneTickForTests)', () => {
     hzmActivityMinDanmu.value = 0
     enqueueResult = { success: false, message: '', isEmoticon: false, error: 'k' }
     await startHzmAutoDrive({ source, getMemes: () => POOL })
-    activeSubscription!.onMessage?.({
+    activeSubscription?.onMessage?.({
       node: {} as never,
       text: 'open the gate',
       uname: 'u',

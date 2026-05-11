@@ -309,9 +309,7 @@ describe('validateMemeSource — optional fields', () => {
 
 describe('registerMemeSource / lookup', () => {
   test('registerMemeSource returns true on valid input, false on invalid', () => {
-    expect(
-      registerMemeSource({ roomId: 1, name: 'x', listEndpoint: 'https://example.com/list' })
-    ).toBe(true)
+    expect(registerMemeSource({ roomId: 1, name: 'x', listEndpoint: 'https://example.com/list' })).toBe(true)
     expect(registerMemeSource({ roomId: 0, name: 'x' })).toBe(false)
     expect(registerMemeSource('not an object')).toBe(false)
   })

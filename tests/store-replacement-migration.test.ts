@@ -21,7 +21,7 @@
  * inspect after each load.
  */
 
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 
 import { installGmStoreMock } from './_gm-store'
 
