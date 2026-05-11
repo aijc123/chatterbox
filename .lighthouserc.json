@@ -18,7 +18,6 @@
         "categories:seo": ["warn", { "minScore": 0.9 }],
         "uses-responsive-images": "off",
         "csp-xss": "off",
-        "color-contrast": "off",
         "errors-in-console": "off"
       }
     },

@@ -42,7 +42,13 @@
         --text: #16181d;
         --muted: #596170;
         --line: #dce3ee;
-        --blue: #1677ff;
+        /* Picked for WCAG AA on white (#f7f8fb): contrast ratio ~7.16 (AAA).
+           Previous #1677ff was ~3.89 — fail on link text and .button outline.
+           Surfaces that read `--blue` as a background (e.g. .button.primary)
+           also benefit since they pair white text on this color (same ratio
+           reversed). Dark mode override below keeps the brighter blue, where
+           it pairs against a dark surface and already passes AA. */
+        --blue: #0050b3;
         --pink: #df4f84;
         --amber: #a76a00;
         --shadow: 0 18px 45px rgba(30, 42, 64, 0.1);
