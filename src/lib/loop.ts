@@ -11,7 +11,7 @@ import {
 } from './emoticon'
 import { classifyRiskEvent, syncGuardRoomRiskEvent } from './guard-room-sync'
 import { describeLlmGap, polishWithLlm } from './llm-polish'
-import { appendLog } from './log'
+import { appendLog, appendLogQuiet } from './log'
 import { computeJitteredSleepMs } from './loop-utils'
 import { applyReplacements, buildReplacementMap } from './replacement'
 import { cancelPendingAuto, enqueueDanmaku, SendPriority } from './send-queue'
@@ -141,15 +141,24 @@ export async function loop(): Promise<void> {
                 availableDanmakuColors.value = colors
               }
             }
-          } catch {
-            // non-critical
+          } catch (err) {
+            // 不阻塞独轮车启动:即便弹幕颜色配置拉失败,也只是少几个随机颜色,
+            // 不影响发弹幕。但要留一条 quiet 日志,否则用户反馈"随机颜色不工作"
+            // 时根本找不到原因。
+            appendLogQuiet(
+              `⚠️ 弹幕配置加载失败（颜色随机将退回默认）：${err instanceof Error ? err.message : String(err)}`
+            )
           }
         }
 
         try {
           await fetchEmoticons(roomId)
-        } catch {
-          // non-critical
+        } catch (err) {
+          // 同上:表情列表拉失败会让独轮车把表情 unique ID 当纯文本发,
+          // 屏幕上出现"乱码"。留 quiet 日志便于诊断。
+          appendLogQuiet(
+            `⚠️ 表情列表加载失败（含表情的模板可能显示错乱）：${err instanceof Error ? err.message : String(err)}`
+          )
         }
 
         if (forceScrollDanmaku.value) {

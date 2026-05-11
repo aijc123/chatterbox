@@ -98,14 +98,28 @@ function onAuditFailure(reason: string): void {
   }
 }
 
+/** Hard cap on the LAPLACE chat-audit request. 10s is generous; the API
+ *  normally responds in <500ms. A longer wait makes the user think send is
+ *  broken; the circuit breaker on the catch side keeps consecutive timeouts
+ *  from re-paying this cost. */
+const LAPLACE_AUDIT_TIMEOUT_MS = 10_000
+
 /**
  * Calls Laplace chat-audit API to detect sensitive words.
+ *
+ * AbortController + timeout: without these, a hung LAPLACE endpoint blocks
+ * every shadow-ban verification call forever (each verification awaits its
+ * own detection); the user sees the send panel hang. The timeout flips the
+ * circuit breaker on the catch side, which then short-circuits subsequent
+ * calls until the cooldown elapses.
  */
 async function detectSensitiveWords(text: string): Promise<DetectionResult> {
   if (isCircuitOpen(Date.now())) {
     // 降级:静默返回"无敏感词",上游恢复前不再产生网络等待和日志噪声。
     return { hasSensitiveContent: false }
   }
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), LAPLACE_AUDIT_TIMEOUT_MS)
   try {
     const resp = await fetch(BASE_URL.LAPLACE_CHAT_AUDIT, {
       method: 'POST',
@@ -113,6 +127,7 @@ async function detectSensitiveWords(text: string): Promise<DetectionResult> {
       body: JSON.stringify({
         completionMetadata: { input: text },
       }),
+      signal: controller.signal,
     })
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
     const data: unknown = await resp.json()
@@ -122,6 +137,8 @@ async function detectSensitiveWords(text: string): Promise<DetectionResult> {
   } catch (err) {
     onAuditFailure(err instanceof Error ? err.message : String(err))
     return { hasSensitiveContent: false }
+  } finally {
+    clearTimeout(timeoutId)
   }
 }
 

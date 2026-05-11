@@ -555,9 +555,12 @@ function routineTimerTick(): void {
   // Weighted random choice: W_i = count_i / sum_counts.
   // Over many ticks this naturally sends more-popular messages more often —
   // proportional distribution without needing a separate multi-send mechanism.
+  // Sort by count desc so the math-fallback (`chosen = candidates[0]`) is the
+  // most popular candidate rather than an arbitrary map-iteration tail entry.
+  candidates.sort((a, b) => b[1] - a[1])
   const totalWeight = candidates.reduce((s, [, c]) => s + c, 0)
   let r = Math.random() * totalWeight
-  let chosen = candidates[candidates.length - 1][0]
+  let chosen = candidates[0][0]
   for (const [text, count] of candidates) {
     r -= count
     if (r <= 0) {
@@ -623,17 +626,25 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
   pruneExpired(Date.now())
   const targets = collectBurst(triggeredText, reason)
 
-  // Engage cooldown and remove all targeted entries so they don't immediately
-  // re-trigger when cooldown ends. Non-targeted entries keep their counts.
-  // 实时读 effective cooldown(自动模式下会按当前 CPM 算):突发命中的瞬间
-  // 立刻拿到积极的冷却值,而不是回看上一次 sample。
-  {
+  // Cooldown + trendMap.delete are deferred to the first target that actually
+  // reaches the send step (see `engageCooldownOnce` below). If every target
+  // is filtered out (locked/unavailable emoticon, YOLO LLM gap or empty
+  // output, LLM error), nothing fires — and we must not consume a 20–45s
+  // cooldown for a no-op wave the user never saw followed.
+  let cooldownEngaged = false
+  const engageCooldownOnce = (): void => {
+    if (cooldownEngaged) return
+    cooldownEngaged = true
+    // 实时读 effective cooldown(自动模式下会按当前 CPM 算):突发命中的瞬间
+    // 立刻拿到积极的冷却值,而不是回看上一次 sample。
     const cooldownNow = Date.now()
     cooldownUntil = cooldownNow + getEffectiveCooldownMs(cooldownNow)
+    // Remove all targeted entries upfront so they don't immediately re-trigger
+    // when cooldown ends; non-targeted entries keep their counts.
+    for (const { text } of targets) trendMap.delete(text)
+    updateCandidateText()
+    updateStatusText()
   }
-  for (const { text } of targets) trendMap.delete(text)
-  updateCandidateText()
-  updateStatusText()
 
   try {
     const csrfToken = getCsrfToken()
@@ -658,6 +669,8 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
     let memeRecorded = false
 
     for (let ti = 0; ti < targets.length; ti++) {
+      // F: 用户中途关闭自动跟车 → 立刻停止整批发送,不再消费冷却也不再 enqueue。
+      if (!autoBlendEnabled.value) break
       const { text: originalText, uniqueUsers, totalCount } = targets[ti]
       if (isLockedEmoticon(originalText)) {
         logAutoBlend(formatLockedEmoticonReject(originalText, '自动跟车(表情)'), 'warning')
@@ -669,12 +682,6 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
         logAutoBlend(formatUnavailableEmoticonReject(originalText, '自动跟车(表情)'), 'warning')
         continue
       }
-      // 记录"正在动手发的这一句",让 autoBlendAvoidRepeat 在内层重发循环里、
-      // 以及多目标 burst 推进到下一目标时都能立刻生效。无条件写入:开关关闭时
-      // 这个值就只是个无人读取的字段,不会带来副作用。
-      // **关键**：始终用 *原文*（未润色）做 avoid-repeat 的指纹——这样即使 LLM
-      // 把 "666" 润色成 "哥哥太厉害了"，下一波同样的 "666" 仍会被识别为重复。
-      lastAutoSentText = originalText
       const isEmote = isEmoticonUnique(originalText)
 
       // YOLO（自动跟车的 LLM 润色）：在所有 fork-specific 过滤都过完后,在
@@ -718,7 +725,13 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
       const repeatCount =
         reason === 'burst' && autoBlendSendAllTrending.value ? 1 : Math.max(1, autoBlendSendCount.value)
 
+      // 这一刻才确定真要发(所有早期过滤都过了),在这里 engage 全局冷却 + 从
+      // trendMap 摘掉本批所有目标。dry-run 也算"发"——它同样要被冷却约束。
+      engageCooldownOnce()
+
       for (let i = 0; i < repeatCount; i++) {
+        // F: 用户中途关闭自动跟车 → 立刻终止该 target 的重发循环。
+        if (!autoBlendEnabled.value) break
         let toSend = replaced
         if (!isEmote && randomChar.value) toSend = addRandomCharacter(toSend)
         if (!isEmote) toSend = trimText(toSend, maxLength.value)[0] ?? toSend
@@ -765,6 +778,12 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
         }
 
         if (result.success && !result.cancelled) {
+          // 仅在 *实际成功送出* 后才把原文记入 avoid-repeat 指纹。
+          // 早期版本在 send 之前就无条件写入,会把"被手动打断/被审核拒绝/接口失败"
+          // 的句子也永久打入历史,导致用户后来手动想发同一句也被 recordDanmaku
+          // 静默过滤掉。始终用 *原文*(未润色)做指纹——这样即使 LLM 把 "666" 润色
+          // 成 "哥哥太厉害了",下一波同样的 "666" 仍会被识别为重复。
+          lastAutoSentText = originalText
           autoBlendLastActionText.value = `已提交，等待回显：${shortAutoBlendText(display)}`
           // Route through verifyBroadcast so the auto-follow path gets the
           // same shadow-ban → AI-evasion → rule-learning chain that the

@@ -15,9 +15,16 @@ export async function mapWithConcurrency<T, R>(
   limit: number,
   fn: (item: T) => Promise<R>
 ): Promise<R[]> {
+  // Defensive clamp:non-positive / NaN / non-integer limit would yield
+  // `Math.min(limit, items.length)` workers = 0 → Promise.all([]) resolves
+  // immediately → results array filled with `undefined`, callers downstream
+  // (api.ts anchor lookups) treat that as "no rooms found" silently.
+  // Always run at least 1 worker so the caller gets the real result.
+  const safeLimit = Number.isFinite(limit) && limit >= 1 ? Math.floor(limit) : 1
   const results = new Array<R>(items.length)
+  if (items.length === 0) return results
   let cursor = 0
-  const workers = new Array(Math.min(limit, items.length)).fill(0).map(async () => {
+  const workers = new Array(Math.min(safeLimit, items.length)).fill(0).map(async () => {
     while (true) {
       const idx = cursor++
       if (idx >= items.length) return

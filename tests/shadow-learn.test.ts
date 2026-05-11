@@ -90,7 +90,14 @@ describe('learnShadowRules', () => {
     expect(localRoomRules.value['7']).toEqual([{ from: '屏蔽', to: '手动改写' }])
   })
 
-  test('caps total auto-learned rules per room', () => {
+  test('caps total per room AND preserves manual user rules — only learned can be evicted', () => {
+    // 行为变更:之前 cap-eviction 用 `merged.slice(-CAP)`,会无差别砍掉最老的
+    // 项,包括用户手输的规则——直接违反 docstring 的"user wins"承诺。
+    // 现在 manual(无 source / source!=='learned')永远保留,只从 learned 队列里
+    // 按"老的先丢"裁剪。
+    //
+    // 49 条 manual seed(没 source 字段) + 3 条 learned → 总共 52 → cap=50;
+    // manuals(49) < 50 → 留 50-49=1 条 learned(取最新一条 → '新词C')。
     const seedRules = Array.from({ length: 49 }, (_, i) => ({ from: `seed${i}`, to: `s${i}` }))
     localRoomRules.value = { '9': seedRules }
     learnShadowRules({
@@ -101,8 +108,30 @@ describe('learnShadowRules', () => {
     })
     const rules = localRoomRules.value['9']
     expect(rules?.length).toBe(50)
+    // 全部 49 条 seed 都被保留(包括 seed0、seed1)。
+    expect(rules?.[0]?.from).toBe('seed0')
+    expect(rules?.[1]?.from).toBe('seed1')
+    // 仅最新的一条 learned 被纳入(新词A/B 因 cap 被丢)。
     expect(rules?.some(r => r.from === '新词C')).toBe(true)
-    expect(rules?.[0].from).toBe('seed2')
+    expect(rules?.some(r => r.from === '新词A')).toBe(false)
+    expect(rules?.some(r => r.from === '新词B')).toBe(false)
+  })
+
+  test('cap-evicts only learned, never manual: 50 manuals + new learned → learned dropped, log warning', () => {
+    // 极端情况:manual 单独已经达到 cap → 任何新 learned 都不能进库。
+    // 之前的实现会无声地把头部 manual 切掉给 learned 让位,违反"user wins"。
+    const seedRules = Array.from({ length: 50 }, (_, i) => ({ from: `seed${i}`, to: `s${i}` }))
+    localRoomRules.value = { '11': seedRules }
+    learnShadowRules({
+      roomId: 11,
+      sensitiveWords: ['新词X'],
+      evadedMessage: 'x',
+      originalMessage: 'irrelevant',
+    })
+    const rules = localRoomRules.value['11']
+    expect(rules?.length).toBe(50)
+    expect(rules?.[0]?.from).toBe('seed0') // 全 manual 保留,无 learned 进入
+    expect(rules?.some(r => r.from === '新词X')).toBe(false)
   })
 
   test('skips empty / oversized sensitive words', () => {

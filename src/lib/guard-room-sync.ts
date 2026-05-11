@@ -28,6 +28,27 @@ function describeFetchError(err: unknown): string {
   return String(err)
 }
 
+/**
+ * 默认 8 秒超时:Guard Room 端点是用户自配的,可能指向任意主机。任何 sync
+ * 路径(risk-event / heartbeat / shadow-rule / watchlist / control-profile)
+ * 都不应阻塞调用方更久,否则:
+ *   - 心跳循环会把后续心跳堆在 microtask 队列,看起来"卡死"
+ *   - shadow-learn 一次性 fire N 个 POST,一旦端点慢就拖垮整批
+ *   - guard-room-agent 的 tick 路径会被外面延后调度
+ * 已设默认即可,业务侧无需感知。
+ */
+const GUARD_ROOM_FETCH_TIMEOUT_MS = 8000
+
+async function fetchGuardRoom(url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController()
+  const t = setTimeout(() => controller.abort(), GUARD_ROOM_FETCH_TIMEOUT_MS)
+  try {
+    return await fetch(url, { ...init, signal: controller.signal })
+  } finally {
+    clearTimeout(t)
+  }
+}
+
 type RiskEventKind =
   | 'send_failed'
   | 'rate_limited'
@@ -162,7 +183,7 @@ export async function syncGuardRoomRiskEvent(input: RiskEventInput): Promise<voi
   }
 
   try {
-    const response = await fetch(`${endpoint}/api/risk-events`, {
+    const response = await fetchGuardRoom(`${endpoint}/api/risk-events`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -183,7 +204,7 @@ export async function createGuardRoomLiveDeskSession(name = '老大爷值班台'
 
   let response: Response | null = null
   try {
-    response = await fetch(`${endpoint}/api/live-desk/sessions`, {
+    response = await fetchGuardRoom(`${endpoint}/api/live-desk/sessions`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -209,7 +230,7 @@ export async function syncGuardRoomLiveDeskHeartbeat(input: LiveDeskHeartbeatInp
   if (!endpoint || !syncKey) return
 
   try {
-    const response = await fetch(`${endpoint}/api/live-desk/heartbeats`, {
+    const response = await fetchGuardRoom(`${endpoint}/api/live-desk/heartbeats`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -242,7 +263,7 @@ export async function syncGuardRoomShadowRule(input: ShadowRuleSyncInput): Promi
   if (!endpoint || !syncKey) return
 
   try {
-    const response = await fetch(`${endpoint}/api/shadow-rules`, {
+    const response = await fetchGuardRoom(`${endpoint}/api/shadow-rules`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -269,16 +290,23 @@ export async function syncGuardRoomWatchlist(rooms: GuardRoomWatchlistRoomInput[
   const syncKey = guardRoomSyncKey.value.trim()
   if (!endpoint || !syncKey) return
 
-  await fetch(`${endpoint}/api/watchlists/sync`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-sync-key': syncKey,
-    },
-    body: JSON.stringify({ rooms }),
-  }).then(response => {
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-  })
+  // 与其他 sync 路径对称的 try/catch:之前这个函数会让 network/HTTP 异常一路
+  // 冒到 guard-room-agent 调用方,触发未捕获的 unhandledrejection 噪声(没人
+  // 真去处理它)。失败时改成 dedup 一次的 warning toast,行为与 risk-events /
+  // heartbeat / shadow-rule 等保持一致。
+  try {
+    const response = await fetchGuardRoom(`${endpoint}/api/watchlists/sync`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-sync-key': syncKey,
+      },
+      body: JSON.stringify({ rooms }),
+    })
+    if (!response.ok) warnGuardRoomSyncFailureOnce(endpoint, 'watchlist', `HTTP ${response.status}`)
+  } catch (err) {
+    warnGuardRoomSyncFailureOnce(endpoint, 'watchlist', describeFetchError(err))
+  }
 }
 
 export async function fetchGuardRoomControlProfile(): Promise<GuardRoomControlProfileResponse | null> {
@@ -288,7 +316,7 @@ export async function fetchGuardRoomControlProfile(): Promise<GuardRoomControlPr
 
   let response: Response | null = null
   try {
-    response = await fetch(`${endpoint}/api/control-profile/current`, {
+    response = await fetchGuardRoom(`${endpoint}/api/control-profile/current`, {
       method: 'GET',
       headers: {
         'x-sync-key': syncKey,

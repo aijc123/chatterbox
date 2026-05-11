@@ -1,7 +1,11 @@
 import { autoBlendMessageBlacklist, autoBlendUserBlacklist } from './store'
 
 export function isAutoBlendBlacklistedUid(uid: string | null): boolean {
-  return uid !== null && uid !== '' && uid in autoBlendUserBlacklist.value
+  // 用 `Object.hasOwn` 而不是 `in`：键来自任意 B 站用户的 uid（字符串），
+  // `in` 会顺着原型链找到 `toString`/`constructor`/`valueOf`/`hasOwnProperty`
+  // 这些 Object.prototype 上的内置属性名，导致 uid 恰好等于这些名字的用户
+  // 即便不在黑名单里也被永久静音。见 `isAutoBlendBlacklistedText` 同坑。
+  return uid !== null && uid !== '' && Object.hasOwn(autoBlendUserBlacklist.value, uid)
 }
 
 /**

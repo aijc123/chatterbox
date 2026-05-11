@@ -189,8 +189,12 @@ describe('POST /memes/bulk-mirror — input validation', () => {
     expect(rows.results?.[0]?.source_origin).toBe('laplace')
   })
 
-  test('tags in mirror payload upsert into tags + meme_tags (and backfill existing rows)', async () => {
-    // 1) 先插一条没 tag 的"历史行"。模拟 1944 条已有数据。
+  test('tags in mirror payload only attach to net-new memes (IDOR fix)', async () => {
+    // 安全:之前 bulk-mirror 会用 content_hash 把 tag attach 到 *任意已存在的*
+    // approved meme,这是 IDOR——攻击者可以提交一个 content 等于已知 meme 的
+    // 包,把任意 tag(slur/色情/政治词)涂到老行上。现在 attachTagsByHash
+    // 仅作用于 "本次新插入" 的 meme;预先存在的行不会被改。
+    // 历史回填 tag 走 admin 路径或 cron,不走 public bulk-mirror。
     await env.DB.prepare(
       `INSERT INTO memes (uid, content, status, content_hash, source_origin, created_at, updated_at)
        VALUES (0, 'pre-existing meme', 'approved', ?, 'sbhzm', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')`
@@ -198,14 +202,15 @@ describe('POST /memes/bulk-mirror — input validation', () => {
       .bind(await (await import('../lib/hash')).contentHash('pre-existing meme'))
       .run()
 
-    // 2) Mirror 同一内容,这次带 tags —— 应该 attach 到那条已有行。
     const r = await SELF.fetch('http://example.com/memes/bulk-mirror', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         source: 'sbhzm',
         items: [
+          // 1) 试图给老行涂 tag —— 必须被忽略。
           { content: 'pre-existing meme', tags: [{ name: '搞笑', color: 'red', emoji: '😂' }] },
+          // 2) 全新一行 —— tag 正常落表。
           { content: 'fresh-row', tags: [{ name: '搞笑' }, { name: '问候' }] },
         ],
       }),
@@ -213,10 +218,15 @@ describe('POST /memes/bulk-mirror — input validation', () => {
     expect(r.status).toBe(200)
     const body = (await r.json()) as { inserted: number; tagsLinked: number; total: number }
     expect(body.inserted).toBe(1) // 只有 fresh-row 是新插
-    expect(body.tagsLinked).toBe(3) // pre-existing×1 + fresh-row×2
+    expect(body.tagsLinked).toBe(2) // 仅 fresh-row×2(pre-existing 的 tag 被丢)
     expect(body.total).toBe(2)
 
-    // 3) tags 表有 2 个去重后的 name,color/emoji 来自首次写入。
+    // tags 表里 '搞笑' 是从 fresh-row 那条带过来的(color/emoji 为 null,因为
+    // upsertTagsWithMeta 用 *第一个* 出现的 meta;迭代顺序保证 pre-existing 的
+    // {color: red, emoji: 😂} 是首个写入,所以 '搞笑' 仍然有 color/emoji ——
+    // tag 元数据的 upsert 路径和 meme→tag 链接路径是分开的,upsert 不受
+    // attach-only-on-new 的过滤影响。这是预期行为:tag 元数据池可以由任何
+    // mirror 调用扩充,只是没法把 tag 强行绑到老 meme 上。
     const tags = await env.DB.prepare('SELECT name, color, emoji FROM tags ORDER BY name').all<{
       name: string
       color: string | null
@@ -227,9 +237,14 @@ describe('POST /memes/bulk-mirror — input validation', () => {
     expect(xiaogao?.color).toBe('red')
     expect(xiaogao?.emoji).toBe('😂')
 
-    // 4) meme_tags 总条数 = 3(pre 1 条 + fresh 2 条)。
+    // meme_tags 总条数 = 2(只有 fresh-row)。pre-existing 行没有任何链接。
     const linkCount = await env.DB.prepare('SELECT COUNT(*) AS n FROM meme_tags').first<{ n: number }>()
-    expect(linkCount?.n).toBe(3)
+    expect(linkCount?.n).toBe(2)
+    const preLinks = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM meme_tags
+         WHERE meme_id = (SELECT id FROM memes WHERE content = 'pre-existing meme')`
+    ).first<{ n: number }>()
+    expect(preLinks?.n).toBe(0)
   })
 
   test('tag count cap: more than 8 tags per item are silently truncated', async () => {

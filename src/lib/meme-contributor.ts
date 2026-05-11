@@ -83,6 +83,11 @@ export function recordMemeCandidate(text: string, roomId: number): void {
 
   const now = Date.now()
   const times = sessionMap.get(text) ?? []
+  // 在 push 之前先剪掉超过 SESSION_MAP_MAX_AGE_MS(2 小时)的老时间戳。这样:
+  //   1. `times[0]` 始终是窗口内 *最早* 的触发,gap 检查永远反映"近期"行为
+  //      (之前只看绝对头,几年前的触发也会让 gap 永远通过);
+  //   2. `times[]` 长度有上界 → JSON.stringify 写 GM 存储不会无限增长。
+  while (times.length > 0 && now - times[0] > SESSION_MAP_MAX_AGE_MS) times.shift()
   times.push(now)
   sessionMap.set(text, times)
   saveRoomSessionMaps()
@@ -119,11 +124,12 @@ export function recordMemeCandidate(text: string, roomId: number): void {
     }
   }
 
-  // Hourly rate limit, scoped per room
+  // Hourly rate limit, scoped per room. 同样要在 push 之前剪掉老时间戳,
+  // 否则随着会话变长该数组无界增长(filter 永远只读、不写)。
   const stamps = nominationTimestampsByRoom.get(roomKey) ?? []
   const oneHourAgo = now - 3_600_000
-  const recentCount = stamps.filter(t => t >= oneHourAgo).length
-  if (recentCount >= MAX_PER_HOUR) return
+  while (stamps.length > 0 && stamps[0] < oneHourAgo) stamps.shift()
+  if (stamps.length >= MAX_PER_HOUR) return
 
   const nextCand = [...candForRoom, text]
   memeContributorCandidatesByRoom.value = {

@@ -22,6 +22,12 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0 # full history so the scanner can audit prior commits
+      # TODO(security): SHA-pin like every other third-party action in this
+      # repo (codecov-action, setup-bun, dependabot fetch-metadata, etc.).
+      # Floating @v2 lets the upstream repo ship a malicious release into our
+      # CI without explicit consent. Pin to the current `gitleaks-action`
+      # commit SHA via `gh api repos/gitleaks/gitleaks-action/commits/v2`,
+      # then update this line to `gitleaks/gitleaks-action@<sha> # v2.x.y`.
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -46,6 +46,8 @@ export interface ChooseMemeOptions {
   recentChat: string[]
   /** 候选梗（≤30 条）。 */
   candidates: LlmCandidate[]
+  /** Optional abort signal so callers can cancel in-flight LLM requests. */
+  signal?: AbortSignal
 }
 
 const SYSTEM_PROMPT_TEMPLATE = (roomName: string) =>
@@ -149,9 +151,15 @@ async function callAnthropic(opts: ChooseMemeOptions): Promise<LlmResponseChoice
       messages: [{ role: 'user', content: buildUserMessage(opts) }],
     }),
     timeoutMs: 15000,
+    signal: opts.signal,
   })
   if (!resp.ok) {
-    throw new Error(`Anthropic HTTP ${resp.status}: ${resp.text().slice(0, 200)}`)
+    // 上游 body 可能含有重复回显的 prompt 片段或在某些误配下回显 key 残留;
+    // 仅保留状态码 + 文本,详细 body 进 console.error 不进 appendLog/notifyUser。
+    if (typeof console !== 'undefined') {
+      console.error(`[llm-driver] Anthropic ${resp.status}`, resp.text().slice(0, 500))
+    }
+    throw new Error(`Anthropic HTTP ${resp.status} ${resp.statusText || ''}`.trim())
   }
   return parseAnthropicResponse(resp.json())
 }
@@ -179,9 +187,13 @@ async function callOpenAI(opts: ChooseMemeOptions, urlOverride?: string): Promis
       ],
     }),
     timeoutMs: 30000,
+    signal: opts.signal,
   })
   if (!resp.ok) {
-    throw new Error(`OpenAI HTTP ${resp.status}: ${resp.text().slice(0, 200)}`)
+    if (typeof console !== 'undefined') {
+      console.error(`[llm-driver] OpenAI ${resp.status}`, resp.text().slice(0, 500))
+    }
+    throw new Error(`OpenAI HTTP ${resp.status} ${resp.statusText || ''}`.trim())
   }
   return parseOpenAIResponse(resp.json())
 }
@@ -350,9 +362,12 @@ async function postOpenAIChatPolish(opts: ChatCompletionOptions, urlOverride?: s
       ],
     }),
     timeoutMs: 30000,
+    signal: opts.signal,
   })
   if (!resp.ok) {
-    throw new Error(`HTTP ${resp.status}: ${resp.text().slice(0, 200)}`)
+    // 错误消息只保留状态码 + 状态文本——upstream body 可能含有用户提示词
+    // 片段甚至 API key 残留(见 audit M9),不该流到 appendLog/notifyUser。
+    throw new Error(`HTTP ${resp.status} ${resp.statusText || ''}`.trim())
   }
   const content = readContent(resp.json())
   if (!content) throw new Error('返回内容为空')
@@ -375,9 +390,10 @@ async function postAnthropicPolish(opts: ChatCompletionOptions): Promise<string>
       messages: [{ role: 'user', content: opts.userText }],
     }),
     timeoutMs: 30000,
+    signal: opts.signal,
   })
   if (!resp.ok) {
-    throw new Error(`HTTP ${resp.status}: ${resp.text().slice(0, 200)}`)
+    throw new Error(`HTTP ${resp.status} ${resp.statusText || ''}`.trim())
   }
   const content = readAnthropicContent(resp.json())
   if (!content) throw new Error('返回内容为空')

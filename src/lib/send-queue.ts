@@ -42,6 +42,13 @@ interface QueueItem {
  */
 const HARD_MIN_GAP_MS = 1010
 
+/**
+ * 队列上限。1010ms 间隔 × 200 项 ≈ 3.4 分钟纯排队时间;再多基本是 stuck
+ * (网络挂掉 / sendDanmaku 阻塞 / 用户疯狂粘贴),应该丢最老的 AUTO 而不是
+ * 让队列一直涨。MANUAL/STT 不受此影响——这两类即便满了也能挤掉 AUTO。
+ */
+const MAX_QUEUE_LENGTH = 200
+
 const queue: QueueItem[] = []
 let processing = false
 let lastSendCompletedAt = 0
@@ -150,6 +157,19 @@ export function enqueueDanmaku(
       if (inflight !== null) cancelAutoItem(inflight, 'preempted')
       for (const q of queue) {
         if (q !== item) cancelAutoItem(q, 'preempted')
+      }
+    }
+
+    // 防溢出:总长度超 MAX_QUEUE_LENGTH 时,从队尾(优先级最低)开始把 AUTO 项
+    // cancel 掉,直到回到上限以下。MANUAL/STT 不被丢——它们由用户/语音直接驱动。
+    // cancelAutoItem 会调 item.resolve 通知 caller,promise 不会泄漏。
+    if (queue.length > MAX_QUEUE_LENGTH) {
+      for (let i = queue.length - 1; i >= 0 && queue.length > MAX_QUEUE_LENGTH; i--) {
+        const q = queue[i]
+        if (q.priority === SendPriority.AUTO && !q.cancelled) {
+          cancelAutoItem(q, 'queue-overflow')
+          queue.splice(i, 1)
+        }
       }
     }
 

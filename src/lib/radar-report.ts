@@ -229,13 +229,20 @@ function refreshSelfUidFromCookie(): void {
  * 不在模块顶层 effect():tests import 这个模块只为调 noteRadarObservation,不应
  * 被强制订阅 GM signal。app-lifecycle 在生产路径调一次。
  */
+// effect() 返回 disposer。生产路径下 startRadarReportLoop 全程只调一次
+// (在 components/app.tsx 的 boot 阶段),所以下面这两个 dispose 在生产中
+// 永远不会被调到——但 tests 通过 `_resetRadarReportForTests` 反复 reset
+// `started=false` 然后重新调 startRadarReportLoop,如果 effect 的 disposer
+// 不被执行就会泄漏越来越多的 signal 订阅。把 disposer 存在这里方便 reset 调用。
+let radarEffectDisposers: Array<() => void> = []
+
 export function startRadarReportLoop(): void {
   if (started) return
   started = true
 
   refreshSelfUidFromCookie()
 
-  effect(() => {
+  const dispose1 = effect(() => {
     if (radarReportEnabled.value) {
       // Re-read on toggle-on as well — covers the edge case where the user
       // logs in after the script booted (rare, since B站 login navigates).
@@ -250,11 +257,30 @@ export function startRadarReportLoop(): void {
     }
   })
 
-  effect(() => {
-    // 切房间触发:roomId 变化时把上一间的 buckets 丢掉。
-    void cachedRoomId.value
-    dropBuckets()
+  // 切房间触发:roomId 变化时把上一间的 buckets 丢掉。
+  // 跟踪上次 roomId,避免初次订阅时(prev=undefined → curr=任意值)被认作"切房"
+  // 而把 boot 早期攒下来的合法 bucket 当垃圾扫掉。
+  let prevRoomId: number | null = null
+  const dispose2 = effect(() => {
+    const curr = cachedRoomId.value
+    if (prevRoomId !== null && prevRoomId !== curr) {
+      dropBuckets()
+    }
+    prevRoomId = curr
   })
+
+  radarEffectDisposers = [dispose1, dispose2]
+}
+
+function disposeRadarEffects(): void {
+  for (const d of radarEffectDisposers) {
+    try {
+      d()
+    } catch {
+      // disposer 抛错一般是 signals 在 React/Preact teardown 阶段已经被回收;吞掉。
+    }
+  }
+  radarEffectDisposers = []
 }
 
 /** Test-only: peek bucket aggregator state. */
@@ -287,6 +313,10 @@ export function _resetRadarReportForTests(): void {
   buckets = new Map()
   clearTimer()
   detachIngest()
+  // Dispose the signal effects we wired in startRadarReportLoop. Without this,
+  // tests that call startRadarReportLoop multiple times would accumulate
+  // signal subscriptions across the suite.
+  disposeRadarEffects()
   started = false
   // Restore default impls so a stray test override doesn't leak across files.
   _subscribeDanmakuImpl = subscribeDanmaku

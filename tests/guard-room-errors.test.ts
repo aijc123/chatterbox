@@ -93,15 +93,29 @@ describe('syncGuardRoomShadowRule — silent failure contract', () => {
   })
 })
 
-describe('syncGuardRoomWatchlist — throw-on-non-OK contract', () => {
-  test('5xx response throws', async () => {
+describe('syncGuardRoomWatchlist — non-OK contract', () => {
+  // 行为变更:之前 syncGuardRoomWatchlist 在非 2xx / fetch reject 时会抛错。
+  // 改成与其他 sync*(risk-events / heartbeat / shadow-rule)对称——非 OK 走
+  // dedup'd warning toast,函数本身始终 resolve(undefined)。理由:guard-room-agent
+  // 调用方早就没人 catch 这个 rejection,导致出现 unhandledrejection 噪声。
+  test('5xx response resolves (no throw); fetch was hit', async () => {
     fetchImpl = async () => new Response('boom', { status: 502 })
-    await expect(syncGuardRoomWatchlist([])).rejects.toThrow(/HTTP 502/)
+    await expect(syncGuardRoomWatchlist([])).resolves.toBeUndefined()
+    expect(fetchCalls).toHaveLength(1)
+    expect(fetchCalls[0]?.url).toBe('https://guard.example.com/api/watchlists/sync')
   })
 
-  test('401 unauthorized throws', async () => {
+  test('401 unauthorized resolves (no throw); fetch was hit', async () => {
     fetchImpl = async () => new Response('nope', { status: 401 })
-    await expect(syncGuardRoomWatchlist([])).rejects.toThrow(/HTTP 401/)
+    await expect(syncGuardRoomWatchlist([])).resolves.toBeUndefined()
+    expect(fetchCalls).toHaveLength(1)
+  })
+
+  test('fetch rejects → resolves (no throw)', async () => {
+    fetchImpl = async () => {
+      throw new Error('ECONNREFUSED')
+    }
+    await expect(syncGuardRoomWatchlist([])).resolves.toBeUndefined()
   })
 
   test('200 OK resolves', async () => {

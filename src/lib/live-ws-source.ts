@@ -73,7 +73,10 @@ let lastWsCloseDetail = ''
 // visibilitychange recovery path to decide whether to force a reconnect when
 // the tab returns to the foreground.
 let connectionHealthy = false
-let visibilityRecoveryWired = false
+// Listener handle so we can detach on full stop (otherwise the closure pins
+// module-scope state and re-arms WS after `stopLiveWsSource` if the tab
+// hides/shows). null means "not currently wired".
+let visibilityRecoveryHandler: (() => void) | null = null
 const recentDanmaku = new Map<string, number>()
 // Hard cap so a misbehaving feed can't grow this map forever between cleanups.
 const RECENT_DANMAKU_MAX = 500
@@ -504,12 +507,23 @@ async function connect(): Promise<void> {
     bindEvents(roomId, live)
 
     live.addEventListener('live', () => {
+      // Stale-event guard: a previous-generation `live` instance can fire
+      // 'live' *after* we've moved on to a newer connect serial (rapid
+      // stop/start, or out-of-order WS events). Without this check, the
+      // stale 'live' would zero `reconnectAttempt` for the *current*
+      // connection and flip `connectionHealthy=true` even though we're
+      // mid-reconnect on a different socket.
+      if (!started || serial !== connectionSerial || liveConnection !== live) return
       reconnectAttempt = 0
+      // Reset addressIndex so the next failure-streak starts probing from
+      // address 0 again. Within a single failure streak, addressIndex keeps
+      // advancing (handled below via `addressIndex += 1` after fetchDanmuInfo).
+      addressIndex = 0
       connectionHealthy = true
     })
     live.addEventListener('close', () => {
       connectionHealthy = false
-      if (!started || liveConnection !== live) return
+      if (!started || serial !== connectionSerial || liveConnection !== live) return
       const suffix = lastWsCloseDetail ? ` (${lastWsCloseDetail})` : ''
       appendStartupFailure(live.live ? `connection closed${suffix}` : `closed before room entered${suffix}`)
       const delay = computeReconnectDelay(reconnectAttempt)
@@ -520,6 +534,7 @@ async function connect(): Promise<void> {
     emitCustomChatWsStatus('error')
     const message = err instanceof Error ? err.message : String(err)
     appendStartupFailure(message)
+    if (!started || serial !== connectionSerial) return
     const delay = Math.min(30_000, 3000 + reconnectAttempt * 2000)
     reconnectAttempt += 1
     reconnectTimer = setTimeout(() => void connect(), delay)
@@ -534,14 +549,14 @@ async function connect(): Promise<void> {
  * aren't, drop any stale pending reconnect and force a fresh attempt
  * immediately.
  *
- * Wired once at module load. No-op when the script loads in a context
- * without `document` (unit tests, Node).
+ * Wired on first `startLiveWsSource()` call and removed when the consumer
+ * count drops to 0 (see `teardownConnection`). No-op when the script loads
+ * in a context without `document` (unit tests, Node).
  */
 function ensureVisibilityRecoveryWired(): void {
-  if (visibilityRecoveryWired) return
+  if (visibilityRecoveryHandler !== null) return
   if (typeof document === 'undefined') return
-  visibilityRecoveryWired = true
-  document.addEventListener('visibilitychange', () => {
+  const handler = (): void => {
     if (
       !shouldForceImmediateReconnect({
         visibilityState: document.visibilityState,
@@ -558,22 +573,16 @@ function ensureVisibilityRecoveryWired(): void {
       reconnectTimer = null
     }
     reconnectAttempt = 0
+    // Bump serial so any in-flight `connect()` that's already past its
+    // serial check can't race the fresh reconnect we're about to start.
+    connectionSerial += 1
     void connect()
-  })
+  }
+  document.addEventListener('visibilitychange', handler)
+  visibilityRecoveryHandler = handler
 }
 
-export function startLiveWsSource(): void {
-  consumerCount += 1
-  if (started) return
-  started = true
-  ensureVisibilityRecoveryWired()
-  emitCustomChatWsStatus('connecting')
-  void connect()
-}
-
-export function stopLiveWsSource(): void {
-  consumerCount = Math.max(0, consumerCount - 1)
-  if (consumerCount > 0) return
+function teardownConnection(): void {
   started = false
   connectionSerial += 1
   connectionHealthy = false
@@ -584,6 +593,45 @@ export function stopLiveWsSource(): void {
   }
   liveConnection?.close()
   liveConnection = null
+  // Remove the visibilitychange listener so it can't re-arm a connection
+  // after the last consumer unsubscribed. Re-installed on the next start.
+  if (visibilityRecoveryHandler !== null && typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', visibilityRecoveryHandler)
+  }
+  visibilityRecoveryHandler = null
+}
+
+/**
+ * Subscribe a consumer to the live WS. Returns an idempotent disposer —
+ * calling it more than once is a no-op, so a consumer can safely store it
+ * and trust at-most-one-decrement semantics even under error paths.
+ *
+ * `stopLiveWsSource()` is kept for legacy callers (and tests) that expect
+ * symmetric start/stop functions; prefer the returned disposer in new code
+ * because it can't double-decrement and can't race a sibling caller's stop.
+ */
+export function startLiveWsSource(): () => void {
+  consumerCount += 1
+  let disposed = false
+  const dispose = (): void => {
+    if (disposed) return
+    disposed = true
+    consumerCount = Math.max(0, consumerCount - 1)
+    if (consumerCount > 0) return
+    teardownConnection()
+  }
+  if (started) return dispose
+  started = true
+  ensureVisibilityRecoveryWired()
+  emitCustomChatWsStatus('connecting')
+  void connect()
+  return dispose
+}
+
+export function stopLiveWsSource(): void {
+  consumerCount = Math.max(0, consumerCount - 1)
+  if (consumerCount > 0) return
+  teardownConnection()
 }
 
 /**
@@ -608,6 +656,10 @@ export function _resetLiveWsStateForTests(): void {
   }
   liveConnection?.close()
   liveConnection = null
+  if (visibilityRecoveryHandler !== null && typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', visibilityRecoveryHandler)
+  }
+  visibilityRecoveryHandler = null
   recentDanmaku.clear()
   recentSweepCounter = 0
   liveWsCoercionDiagnostics.numberFallbacks = 0

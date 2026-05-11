@@ -481,13 +481,23 @@ publicRoutes.post('/memes/bulk-mirror', async c => {
   }
 
   // 计算 hash + 准备语句(并行 hash,串行准备)。invalid 项跳过。
+  // 安全:bulk-mirror 是匿名公开端点,所有 attacker-controlled 字段都按最严方式裁剪:
+  //   - username / avatar / uid → 强制 NULL(不接受请求里的值)。攻击者无法
+  //     往"approved"池里塞带具名归属的内容(防 username spoofing 与社工)。
+  //   - external_id → 必须是正整数且 < 1_000_000(同 cron 路径)。
+  //   - copyCount → 必须是非负整数且 <= 100_000(防止把热度排序顶到第一)。
+  //   - lastCopiedAt → 必须能被 Date.parse 解析。
+  // 内容本身仍然会以 'approved' 入库(否则前端"保鲜"完全失效);content
+  // 长度上限 + isLikelyValidContent + IP/小时限流 + content_hash UNIQUE 是
+  // content-poisoning 的剩余护栏。
   const reviewedAt = new Date().toISOString()
   const stmts: D1PreparedStatement[] = []
-  // 跨条收集 tag 信息:upsert 一次到 tags 表,然后用 content_hash → tagId 关联到
-  // meme_tags。即便 meme 这次 INSERT OR IGNORE 命中既有行(skipped),tag 也会
-  // attach 上去——这是回填 1944 条历史数据 tag 的关键路径。
+  // tag 信息按 content_hash 收集,但 *仅在该 meme 是本次新插入* 时才 attach
+  // (见下方 batch 后的过滤)——否则匿名调用方可以用 content_hash 给 *任意*
+  // 已审核 meme 涂上任意 tag(IDOR via hash collision)。
   const allTagMetas: TagMeta[] = []
-  const tagLinks: Array<{ contentHash: string; tagNames: string[] }> = []
+  const tagLinksAll: Array<{ contentHash: string; tagNames: string[] }> = []
+  const queuedHashes: string[] = [] // 与 stmts 一一对应,用于 batch 后比对
   let queued = 0
   let invalid = 0
   for (const raw of items) {
@@ -501,19 +511,22 @@ publicRoutes.post('/memes/bulk-mirror', async c => {
       continue
     }
     const hash = await contentHash(content)
-    const externalId = typeof raw.id === 'number' ? raw.id : null
-    const copyCount = typeof raw.copyCount === 'number' ? raw.copyCount : 0
-    const lastCopiedAt = typeof raw.lastCopiedAt === 'string' ? raw.lastCopiedAt : null
-    const createdAt = typeof raw.createdAt === 'string' ? raw.createdAt : reviewedAt
-    const updatedAt = typeof raw.updatedAt === 'string' ? raw.updatedAt : createdAt
-    const username = typeof raw.username === 'string' ? raw.username.slice(0, 64) : null
-    const avatar = typeof raw.avatar === 'string' ? raw.avatar.slice(0, 500) : null
-    const uid = typeof raw.uid === 'number' ? raw.uid : 0
+    const externalIdRaw = typeof raw.id === 'number' && Number.isFinite(raw.id) ? Math.floor(raw.id) : null
+    const externalId = externalIdRaw !== null && externalIdRaw > 0 && externalIdRaw < 1_000_000 ? externalIdRaw : null
+    const copyCountRaw =
+      typeof raw.copyCount === 'number' && Number.isFinite(raw.copyCount) ? Math.floor(raw.copyCount) : 0
+    const copyCount = copyCountRaw >= 0 && copyCountRaw <= 100_000 ? copyCountRaw : 0
+    const lastCopiedAtRaw = typeof raw.lastCopiedAt === 'string' ? raw.lastCopiedAt : null
+    const lastCopiedAt = lastCopiedAtRaw && Number.isFinite(Date.parse(lastCopiedAtRaw)) ? lastCopiedAtRaw : null
+    const createdAtRaw = typeof raw.createdAt === 'string' ? raw.createdAt : reviewedAt
+    const createdAt = Number.isFinite(Date.parse(createdAtRaw)) ? createdAtRaw : reviewedAt
+    const updatedAtRaw = typeof raw.updatedAt === 'string' ? raw.updatedAt : createdAt
+    const updatedAt = Number.isFinite(Date.parse(updatedAtRaw)) ? updatedAtRaw : createdAt
 
     const tagMetas = extractTagMetas(raw.tags)
     if (tagMetas.length > 0) {
       allTagMetas.push(...tagMetas)
-      tagLinks.push({ contentHash: hash, tagNames: tagMetas.map(t => t.name) })
+      tagLinksAll.push({ contentHash: hash, tagNames: tagMetas.map(t => t.name) })
     }
 
     stmts.push(
@@ -521,36 +534,33 @@ publicRoutes.post('/memes/bulk-mirror', async c => {
         `INSERT OR IGNORE INTO memes
            (uid, content, status, content_hash, source_origin, external_id,
             copy_count, last_copied_at, username, avatar, created_at, updated_at, reviewed_at)
-         VALUES (?, ?, 'approved', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).bind(
-        uid,
-        content.trim(),
-        hash,
-        source,
-        externalId,
-        copyCount,
-        lastCopiedAt,
-        username,
-        avatar,
-        createdAt,
-        updatedAt,
-        reviewedAt
-      )
+         VALUES (0, ?, 'approved', ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`
+      ).bind(content.trim(), hash, source, externalId, copyCount, lastCopiedAt, createdAt, updatedAt, reviewedAt)
     )
+    queuedHashes.push(hash)
     queued++
   }
 
   let inserted = 0
+  // 哪些 content_hash 是 *本次新插入* 的——用于后续仅给新行 attach tag。
+  const insertedHashes = new Set<string>()
   if (stmts.length > 0) {
     const results = await c.env.DB.batch(stmts)
-    for (const r of results) {
-      if (r.meta?.changes && r.meta.changes > 0) inserted++
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i]
+      if (r.meta?.changes && r.meta.changes > 0) {
+        inserted++
+        insertedHashes.add(queuedHashes[i])
+      }
     }
   }
 
-  // tag 处理:必须在 memes 那批 batch 之后,因为 attachTagsByHash 用 content_hash
-  // 子查询去 memes 表拿 id;memes 这次没插也得是已经存在的(才能 attach 到旧行)。
+  // tag 处理:仅给 *本次新插入* 的 meme attach tag。攻击者用已存在 meme 的
+  // hash 提交带 tag 的请求 → 这里被 insertedHashes 过滤掉 → 不会涂改老行。
+  // 历史回填 tag 的需求由 admin 路径或 cron `pullSbhzmIntoMirror` 完成,
+  // 那两个路径走 trusted actor,不受这一限制。
   let tagsLinked = 0
+  const tagLinks = tagLinksAll.filter(l => insertedHashes.has(l.contentHash))
   if (tagLinks.length > 0) {
     const nameToId = await upsertTagsWithMeta(c.env.DB, allTagMetas)
     const links = tagLinks.map(l => ({

@@ -29,6 +29,12 @@ export interface GmFetchInit {
   body?: string
   /** Per-request timeout in milliseconds. Default 20000. */
   timeoutMs?: number
+  /**
+   * Optional AbortSignal. When the signal fires, the underlying
+   * `GM_xmlhttpRequest` handle is aborted and the returned promise rejects
+   * with `gmFetch aborted: <url>`. Already-settled requests ignore the abort.
+   */
+  signal?: AbortSignal
 }
 
 export interface GmFetchResponse {
@@ -59,28 +65,58 @@ async function resolveGmXhr(): Promise<typeof GmXhrType | null> {
 }
 
 /**
+ * Strip query string and user:pass from a URL before including it in a log
+ * line / error message. If the URL has a token in the path/query (e.g. a
+ * user-overridden cb-backend URL with `?token=…` or `/<token>/api`), this
+ * keeps the path scheme + host visible for debugging but drops the secret.
+ * Falls back to a generic placeholder if the URL is unparseable.
+ */
+export function scrubUrlForLog(raw: string): string {
+  try {
+    const u = new URL(raw)
+    return `${u.origin}${u.pathname}`
+  } catch {
+    return '<unparseable-url>'
+  }
+}
+
+/**
  * Send a request via `GM_xmlhttpRequest` and resolve to a Response-like object.
  *
  * Errors (network, abort, timeout) reject with a plain Error so callers can
- * `try/catch` like any other fetch.
+ * `try/catch` like any other fetch. Pass `init.signal` to make the request
+ * cancellable from outside.
  */
 export async function gmFetch(url: string, init: GmFetchInit = {}): Promise<GmFetchResponse> {
-  const { method = 'GET', headers, body, timeoutMs = 20000 } = init
+  const { method = 'GET', headers, body, timeoutMs = 20000, signal } = init
 
   const xhr = await resolveGmXhr()
   if (!xhr) {
     throw new Error('gmFetch: GM_xmlhttpRequest unavailable (userscript grant missing or test stub).')
   }
 
+  // Fast path: caller already aborted before the request was even constructed.
+  if (signal?.aborted) {
+    throw new Error(`gmFetch aborted: ${scrubUrlForLog(url)}`)
+  }
+
   return new Promise<GmFetchResponse>((resolve, reject) => {
     let settled = false
+    let abortListener: (() => void) | null = null
+    const cleanupAbort = () => {
+      if (abortListener && signal) {
+        signal.removeEventListener('abort', abortListener)
+        abortListener = null
+      }
+    }
     const finishOnce = (fn: () => void) => {
       if (settled) return
       settled = true
+      cleanupAbort()
       fn()
     }
 
-    xhr({
+    const handle = xhr({
       method,
       url,
       headers,
@@ -105,15 +141,32 @@ export async function gmFetch(url: string, init: GmFetchInit = {}): Promise<GmFe
       onerror: err => {
         finishOnce(() => {
           const detail = err && typeof err === 'object' ? (err as { error?: string }).error : ''
-          reject(new Error(`gmFetch network error: ${detail || 'unknown'} (url=${url})`))
+          reject(new Error(`gmFetch network error: ${detail || 'unknown'} (url=${scrubUrlForLog(url)})`))
         })
       },
       ontimeout: () => {
-        finishOnce(() => reject(new Error(`gmFetch timeout after ${timeoutMs}ms: ${url}`)))
+        finishOnce(() => reject(new Error(`gmFetch timeout after ${timeoutMs}ms: ${scrubUrlForLog(url)}`)))
       },
       onabort: () => {
-        finishOnce(() => reject(new Error(`gmFetch aborted: ${url}`)))
+        finishOnce(() => reject(new Error(`gmFetch aborted: ${scrubUrlForLog(url)}`)))
       },
     })
+
+    if (signal) {
+      abortListener = () => {
+        if (settled) return
+        // Best-effort: not every GM userscript engine returns an abortable handle.
+        // Tampermonkey/Violentmonkey/GreaseMonkey 4+ do; older engines silently
+        // ignore. We still reject the promise either way so the caller can stop
+        // awaiting — but we can't guarantee the underlying XHR is interrupted.
+        try {
+          ;(handle as { abort?: () => void } | undefined)?.abort?.()
+        } catch {
+          // ignore engine-side abort errors
+        }
+        finishOnce(() => reject(new Error(`gmFetch aborted: ${scrubUrlForLog(url)}`)))
+      }
+      signal.addEventListener('abort', abortListener, { once: true })
+    }
   })
 }

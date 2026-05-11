@@ -449,6 +449,8 @@ async function tick(): Promise<void> {
     const useLLM = hzmDriveMode.value === 'llm' && llmApiKey.value.trim() !== '' && heuristicTickCount % llmRatio === 0
     if (useLLM) {
       const result = await pickByLLM(activeRoomId, activeSource)
+      // 用户在 LLM await 期间关停 / 切换房间 → 立刻退出,不要 sendOne。
+      if (!hzmDriveEnabled.value || activeRoomId === null || activeSource === null) return
       if (result.kind === 'abstain') {
         // LLM 主动 -1：尊重，本 tick 不发，**不**回退启发式。这是 -1 信号生效的关键。
         scheduleNext(hzmDriveIntervalSec.value)
@@ -467,11 +469,17 @@ async function tick(): Promise<void> {
       })
     }
     if (meme) {
+      // 再次确认 enabled / room — pickByHeuristic 是同步的,但 useLLM 路径已经
+      // 跨过一次 await,且 sendOne 内部还会再 await。任何一次 await 之后
+      // hzmDriveEnabled 都可能已被 stop 翻成 false。
+      if (!hzmDriveEnabled.value || activeRoomId === null || activeSource === null) return
       await sendOne(activeRoomId, meme)
     }
   } catch (err) {
     appendLog(`⚠️ 智驾 tick 异常：${err instanceof Error ? err.message : String(err)}`)
   } finally {
+    // finally 里仍然要 scheduleNext —— 但 scheduleNext 本身只在 enabled 时排下一拍
+    // (它内部已经检查 hzmDriveEnabled),所以 stop 路径不会被 finally 重启。
     scheduleNext(hzmDriveIntervalSec.value)
   }
 }

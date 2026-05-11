@@ -34,12 +34,19 @@ jobs:
           fail_ci_if_error: true
 
       - name: Upload coverage to DeepSource
+        # Replaces the previous `curl https://deepsource.io/cli | sh` pattern,
+        # which auto-executed whatever the upstream root URL served at run
+        # time. We now use DeepSource's official action — still a third-party
+        # action, but published as a tagged release, source-auditable on
+        # GitHub, and (re-)pinnable to a commit SHA via Dependabot.
+        # TODO: once verified, replace `@v1` with the explicit commit SHA so
+        # this step is pinned the same way `codecov-action` and `setup-bun`
+        # are pinned above.
+        if: ${{ secrets.DEEPSOURCE_DSN != '' }}
         env:
           DEEPSOURCE_DSN: ${{ secrets.DEEPSOURCE_DSN }}
-        run: |
-          if [ -z "$DEEPSOURCE_DSN" ]; then
-            echo "DEEPSOURCE_DSN secret not set; skipping DeepSource coverage upload"
-            exit 0
-          fi
-          curl https://deepsource.io/cli | sh
-          ./bin/deepsource report --analyzer test-coverage --key javascript --value-file ./coverage/lcov.info
+        uses: deepsourcelabs/test-coverage-action@v1
+        with:
+          key: javascript
+          coverage-file: ./coverage/lcov.info
+          dsn: ${{ secrets.DEEPSOURCE_DSN }}
