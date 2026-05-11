@@ -355,9 +355,7 @@ describe('scanRestrictionSignals', () => {
   })
 
   test('string fields classify via classifyText', () => {
-    expect(
-      scanRestrictionSignals({ reason: '账号已注销' }, 'unit').some(s => s.kind === 'deactivated')
-    ).toBe(true)
+    expect(scanRestrictionSignals({ reason: '账号已注销' }, 'unit').some(s => s.kind === 'deactivated')).toBe(true)
     expect(scanRestrictionSignals({ reason: '拉黑了' }, 'unit').some(s => s.kind === 'blocked')).toBe(true)
     expect(scanRestrictionSignals({ reason: '黑名单' }, 'unit').some(s => s.kind === 'blocked')).toBe(true)
     expect(scanRestrictionSignals({ reason: 'On the blacklist' }, 'unit').some(s => s.kind === 'blocked')).toBe(true)

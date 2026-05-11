@@ -82,33 +82,23 @@ describe('formatAutoBlendStatus (branch ladder)', () => {
 
   test('cooldown remaining → "冷却中 Ns" (ceil to nearest second)', () => {
     // 5s left exactly
-    expect(formatAutoBlendStatus({ enabled: true, isSending: false, cooldownUntil: 5000, now: 0 })).toBe(
-      '冷却中 5s'
-    )
+    expect(formatAutoBlendStatus({ enabled: true, isSending: false, cooldownUntil: 5000, now: 0 })).toBe('冷却中 5s')
     // 4.5s left → ceil to 5
-    expect(formatAutoBlendStatus({ enabled: true, isSending: false, cooldownUntil: 4500, now: 0 })).toBe(
-      '冷却中 5s'
-    )
+    expect(formatAutoBlendStatus({ enabled: true, isSending: false, cooldownUntil: 4500, now: 0 })).toBe('冷却中 5s')
     // 1ms left → ceil to 1
-    expect(formatAutoBlendStatus({ enabled: true, isSending: false, cooldownUntil: 1, now: 0 })).toBe(
-      '冷却中 1s'
-    )
+    expect(formatAutoBlendStatus({ enabled: true, isSending: false, cooldownUntil: 1, now: 0 })).toBe('冷却中 1s')
   })
 
   test('cooldown expired or in the past → "观察中" (boundary at now === cooldownUntil)', () => {
     expect(formatAutoBlendStatus({ enabled: true, isSending: false, cooldownUntil: 0, now: 0 })).toBe('观察中')
     // cooldownUntil in the past → clamped to 0 → '观察中'
-    expect(formatAutoBlendStatus({ enabled: true, isSending: false, cooldownUntil: 0, now: 1000 })).toBe(
-      '观察中'
-    )
+    expect(formatAutoBlendStatus({ enabled: true, isSending: false, cooldownUntil: 0, now: 1000 })).toBe('观察中')
   })
 
   test('Math.max(0, …) prevents negative cooldown turning into "冷却中 -3s"', () => {
     // Without the clamp, (0 - 3000) / 1000 = -3 and `left > 0` is false,
     // but pinning the exact output catches any flip of `>` → `>=`.
-    expect(formatAutoBlendStatus({ enabled: true, isSending: false, cooldownUntil: 0, now: 3000 })).toBe(
-      '观察中'
-    )
+    expect(formatAutoBlendStatus({ enabled: true, isSending: false, cooldownUntil: 0, now: 3000 })).toBe('观察中')
   })
 })
 

@@ -56,13 +56,7 @@ describe('memeContentKey (cross-source dedup key)', () => {
   test('full pipeline: LAPLACE + chatterbox-cloud variants collapse to same key', () => {
     // Same meme uploaded via different sources tends to differ on these
     // exact axes (extra whitespace, copy-pasted ZWSPs, case differences).
-    const variants = [
-      '哈哈哈',
-      '  哈哈哈  ',
-      '哈​哈​哈',
-      '哈　哈　哈',
-      '哈 哈 哈',
-    ]
+    const variants = ['哈哈哈', '  哈哈哈  ', '哈​哈​哈', '哈　哈　哈', '哈 哈 哈']
     const keys = variants.map(memeContentKey)
     // First two: trivially equal. Others should also equal '哈哈哈' or '哈 哈 哈'
     // depending on whether internal whitespace exists. Pin both buckets.

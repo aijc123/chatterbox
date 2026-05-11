@@ -190,7 +190,7 @@ describe('sanitizeRemoteKeywords', () => {
     // map as an array) and either crash or produce garbage room entries.
     expect(sanitizeRemoteKeywords({ rooms: null })).toEqual({})
     expect(sanitizeRemoteKeywords({ rooms: 'string' })).toEqual({})
-    expect(sanitizeRemoteKeywords({ rooms: { 'not': 'an array' } })).toEqual({})
+    expect(sanitizeRemoteKeywords({ rooms: { not: 'an array' } })).toEqual({})
     expect(sanitizeRemoteKeywords({ rooms: 42 })).toEqual({})
   })
 

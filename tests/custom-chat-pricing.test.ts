@@ -111,7 +111,7 @@ describe('formatMilliyuanBadgeAmount', () => {
     expect(formatMilliyuanBadgeAmount(2500)).toBe('2.5元')
   })
 
-  test('passes empty-string symbol to underlying formatter (locks `formatMilliyuanAmount(amount, \'\')`)', () => {
+  test("passes empty-string symbol to underlying formatter (locks `formatMilliyuanAmount(amount, '')`)", () => {
     // Badge uses no currency prefix — the inner call must pass '' not '¥'.
     // Otherwise badge would output '¥1元' instead of '1元'.
     expect(formatMilliyuanBadgeAmount(1000)).toBe('1元')
