@@ -16,6 +16,7 @@ import {
   shortAutoBlendText,
 } from './auto-blend-status'
 import { detectTrend, type TrendEvent } from './auto-blend-trend'
+import { getAutoBlendTrendKey } from './chatfilter-runtime'
 import { subscribeCustomChatEvents } from './custom-chat-events'
 import { subscribeDanmaku } from './danmaku-stream'
 import {
@@ -501,16 +502,24 @@ function recordDanmaku(rawText: string, uid: string | null, isReply: boolean, ha
   // 的大表情图。早期硬丢,与 locked 表情同档处理。
   if (hasLargeEmote) return
 
+  // chatfilter（场景 A）：把 trendMap key 从 raw 文本换成 canonical，
+  // 这样 "哈哈哈"/"哈哈哈哈"/"hhh" 合并为同一趋势。totalKey 同时用作
+  // avoid-repeat 指纹与 lastAutoSentText 比较，保证两端语义一致。
+  // 关闭 chatfilter 或场景 A 关时，getAutoBlendTrendKey 直接返回 trim 后原文，
+  // 行为退回原样。null = chatfilter 把它判为应丢弃。
+  const trendKey = getAutoBlendTrendKey(rawText)
+  if (trendKey === null) return
+
   // 不重复上次自动发送:在计数前丢弃,所以被屏蔽的句子也不会进候选榜——
   // 仍能命中的,必然是我们刚刚自己发出去的那条。
-  if (autoBlendAvoidRepeat.value && lastAutoSentText !== null && text === lastAutoSentText) return
+  if (autoBlendAvoidRepeat.value && lastAutoSentText !== null && trendKey === lastAutoSentText) return
 
   pruneExpired(now)
 
-  let entry = trendMap.get(text)
+  let entry = trendMap.get(trendKey)
   if (!entry) {
     entry = { events: [] }
-    trendMap.set(text, entry)
+    trendMap.set(trendKey, entry)
   }
   entry.events.push({ ts: now, uid })
   const expiresAt = now + autoBlendWindowSec.value * 1000 + 1
@@ -522,7 +531,7 @@ function recordDanmaku(rawText: string, uid: string | null, isReply: boolean, ha
   // later routine or burst handling instead of throwing away the hottest part.
   if (now < cooldownUntil || isSending) return
 
-  if (meetsThreshold(entry)) scheduleBurstSend(text)
+  if (meetsThreshold(entry)) scheduleBurstSend(trendKey)
 }
 
 function scheduleNextRoutine(): void {

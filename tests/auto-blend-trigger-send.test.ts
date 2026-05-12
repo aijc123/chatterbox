@@ -304,11 +304,15 @@ describe('triggerSend (burst happy path)', () => {
   test('avoid-repeat: lastAutoSentText is updated to the trigger text', async () => {
     ab.startAutoBlend()
     try {
+      // 注：chatfilter（场景 A，默认开）会把 "666" 通过 cycle-compress 归一为
+      // "6"，trendMap 的 key 与 lastAutoSentText 都是 canonical "6"。这条测试
+      // 验证的不变量是"lastAutoSentText 等于触发发送的那个 trendMap key"，
+      // 不论该 key 是 raw 还是 canonical。
       ab._recordDanmakuForTests('666', 'a', false)
       ab._recordDanmakuForTests('666', 'b', false)
       ab._recordDanmakuForTests('666', 'c', false)
       await wait(300)
-      expect(ab._getLastAutoSentTextForTests()).toBe('666')
+      expect(ab._getLastAutoSentTextForTests()).toBe('6')
     } finally {
       ab.stopAutoBlend()
     }

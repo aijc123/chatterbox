@@ -1,6 +1,7 @@
 import { effect as signalEffect } from '@preact/signals'
 
 import { ensureRoomId, fetchEmoticons } from './api'
+import { getCustomChatFoldCanonical } from './chatfilter-runtime'
 import { setChatText as setText } from './custom-chat-emoticons'
 import {
   type CustomChatEvent,
@@ -309,7 +310,14 @@ function gcRecentEventKeys(now: number): void {
 function cardKey(event: Pick<CustomChatEvent, 'kind' | 'text'>): string {
   // wheelFoldKey 把「666」「6666」「66666」/「哈哈」「哈哈哈」归一化成同一把键，
   // 让独轮车的不同长度版本能合并到一张卡。slice(80) 防止极长弹幕拖慢键比较。
-  return `${event.kind}:${wheelFoldKey(event.text).slice(0, 80)}`
+  //
+  // chatfilter 场景 B（chatfilterAffectCustomChatFold）开时优先用 chatfilter
+  // canonical 做 key —— 这样"niubi"/"NB"/"牛批" 这类同义弹幕也合并成一张卡，
+  // 不只是字面重复。getCustomChatFoldCanonical 在场景关闭或文本被 filtered
+  // 时返回 null，自动回落到原 wheelFoldKey。
+  const canonical = getCustomChatFoldCanonical(event.text)
+  const key = canonical ?? wheelFoldKey(event.text)
+  return `${event.kind}:${key.slice(0, 80)}`
 }
 
 function gcRecentCardKeys(now: number): void {

@@ -1,0 +1,38 @@
+# ═══════════════════════════════════════════════════════
+# Chatfilter 弹幕归一化字典 (variants + canonical)
+# ═══════════════════════════════════════════════════════
+# 从 Chatfilter (https://github.com/...) 的 config/variants.yaml 移植。
+# 与 chatterbox 现有 replacement.ts 独立维护 —— 这里管的是"识别同一句话",
+# replacement 管的是"发送前怎么改写"。
+#
+# 格式: <canonical>: [<variant1>, <variant2>, ...]
+#   - alias-ac 用 variants → canonical 的反向映射做 Aho-Corasick 多模匹配
+#   - variant-pinyin 把所有 canonical 拿去预算拼音，运行期对输入文本算拼音反查
+#
+# 改完跑: bun scripts/build-variants.mjs  (会重新生成 variants.gen.ts)
+
+variants:
+  牛逼: [牛批, 牛B, 牛比, 牛碧, 牛杯, 流批, niubi, NB, nb]
+  傻逼: [煞笔, 沙比, 纱碧, 沙雕, 傻比, 烧饼, shabi, sb, SB, 啥呗, iceb, 艾斯比]
+  卧槽: [卧日, 我操, 我草, 窝草, 我艹, 握草, wocao, WC, wc]
+  加油: [加游, 加由, 加铀, jiayou]
+  永远的神: [永远滴神, yyds, YYDS]
+  主播: [灰泽, 灰泽哥, 小满, 满满, 小灰, 满神, 满区, 灰泽满酱, 灰泽满, hzm, 满姐]
+  哈哈哈: [hhhh, 蛤蛤蛤, 红红火火恍恍惚惚]
+  谢谢: [蟹蟹, 感谢]
+  来了: [来了来了, 来来来]
+  离谱: [离大谱, 太离谱了]
+  逆天: [太逆天了]
+  无敌: [无敌了, wudi]
+  破防: [破防了, 真破防]
+  拿下: [拿下了]
+  起飞: [芜湖起飞, 起飞了]
+  太强了: [这也太强了, 太强了呀]
+  害怕: [害怕了, 太可怕了]
+  不是: [？？不是, 不是吧]
+  哭了: [看哭了, 泪目]
+  下饭: [太下饭了, 下饭了]
+  难听: [南亭]
+  好听: [好亭, 豪听]
+  弱智: [弱子, 若只]
+  智力: [智利]

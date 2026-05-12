@@ -26,8 +26,9 @@
   },
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
+    "dev": "bun scripts/build-variants.mjs && vite",
+    "build": "bun scripts/build-variants.mjs && tsc && vite build",
+    "build:variants": "bun scripts/build-variants.mjs",
     "analyze:bundle": "node scripts/analyze-bundle.mjs",
     "size": "size-limit",
     "preview": "vite preview",

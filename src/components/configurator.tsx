@@ -1,10 +1,11 @@
 import { useRef } from 'preact/hooks'
 
 import { cn } from '../lib/cn'
-import { activeTab, dialogOpen } from '../lib/store'
+import { activeTab, chatfilterLogPanelEnabled, dialogOpen } from '../lib/store'
 import { AboutTab } from './about-tab'
 import { AutoBlendControls } from './auto-blend-controls'
 import { AutoSendControls } from './auto-send-controls'
+import { ChatfilterLogPanel } from './chatfilter-log-panel'
 import { HzmDrivePanelMount } from './hzm-drive-panel'
 import { LogPanel } from './log-panel'
 import { MemesList } from './memes-list'
@@ -49,6 +50,7 @@ export function Configurator() {
               <MemesList />
             </div>
             <NormalSendTab />
+            {chatfilterLogPanelEnabled.value && <ChatfilterLogPanel />}
           </>
         )}
       </div>

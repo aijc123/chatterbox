@@ -7,6 +7,8 @@ import {
   startCustomChatRoomRearm,
 } from '../lib/app-lifecycle'
 import { startAutoBlend, stopAutoBlend } from '../lib/auto-blend'
+import { installRemoteClusterLifecycle } from '../lib/chatfilter/remote-controller'
+import { startReplacementFeed, stopReplacementFeed } from '../lib/chatfilter-replacement-feed'
 import { startCustomChat, stopCustomChat } from '../lib/custom-chat'
 import { startDanmakuDirect, stopDanmakuDirect } from '../lib/danmaku-direct'
 import { startGuardRoomAgent, stopGuardRoomAgent } from '../lib/guard-room-agent'
@@ -19,6 +21,7 @@ import { startNativeChatFold, stopNativeChatFold } from '../lib/native-chat-fold
 import { startRadarReportLoop } from '../lib/radar-report'
 import {
   autoBlendEnabled,
+  chatfilterFeedReplacementLearn,
   customChatEnabled,
   customChatUseWs,
   danmakuDirectMode,
@@ -61,6 +64,18 @@ export function App() {
   useEffect(() => {
     startRadarReportLoop()
   }, [])
+
+  // chatfilter 远程聚类：用户在设置里打开 chatfilterRemoteEnabled 时自动启动，
+  // 关闭或换 endpoint 时自动重连。失败 / 网络错误一律静默，主路径不受影响。
+  useEffect(() => installRemoteClusterLifecycle(), [])
+
+  // chatfilter 替换规则学习：开关 ON 时订阅 normalize 事件，把高频 alias 命中
+  // 累计为候选规则，用户在 log panel 里看到并主动「采纳」才晋升。
+  useEffect(() => {
+    if (chatfilterFeedReplacementLearn.value) startReplacementFeed()
+    else stopReplacementFeed()
+    return () => stopReplacementFeed()
+  }, [chatfilterFeedReplacementLearn.value])
 
   useEffect(() => {
     if (danmakuDirectMode.value) {

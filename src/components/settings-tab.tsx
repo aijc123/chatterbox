@@ -16,6 +16,7 @@ import { LlmApiConfigPanel } from './llm-api-config'
 import { PromptManager } from './prompt-manager'
 import { BackupSection } from './settings/backup-section'
 import { CbBackendSection } from './settings/cb-backend-section'
+import { ChatfilterSection } from './settings/chatfilter-section'
 import { CustomChatSection } from './settings/custom-chat-section'
 import { DanmakuDirectSection } from './settings/danmaku-direct-section'
 import { LayoutSection } from './settings/layout-section'
@@ -90,6 +91,9 @@ export function SettingsTab() {
           </div>
         </details>
       )}
+
+      <GroupHeading query={query}>智能归一</GroupHeading>
+      <ChatfilterSection query={query} />
 
       <GroupHeading query={query}>替换规则</GroupHeading>
       <CloudReplacementSection query={query} />

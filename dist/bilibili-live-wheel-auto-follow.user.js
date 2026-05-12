@@ -1945,6 +1945,24 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
   const customChatFoldMode = gmSignal("customChatFoldMode", false);
   const nativeChatFoldMode = gmSignal("nativeChatFoldMode", false);
   const cachedEmoticonPackages = y$1([]);
+  const chatfilterEnabled = gmSignal("chatfilterEnabled", true);
+  const chatfilterAffectAutoBlendTrend = gmSignal("chatfilterAffectAutoBlendTrend", true);
+  const chatfilterAffectCustomChatFold = gmSignal("chatfilterAffectCustomChatFold", false);
+  const chatfilterFeedReplacementLearn = gmSignal("chatfilterFeedReplacementLearn", false);
+  const chatfilterLogPanelEnabled = gmSignal("chatfilterLogPanelEnabled", false);
+  const isAggressiveness = (v2) => v2 === "safe" || v2 === "normal" || v2 === "aggressive";
+  const chatfilterAggressiveness = gmSignal("chatfilterAggressiveness", "normal", {
+    validate: isAggressiveness
+  });
+  numericGmSignal("chatfilterMaxLruSize", 4096, {
+    min: 64,
+    max: 65536,
+    integer: true
+  });
+  const chatfilterRemoteEnabled = gmSignal("chatfilterRemoteEnabled", false);
+  const chatfilterRemoteEndpoint = gmSignal("chatfilterRemoteEndpoint", "");
+  const chatfilterRemoteAuthToken = gmSignal("chatfilterRemoteAuthToken", "");
+  const chatfilterRemoteStatus = y$1("idle");
   const guardRoomEndpoint = gmSignal("guardRoomEndpoint", "https://bilibili-guard-room.vercel.app");
   const guardRoomSyncKey = gmSignal("guardRoomSyncKey", "");
   const guardRoomWebsiteControlEnabled = gmSignal("guardRoomWebsiteControlEnabled", false);
@@ -3786,7 +3804,7 @@ hasLargeEmote: node.classList.contains("bulge-emoticon")
     };
     return decoder;
   };
-  const encoder = (type, body = "") => {
+  const encoder$1 = (type, body = "") => {
     const encoded = typeof body === "string" ? body : JSON.stringify(body);
     const head = new Uint8Array(16);
     const headView = new DataView(head.buffer, head.byteOffset, head.byteLength);
@@ -3830,7 +3848,7 @@ close;
           if (type === "welcome") {
             this.live = true;
             this.dispatchEvent(new Event("live"));
-            this.send(encoder("heartbeat"));
+            this.send(encoder$1("heartbeat"));
           }
           if (type === "heartbeat") {
             this.online = data;
@@ -3846,7 +3864,7 @@ close;
         });
       });
       this.addEventListener("open", () => {
-        if (authBody) this.send(authBody instanceof Uint8Array ? authBody : encoder("join", authBody));
+        if (authBody) this.send(authBody instanceof Uint8Array ? authBody : encoder$1("join", authBody));
         else {
           const hi = {
             uid,
@@ -3857,7 +3875,7 @@ close;
           };
           if (key) hi.key = key;
           if (buvid) hi.buvid = buvid;
-          const buf = encoder("join", hi);
+          const buf = encoder$1("join", hi);
           this.send(buf);
         }
       });
@@ -3870,7 +3888,7 @@ close;
       });
     }
 heartbeat() {
-      this.send(encoder("heartbeat"));
+      this.send(encoder$1("heartbeat"));
     }
 getOnline() {
       this.heartbeat();
@@ -5581,7 +5599,7 @@ ws;
     return metaTag?.getAttribute("content") ?? "444.8";
   }
   let liveConnection = null;
-  let started$1 = false;
+  let started$2 = false;
   let consumerCount = 0;
   let reconnectTimer = null;
   let lastStartupFailure = "";
@@ -5905,14 +5923,14 @@ ws;
     });
   }
   async function connect() {
-    if (!started$1) return;
+    if (!started$2) return;
     reconnectTimer = null;
     const serial = ++connectionSerial;
     try {
       emitCustomChatWsStatus("connecting");
       const roomId = await ensureRoomId();
       const info = await fetchDanmuInfo(roomId);
-      if (!started$1 || serial !== connectionSerial) return;
+      if (!started$2 || serial !== connectionSerial) return;
       const address = info.addresses[addressIndex % info.addresses.length];
       addressIndex += 1;
       const uid = parseAuthUid(getDedeUid());
@@ -5947,14 +5965,14 @@ ws;
       previous?.close();
       bindEvents(roomId, live);
       live.addEventListener("live", () => {
-        if (!started$1 || serial !== connectionSerial || liveConnection !== live) return;
+        if (!started$2 || serial !== connectionSerial || liveConnection !== live) return;
         reconnectAttempt = 0;
         addressIndex = 0;
         connectionHealthy = true;
       });
       live.addEventListener("close", () => {
         connectionHealthy = false;
-        if (!started$1 || serial !== connectionSerial || liveConnection !== live) return;
+        if (!started$2 || serial !== connectionSerial || liveConnection !== live) return;
         const suffix = lastWsCloseDetail ? ` (${lastWsCloseDetail})` : "";
         appendStartupFailure(live.live ? `connection closed${suffix}` : `closed before room entered${suffix}`);
         const delay = computeReconnectDelay(reconnectAttempt);
@@ -5965,7 +5983,7 @@ ws;
       emitCustomChatWsStatus("error");
       const message = err instanceof Error ? err.message : String(err);
       appendStartupFailure(message);
-      if (!started$1 || serial !== connectionSerial) return;
+      if (!started$2 || serial !== connectionSerial) return;
       const delay = Math.min(3e4, 3e3 + reconnectAttempt * 2e3);
       reconnectAttempt += 1;
       reconnectTimer = setTimeout(() => void connect(), delay);
@@ -5977,7 +5995,7 @@ ws;
     const handler = () => {
       if (!shouldForceImmediateReconnect({
         visibilityState: document.visibilityState,
-        started: started$1,
+        started: started$2,
         connectionHealthy
       })) {
         return;
@@ -5994,7 +6012,7 @@ ws;
     visibilityRecoveryHandler = handler;
   }
   function teardownConnection() {
-    started$1 = false;
+    started$2 = false;
     connectionSerial += 1;
     connectionHealthy = false;
     emitCustomChatWsStatus("off");
@@ -6019,8 +6037,8 @@ ws;
       if (consumerCount > 0) return;
       teardownConnection();
     };
-    if (started$1) return dispose;
-    started$1 = true;
+    if (started$2) return dispose;
+    started$2 = true;
     ensureVisibilityRecoveryWired();
     emitCustomChatWsStatus("connecting");
     void connect();
@@ -8205,15 +8223,15 @@ _clearForTests() {
     if (!text) return false;
     return Object.hasOwn(autoBlendMessageBlacklist.value, text);
   }
-  const subscribers = new Set();
+  const subscribers$1 = new Set();
   function emitAutoBlendEvent(event) {
-    for (const subscriber of subscribers) {
+    for (const subscriber of subscribers$1) {
       subscriber(event);
     }
   }
   function subscribeAutoBlendEvents(subscriber) {
-    subscribers.add(subscriber);
-    return () => subscribers.delete(subscriber);
+    subscribers$1.add(subscriber);
+    return () => subscribers$1.delete(subscriber);
   }
   function logAutoBlend(message, level, detail) {
     emitAutoBlendEvent({ kind: "log", level, message, detail });
@@ -8782,11 +8800,843 @@ max_tokens: 1024,
     saveRoomSessionMaps();
     nominationTimestampsByRoom.delete(roomKey);
   }
+  const VARIANTS_VERSION = "2026-05-12";
+  const ALIAS_PATTERNS = [
+    [
+      "红红火火恍恍惚惚",
+      "哈哈哈"
+    ],
+    [
+      "jiayou",
+      "加油"
+    ],
+    [
+      "niubi",
+      "牛逼"
+    ],
+    [
+      "shabi",
+      "傻逼"
+    ],
+    [
+      "wocao",
+      "卧槽"
+    ],
+    [
+      "这也太强了",
+      "太强了"
+    ],
+    [
+      "YYDS",
+      "永远的神"
+    ],
+    [
+      "hhhh",
+      "哈哈哈"
+    ],
+    [
+      "iceb",
+      "傻逼"
+    ],
+    [
+      "wudi",
+      "无敌"
+    ],
+    [
+      "yyds",
+      "永远的神"
+    ],
+    [
+      "太下饭了",
+      "下饭"
+    ],
+    [
+      "太可怕了",
+      "害怕"
+    ],
+    [
+      "太强了呀",
+      "太强了"
+    ],
+    [
+      "太离谱了",
+      "离谱"
+    ],
+    [
+      "太逆天了",
+      "逆天"
+    ],
+    [
+      "来了来了",
+      "来了"
+    ],
+    [
+      "永远滴神",
+      "永远的神"
+    ],
+    [
+      "永远的神",
+      "永远的神"
+    ],
+    [
+      "灰泽满酱",
+      "主播"
+    ],
+    [
+      "芜湖起飞",
+      "起飞"
+    ],
+    [
+      "？？不是",
+      "不是"
+    ],
+    [
+      "hzm",
+      "主播"
+    ],
+    [
+      "下饭了",
+      "下饭"
+    ],
+    [
+      "不是吧",
+      "不是"
+    ],
+    [
+      "哈哈哈",
+      "哈哈哈"
+    ],
+    [
+      "太强了",
+      "太强了"
+    ],
+    [
+      "害怕了",
+      "害怕"
+    ],
+    [
+      "拿下了",
+      "拿下"
+    ],
+    [
+      "无敌了",
+      "无敌"
+    ],
+    [
+      "来来来",
+      "来了"
+    ],
+    [
+      "灰泽哥",
+      "主播"
+    ],
+    [
+      "灰泽满",
+      "主播"
+    ],
+    [
+      "看哭了",
+      "哭了"
+    ],
+    [
+      "真破防",
+      "破防"
+    ],
+    [
+      "破防了",
+      "破防"
+    ],
+    [
+      "离大谱",
+      "离谱"
+    ],
+    [
+      "艾斯比",
+      "傻逼"
+    ],
+    [
+      "蛤蛤蛤",
+      "哈哈哈"
+    ],
+    [
+      "起飞了",
+      "起飞"
+    ],
+    [
+      "NB",
+      "牛逼"
+    ],
+    [
+      "SB",
+      "傻逼"
+    ],
+    [
+      "WC",
+      "卧槽"
+    ],
+    [
+      "nb",
+      "牛逼"
+    ],
+    [
+      "sb",
+      "傻逼"
+    ],
+    [
+      "wc",
+      "卧槽"
+    ],
+    [
+      "下饭",
+      "下饭"
+    ],
+    [
+      "不是",
+      "不是"
+    ],
+    [
+      "主播",
+      "主播"
+    ],
+    [
+      "傻比",
+      "傻逼"
+    ],
+    [
+      "傻逼",
+      "傻逼"
+    ],
+    [
+      "加油",
+      "加油"
+    ],
+    [
+      "加游",
+      "加油"
+    ],
+    [
+      "加由",
+      "加油"
+    ],
+    [
+      "加铀",
+      "加油"
+    ],
+    [
+      "南亭",
+      "难听"
+    ],
+    [
+      "卧日",
+      "卧槽"
+    ],
+    [
+      "卧槽",
+      "卧槽"
+    ],
+    [
+      "哭了",
+      "哭了"
+    ],
+    [
+      "啥呗",
+      "傻逼"
+    ],
+    [
+      "好亭",
+      "好听"
+    ],
+    [
+      "好听",
+      "好听"
+    ],
+    [
+      "害怕",
+      "害怕"
+    ],
+    [
+      "小满",
+      "主播"
+    ],
+    [
+      "小灰",
+      "主播"
+    ],
+    [
+      "弱子",
+      "弱智"
+    ],
+    [
+      "弱智",
+      "弱智"
+    ],
+    [
+      "感谢",
+      "谢谢"
+    ],
+    [
+      "我操",
+      "卧槽"
+    ],
+    [
+      "我艹",
+      "卧槽"
+    ],
+    [
+      "我草",
+      "卧槽"
+    ],
+    [
+      "拿下",
+      "拿下"
+    ],
+    [
+      "握草",
+      "卧槽"
+    ],
+    [
+      "无敌",
+      "无敌"
+    ],
+    [
+      "智利",
+      "智力"
+    ],
+    [
+      "智力",
+      "智力"
+    ],
+    [
+      "来了",
+      "来了"
+    ],
+    [
+      "沙比",
+      "傻逼"
+    ],
+    [
+      "沙雕",
+      "傻逼"
+    ],
+    [
+      "泪目",
+      "哭了"
+    ],
+    [
+      "流批",
+      "牛逼"
+    ],
+    [
+      "满区",
+      "主播"
+    ],
+    [
+      "满姐",
+      "主播"
+    ],
+    [
+      "满满",
+      "主播"
+    ],
+    [
+      "满神",
+      "主播"
+    ],
+    [
+      "灰泽",
+      "主播"
+    ],
+    [
+      "烧饼",
+      "傻逼"
+    ],
+    [
+      "煞笔",
+      "傻逼"
+    ],
+    [
+      "牛B",
+      "牛逼"
+    ],
+    [
+      "牛批",
+      "牛逼"
+    ],
+    [
+      "牛杯",
+      "牛逼"
+    ],
+    [
+      "牛比",
+      "牛逼"
+    ],
+    [
+      "牛碧",
+      "牛逼"
+    ],
+    [
+      "牛逼",
+      "牛逼"
+    ],
+    [
+      "破防",
+      "破防"
+    ],
+    [
+      "离谱",
+      "离谱"
+    ],
+    [
+      "窝草",
+      "卧槽"
+    ],
+    [
+      "纱碧",
+      "傻逼"
+    ],
+    [
+      "若只",
+      "弱智"
+    ],
+    [
+      "蟹蟹",
+      "谢谢"
+    ],
+    [
+      "谢谢",
+      "谢谢"
+    ],
+    [
+      "豪听",
+      "好听"
+    ],
+    [
+      "起飞",
+      "起飞"
+    ],
+    [
+      "逆天",
+      "逆天"
+    ],
+    [
+      "难听",
+      "难听"
+    ]
+  ];
+  function applyAliases(text, patterns = ALIAS_PATTERNS) {
+    if (!text) return { result: text, hits: [] };
+    const hits = [];
+    let i2 = 0;
+    let out = "";
+    const n2 = text.length;
+    while (i2 < n2) {
+      let matched = null;
+      for (const [variant, canonical] of patterns) {
+        const len = variant.length;
+        if (i2 + len > n2) continue;
+        if (text.startsWith(variant, i2)) {
+          matched = { variant, canonical };
+          break;
+        }
+      }
+      if (matched) {
+        out += matched.canonical;
+        if (matched.variant !== matched.canonical) {
+          hits.push({ start: i2, variant: matched.variant, canonical: matched.canonical });
+        }
+        i2 += matched.variant.length;
+      } else {
+        out += text[i2];
+        i2 += 1;
+      }
+    }
+    return { result: out, hits };
+  }
+  class Lru {
+    constructor(capacity) {
+      this.capacity = capacity;
+      if (!Number.isInteger(capacity) || capacity < 1) {
+        throw new Error(`Lru: capacity must be a positive integer, got ${capacity}`);
+      }
+    }
+    map = new Map();
+    get size() {
+      return this.map.size;
+    }
+    has(key) {
+      return this.map.has(key);
+    }
+get(key) {
+      if (!this.map.has(key)) return void 0;
+      const value = this.map.get(key);
+      this.map.delete(key);
+      this.map.set(key, value);
+      return value;
+    }
+set(key, value) {
+      if (this.map.has(key)) {
+        this.map.delete(key);
+      } else if (this.map.size >= this.capacity) {
+        const oldest = this.map.keys().next().value;
+        if (oldest !== void 0) this.map.delete(oldest);
+      }
+      this.map.set(key, value);
+    }
+    delete(key) {
+      return this.map.delete(key);
+    }
+    clear() {
+      this.map.clear();
+    }
+  }
+  const CYCLE_RE = /(.+?)\1{2,}/gu;
+  const cache = new Lru(4096);
+  function compressCycle(text) {
+    if (text.length < 2) return text;
+    const cached = cache.get(text);
+    if (cached !== void 0) return cached;
+    const out = text.replace(CYCLE_RE, "$1");
+    cache.set(text, out);
+    return out;
+  }
+  class DedupStore {
+    store = new Map();
+    maxEntries;
+    maxSamplesPerEntry;
+    now;
+    constructor(opts = {}) {
+      this.maxEntries = opts.maxEntries ?? 5e3;
+      this.maxSamplesPerEntry = opts.maxSamplesPerEntry ?? 5;
+      this.now = opts.now ?? (() => Date.now());
+    }
+    size() {
+      return this.store.size;
+    }
+    has(canonical) {
+      return this.store.has(canonical);
+    }
+    get(canonical) {
+      return this.store.get(canonical);
+    }
+ingest(canonical, raw) {
+      const ts = this.now();
+      let record = this.store.get(canonical);
+      if (record) {
+        record.count += 1;
+        record.lastSeenAt = ts;
+        if (raw && !record.samples.includes(raw)) {
+          record.samples.unshift(raw);
+          if (record.samples.length > this.maxSamplesPerEntry) record.samples.pop();
+        }
+        this.store.delete(canonical);
+        this.store.set(canonical, record);
+        return { isNew: false, count: record.count, record };
+      }
+      if (this.store.size >= this.maxEntries) {
+        const oldest = this.store.keys().next().value;
+        if (oldest !== void 0) this.store.delete(oldest);
+      }
+      record = {
+        canonical,
+        count: 1,
+        samples: raw ? [raw] : [],
+        firstSeenAt: ts,
+        lastSeenAt: ts
+      };
+      this.store.set(canonical, record);
+      return { isNew: true, count: 1, record };
+    }
+    clear() {
+      this.store.clear();
+    }
+entries() {
+      return this.store.entries();
+    }
+  }
+  const CONTROL_RE = /[\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}]/gu;
+  const WHITESPACE_RE = /\s+/gu;
+  const ASCII_DIGITS_RE = /^[0-9]+$/;
+  function basicCleanse(text, opts = {}) {
+    const minLen = opts.minLen ?? 1;
+    const maxLen = opts.maxLen ?? 128;
+    if (typeof text !== "string" || text.length === 0) return null;
+    let out = text.replace(CONTROL_RE, (ch) => ch === "\n" || ch === "\r" || ch === "	" ? ch : "");
+    out = out.normalize("NFKC");
+    out = out.replace(WHITESPACE_RE, " ").trim();
+    if (!out) return null;
+    if (ASCII_DIGITS_RE.test(out) && out.length > 4) return null;
+    const codePointLen = [...out].length;
+    if (codePointLen < minLen || codePointLen > maxLen) return null;
+    return out;
+  }
+  const FNV_PRIME_64 = 0x100000001b3n;
+  const FNV_OFFSET_64 = 0xcbf29ce484222325n;
+  const MASK_64 = (1n << 64n) - 1n;
+  const encoder = new TextEncoder();
+  function hashToken64(token) {
+    let h2 = FNV_OFFSET_64;
+    const bytes = encoder.encode(token);
+    for (let i2 = 0; i2 < bytes.length; i2++) {
+      h2 ^= BigInt(bytes[i2]);
+      h2 = h2 * FNV_PRIME_64 & MASK_64;
+    }
+    return h2;
+  }
+  function ngrams(text, n2) {
+    const chars = Array.from(text);
+    if (chars.length === 0) return [];
+    if (chars.length < n2) {
+      if (chars.length < 2) return [chars.join("")];
+      const bi = 2;
+      const out2 = [];
+      for (let i2 = 0; i2 <= chars.length - bi; i2++) out2.push(chars.slice(i2, i2 + bi).join(""));
+      return out2;
+    }
+    const out = [];
+    for (let i2 = 0; i2 <= chars.length - n2; i2++) out.push(chars.slice(i2, i2 + n2).join(""));
+    return out;
+  }
+  function computeSimhash(text, ngram = 3) {
+    const tokens = ngrams(text, ngram);
+    if (tokens.length === 0) return 0n;
+    const vec = new Int32Array(64);
+    for (const t2 of tokens) {
+      const h2 = hashToken64(t2);
+      for (let i2 = 0; i2 < 64; i2++) {
+        if (h2 >> BigInt(i2) & 1n) vec[i2] += 1;
+        else vec[i2] -= 1;
+      }
+    }
+    let fp = 0n;
+    for (let i2 = 0; i2 < 64; i2++) if (vec[i2] > 0) fp |= 1n << BigInt(i2);
+    return fp;
+  }
+  function hammingDistance(a2, b2) {
+    let x2 = (a2 ^ b2) & MASK_64;
+    let count = 0;
+    while (x2 !== 0n) {
+      x2 &= x2 - 1n;
+      count++;
+    }
+    return count;
+  }
+  class SimHashHelper {
+    store = new Map();
+    highConfDistance;
+    candidateDistance;
+    minTextLength;
+    maxStoreSize;
+    constructor(opts = {}) {
+      this.highConfDistance = opts.highConfDistance ?? 2;
+      this.candidateDistance = opts.candidateDistance ?? 3;
+      this.minTextLength = opts.minTextLength ?? 8;
+      this.maxStoreSize = opts.maxStoreSize ?? 2e3;
+    }
+    size() {
+      return this.store.size;
+    }
+add(text) {
+      const existing = this.store.get(text);
+      if (existing) {
+        existing.freq += 1;
+        return existing.fp;
+      }
+      if (this.store.size >= this.maxStoreSize) {
+        const oldest = this.store.keys().next().value;
+        if (oldest !== void 0) this.store.delete(oldest);
+      }
+      const fp = computeSimhash(text);
+      this.store.set(text, { fp, freq: 1 });
+      return fp;
+    }
+find(text) {
+      if (this.store.size === 0) return { canonical: null, autoMerged: false, candidate: false };
+      const fp = computeSimhash(text);
+      let best = null;
+      let bestDist = 999;
+      for (const [stored, { fp: storedFp }] of this.store) {
+        const d2 = hammingDistance(fp, storedFp);
+        if (d2 < bestDist) {
+          bestDist = d2;
+          best = stored;
+          if (d2 === 0) break;
+        }
+      }
+      if (best === null) return { canonical: null, autoMerged: false, candidate: false };
+      if (bestDist <= this.highConfDistance && Array.from(text).length >= this.minTextLength && Array.from(best).length >= this.minTextLength) {
+        return { canonical: best, autoMerged: true, candidate: false };
+      }
+      if (bestDist <= this.candidateDistance) {
+        return { canonical: best, autoMerged: false, candidate: true };
+      }
+      return { canonical: null, autoMerged: false, candidate: false };
+    }
+    clear() {
+      this.store.clear();
+    }
+  }
+  let defaultDedup = null;
+  let defaultSimhash = null;
+  function getDefaultDedup() {
+    if (!defaultDedup) defaultDedup = new DedupStore();
+    return defaultDedup;
+  }
+  function getDefaultSimhash() {
+    if (!defaultSimhash) defaultSimhash = new SimHashHelper();
+    return defaultSimhash;
+  }
+  const emptyHits = [];
+  const emptyAliasHits = [];
+  function emptyResult(raw, durationMs) {
+    return {
+      raw,
+      canonical: "",
+      filtered: true,
+      isNew: false,
+      count: 0,
+      stageHits: emptyHits,
+      aliasHits: emptyAliasHits,
+      simhash: 0n,
+      durationMs
+    };
+  }
+  function normalize(raw, config, opts = {}) {
+    const t0 = performance.now();
+    const trackHits = opts.trackHits === true;
+    const hits = trackHits ? [] : emptyHits;
+    const cleansed = basicCleanse(raw, config.preprocess);
+    if (cleansed === null) {
+      if (trackHits) hits.push({ stage: "preprocess", before: raw, after: "", cacheHit: false });
+      return emptyResult(raw, performance.now() - t0);
+    }
+    if (trackHits && cleansed !== raw) {
+      hits.push({ stage: "preprocess", before: raw, after: cleansed, cacheHit: false });
+    }
+    let text = cleansed;
+    let aliasHits = [];
+    const lvl = config.aggressiveness;
+    if (lvl !== "safe") {
+      const aliasOut = applyAliases(text);
+      if (aliasOut.hits.length > 0) {
+        aliasHits = aliasOut.hits;
+        if (trackHits) hits.push({ stage: "alias", before: text, after: aliasOut.result, cacheHit: false });
+        text = aliasOut.result;
+      }
+    }
+    const compressed = compressCycle(text);
+    if (compressed !== text) {
+      if (trackHits) hits.push({ stage: "cycle", before: text, after: compressed, cacheHit: false });
+      text = compressed;
+    }
+    const dedupResult = config.dedup.ingest(text, raw);
+    if (trackHits) {
+      hits.push({
+        stage: "dedup",
+        before: text,
+        after: text,
+        cacheHit: !dedupResult.isNew
+      });
+    }
+    let canonical = text;
+    let mergedFrom;
+    let fp = 0n;
+    if (lvl === "aggressive" && config.simhash && dedupResult.isNew) {
+      const lookup = config.simhash.find(text);
+      if (lookup.autoMerged && lookup.canonical && lookup.canonical !== text) {
+        const targetIngest = config.dedup.ingest(lookup.canonical, raw);
+        if (trackHits) {
+          hits.push({ stage: "simhash", before: text, after: lookup.canonical, cacheHit: true });
+        }
+        mergedFrom = text;
+        canonical = lookup.canonical;
+        return {
+          raw,
+          canonical,
+          filtered: false,
+          isNew: false,
+          count: targetIngest.count,
+          stageHits: hits,
+          aliasHits: aliasHits.map((h2) => ({ variant: h2.variant, canonical: h2.canonical })),
+          simhash: lookup.canonical ? (
+fp = config.simhash.add(canonical)
+          ) : 0n,
+          durationMs: performance.now() - t0,
+          mergedFrom
+        };
+      }
+      fp = config.simhash.add(text);
+      if (trackHits) hits.push({ stage: "simhash", before: text, after: text, cacheHit: false });
+    }
+    return {
+      raw,
+      canonical,
+      filtered: false,
+      isNew: dedupResult.isNew,
+      count: dedupResult.count,
+      stageHits: hits,
+      aliasHits: aliasHits.map((h2) => ({ variant: h2.variant, canonical: h2.canonical })),
+      simhash: fp,
+      durationMs: performance.now() - t0
+    };
+  }
+  function getTrendKey(raw, config) {
+    const cleansed = basicCleanse(raw, config.preprocess);
+    if (cleansed === null) return null;
+    let text = cleansed;
+    if (config.aggressiveness !== "safe") {
+      const aliasOut = applyAliases(text);
+      text = aliasOut.result;
+    }
+    const compressed = compressCycle(text);
+    return compressed || null;
+  }
+  const subscribers = new Set();
+  function subscribeNormalizeEvents(handler) {
+    subscribers.add(handler);
+    return () => {
+      subscribers.delete(handler);
+    };
+  }
+  function emitNormalizeEvent(result) {
+    if (subscribers.size === 0) return;
+    for (const sub of subscribers) {
+      try {
+        sub(result);
+      } catch {
+      }
+    }
+  }
+  function getChatfilterRuntimeConfig() {
+    const aggressiveness = chatfilterAggressiveness.value;
+    return {
+      aggressiveness,
+      dedup: getDefaultDedup(),
+      simhash: aggressiveness === "aggressive" ? getDefaultSimhash() : void 0
+    };
+  }
+  function getAutoBlendTrendKey(rawText) {
+    if (!chatfilterEnabled.value || !chatfilterAffectAutoBlendTrend.value) {
+      const trimmed = rawText.trim();
+      return trimmed.length > 0 ? trimmed : null;
+    }
+    const config = getChatfilterRuntimeConfig();
+    if (subscribers.size > 0) {
+      const r2 = normalize(rawText, config, { trackHits: true });
+      emitNormalizeEvent(r2);
+      return r2.filtered ? null : r2.canonical;
+    }
+    return getTrendKey(rawText, config);
+  }
+  function getCustomChatFoldCanonical(rawText) {
+    if (!chatfilterEnabled.value || !chatfilterAffectCustomChatFold.value) return null;
+    const canonical = getTrendKey(rawText, getChatfilterRuntimeConfig());
+    return canonical && canonical.length > 0 ? canonical : null;
+  }
   const trendMap = new Map();
   let nextTrendPruneAt = Number.POSITIVE_INFINITY;
   let lastPruneWindowMs = 0;
   let cooldownUntil = 0;
-  let unsubscribe$4 = null;
+  let unsubscribe$5 = null;
   let unsubscribeWsDanmaku = null;
   let cleanupTimer = null;
   let burstSettleTimer = null;
@@ -9046,19 +9896,21 @@ max_tokens: 1024,
     if (isLockedEmoticon(text)) return;
     if (isUnavailableEmoticon(text)) return;
     if (hasLargeEmote) return;
-    if (autoBlendAvoidRepeat.value && lastAutoSentText !== null && text === lastAutoSentText) return;
+    const trendKey = getAutoBlendTrendKey(rawText);
+    if (trendKey === null) return;
+    if (autoBlendAvoidRepeat.value && lastAutoSentText !== null && trendKey === lastAutoSentText) return;
     pruneExpired(now);
-    let entry = trendMap.get(text);
+    let entry = trendMap.get(trendKey);
     if (!entry) {
       entry = { events: [] };
-      trendMap.set(text, entry);
+      trendMap.set(trendKey, entry);
     }
     entry.events.push({ ts: now, uid });
     const expiresAt = now + autoBlendWindowSec.value * 1e3 + 1;
     if (expiresAt < nextTrendPruneAt) nextTrendPruneAt = expiresAt;
     updateCandidateText();
     if (now < cooldownUntil || isSending) return;
-    if (meetsThreshold(entry)) scheduleBurstSend(text);
+    if (meetsThreshold(entry)) scheduleBurstSend(trendKey);
   }
   function scheduleNextRoutine() {
     routineTimeout = setTimeout(() => {
@@ -9305,7 +10157,7 @@ max_tokens: 1024,
     }
   }
   function startAutoBlend() {
-    if (unsubscribe$4) return;
+    if (unsubscribe$5) return;
     myUid = getDedeUid() ?? null;
     rateLimitHitCount = 0;
     firstRateLimitHitAt = 0;
@@ -9317,7 +10169,7 @@ max_tokens: 1024,
     autoBlendCandidateText.value = "暂无";
     autoBlendCandidateProgress.value = null;
     autoBlendLastActionText.value = "暂无";
-    unsubscribe$4 = subscribeDanmaku({
+    unsubscribe$5 = subscribeDanmaku({
       onMessage: (ev) => recordDanmaku(ev.text, ev.uid, ev.isReply, ev.hasLargeEmote)
     });
     startLiveWsSource();
@@ -9351,9 +10203,9 @@ max_tokens: 1024,
       burstSettleTimer = null;
     }
     pendingBurstText = null;
-    if (unsubscribe$4) {
-      unsubscribe$4();
-      unsubscribe$4 = null;
+    if (unsubscribe$5) {
+      unsubscribe$5();
+      unsubscribe$5 = null;
     }
     if (unsubscribeWsDanmaku) {
       unsubscribeWsDanmaku();
@@ -11966,7 +12818,9 @@ u$2(
     }
   }
   function cardKey(event) {
-    return `${event.kind}:${wheelFoldKey(event.text).slice(0, 80)}`;
+    const canonical = getCustomChatFoldCanonical(event.text);
+    const key = canonical ?? wheelFoldKey(event.text);
+    return `${event.kind}:${key.slice(0, 80)}`;
   }
   function gcRecentCardKeys(now) {
     for (const [key, ts] of recentCardKeys) {
@@ -12660,15 +13514,15 @@ u$2(
     emptyEl?.remove();
     const activeKey = document.activeElement instanceof HTMLElement ? document.activeElement.closest(".lc-chat-message")?.dataset.key : void 0;
     const range = virtualRange();
-    const rows = [];
+    const rows2 = [];
     for (let index = range.start; index < range.end; index++) {
       const message = items[index];
       const key = messageKey(message);
       const row = createMessageRow(message, animateKeys.has(key), index);
       row.dataset.key = key;
-      rows.push(row);
+      rows2.push(row);
     }
-    virtualItemsEl.replaceChildren(...rows);
+    virtualItemsEl.replaceChildren(...rows2);
     setSpacerHeight(virtualTopSpacer, range.top);
     setSpacerHeight(virtualBottomSpacer, range.total - range.bottom);
     if (activeKey) {
@@ -13588,7 +14442,7 @@ html.lc-dm-direct-always .${MARKER$1} {
       autoBlendUserBlacklist.value = next;
     }
   }
-  let unsubscribe$3 = null;
+  let unsubscribe$4 = null;
   let styleEl$1 = null;
   let attachedContainer = null;
   let alwaysShowDispose = null;
@@ -13649,12 +14503,12 @@ html.lc-dm-direct-always .${MARKER$1} {
     }
   }
   function startDanmakuDirect() {
-    if (unsubscribe$3) return;
+    if (unsubscribe$4) return;
     alwaysShowDispose = j$1(() => {
       document.documentElement.classList.toggle("lc-dm-direct-always", danmakuDirectAlwaysShow.value);
     });
     initContextMenuHijack();
-    unsubscribe$3 = subscribeDanmaku({
+    unsubscribe$4 = subscribeDanmaku({
       onAttach: (container) => {
         styleEl$1 = document.createElement("style");
         styleEl$1.id = STYLE_ID$1;
@@ -13678,9 +14532,9 @@ html.lc-dm-direct-always .${MARKER$1} {
       alwaysShowDispose = null;
       document.documentElement.classList.remove("lc-dm-direct-always");
     }
-    if (unsubscribe$3) {
-      unsubscribe$3();
-      unsubscribe$3 = null;
+    if (unsubscribe$4) {
+      unsubscribe$4();
+      unsubscribe$4 = null;
     }
     if (attachedContainer) {
       attachedContainer.removeEventListener("click", handleDelegatedClick, true);
@@ -13908,7 +14762,7 @@ html.lc-dm-direct-always .${MARKER$1} {
   }
   const WINDOW_MS = 60 * 1e3;
   let timer = null;
-  let unsubscribe$2 = null;
+  let unsubscribe$3 = null;
   const seen = [];
   let cycleEpoch = 0;
   function trimSeen(now) {
@@ -13948,9 +14802,9 @@ html.lc-dm-direct-always .${MARKER$1} {
     }, delayMs);
   }
   function startLiveDeskSync() {
-    if (timer || unsubscribe$2) return;
+    if (timer || unsubscribe$3) return;
     const epoch = ++cycleEpoch;
-    unsubscribe$2 = subscribeCustomChatEvents((event) => {
+    unsubscribe$3 = subscribeCustomChatEvents((event) => {
       if (event.kind !== "danmaku") return;
       const now = Date.now();
       seen.push({ ts: now, uid: event.uid });
@@ -13966,8 +14820,8 @@ html.lc-dm-direct-always .${MARKER$1} {
       clearTimeout(timer);
       timer = null;
     }
-    unsubscribe$2?.();
-    unsubscribe$2 = null;
+    unsubscribe$3?.();
+    unsubscribe$3 = null;
     seen.splice(0, seen.length);
   }
   function computeJitteredSleepMs(intervalSec, withJitter) {
@@ -14247,7 +15101,7 @@ html.lc-dm-direct-always .${MARKER$1} {
 }
 `;
   const foldByKey = new Map();
-  let unsubscribe$1 = null;
+  let unsubscribe$2 = null;
   let styleEl = null;
   function gcFolds(now) {
     for (const [key, entry] of foldByKey) {
@@ -14290,8 +15144,8 @@ html.lc-dm-direct-always .${MARKER$1} {
     foldByKey.set(key, { node: ev.node, count: 1, lastSeen: now });
   }
   function startNativeChatFold() {
-    if (unsubscribe$1) return;
-    unsubscribe$1 = subscribeDanmaku({
+    if (unsubscribe$2) return;
+    unsubscribe$2 = subscribeDanmaku({
       onAttach: () => {
         if (!styleEl) {
           styleEl = document.createElement("style");
@@ -14305,9 +15159,9 @@ emitExisting: false
     });
   }
   function stopNativeChatFold() {
-    if (unsubscribe$1) {
-      unsubscribe$1();
-      unsubscribe$1 = null;
+    if (unsubscribe$2) {
+      unsubscribe$2();
+      unsubscribe$2 = null;
     }
     if (styleEl) {
       styleEl.remove();
@@ -14320,6 +15174,308 @@ emitExisting: false
       badge.remove();
     }
     foldByKey.clear();
+  }
+  function normalizeEndpoint(endpoint) {
+    return endpoint.replace(/\/+$/, "");
+  }
+  function authHeaders(token) {
+    if (!token) return void 0;
+    return { Authorization: `Bearer ${token}` };
+  }
+  async function ingest(text, roomId, opts) {
+    const params = new URLSearchParams();
+    params.set("text", text);
+    if (roomId !== null) params.set("room", String(roomId));
+    const url = `${normalizeEndpoint(opts.endpoint)}/ingest?${params.toString()}`;
+    try {
+      const resp = await gmFetch(url, {
+        method: "POST",
+        headers: authHeaders(opts.authToken),
+        timeoutMs: opts.ingestTimeoutMs ?? 8e3
+      });
+      return { ok: resp.ok, body: resp.text() };
+    } catch (err) {
+      return { ok: false, body: err instanceof Error ? err.message : String(err) };
+    }
+  }
+  async function fetchState(opts) {
+    const url = `${normalizeEndpoint(opts.endpoint)}/state`;
+    try {
+      const resp = await gmFetch(url, {
+        method: "GET",
+        headers: authHeaders(opts.authToken),
+        timeoutMs: opts.stateTimeoutMs ?? 12e3
+      });
+      if (!resp.ok) return { error: `${resp.status} ${resp.statusText}` };
+      try {
+        return resp.json();
+      } catch {
+        return { error: "invalid JSON response" };
+      }
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+  const DEFAULT_SSE_SILENT = 5e3;
+  const DEFAULT_POLL_INTERVAL = 5e3;
+  function tryParseEvent(data) {
+    try {
+      const parsed = JSON.parse(data);
+      return { kind: "state", data: parsed };
+    } catch {
+      return null;
+    }
+  }
+  function connectRemoteSse(opts) {
+    const endpoint = opts.endpoint.replace(/\/+$/, "");
+    const silentTimeoutMs = opts.sseSilentTimeoutMs ?? DEFAULT_SSE_SILENT;
+    const pollIntervalMs = opts.pollIntervalMs ?? DEFAULT_POLL_INTERVAL;
+    let closed = false;
+    let es = null;
+    let silentTimer = null;
+    let pollTimer2 = null;
+    const cleanup = () => {
+      if (silentTimer !== null) {
+        clearTimeout(silentTimer);
+        silentTimer = null;
+      }
+      if (pollTimer2 !== null) {
+        clearTimeout(pollTimer2);
+        pollTimer2 = null;
+      }
+      if (es !== null) {
+        try {
+          es.close();
+        } catch {
+        }
+        es = null;
+      }
+    };
+    const startPolling = () => {
+      if (closed) return;
+      cleanup();
+      opts.onStatus("polling");
+      const tick2 = async () => {
+        if (closed) return;
+        const result = await fetchState(opts);
+        if ("error" in result) {
+          opts.onEvent({ kind: "error", reason: result.error });
+        } else {
+          opts.onEvent({ kind: "state", data: result });
+        }
+        if (closed) return;
+        pollTimer2 = setTimeout(tick2, pollIntervalMs);
+      };
+      void tick2();
+    };
+    const armSilentTimeout = () => {
+      if (silentTimer !== null) clearTimeout(silentTimer);
+      silentTimer = setTimeout(() => {
+        startPolling();
+      }, silentTimeoutMs);
+    };
+    const startSse = () => {
+      if (closed) return;
+      opts.onStatus("connecting");
+      if (typeof EventSource === "undefined") {
+        startPolling();
+        return;
+      }
+      try {
+        es = new EventSource(`${endpoint}/events`);
+      } catch (err) {
+        opts.onEvent({ kind: "error", reason: err instanceof Error ? err.message : String(err) });
+        startPolling();
+        return;
+      }
+      armSilentTimeout();
+      es.onmessage = (ev) => {
+        if (silentTimer !== null) {
+          clearTimeout(silentTimer);
+          silentTimer = null;
+        }
+        opts.onStatus("connected");
+        const parsed = tryParseEvent(ev.data);
+        if (parsed !== null) opts.onEvent(parsed);
+        armSilentTimeout();
+      };
+      es.onerror = () => {
+        if (closed) return;
+        if (es && es.readyState === EventSource.CLOSED) {
+          opts.onEvent({ kind: "error", reason: "SSE 连接关闭" });
+          startPolling();
+        }
+      };
+    };
+    startSse();
+    return {
+      close() {
+        closed = true;
+        cleanup();
+        opts.onStatus("idle");
+      }
+    };
+  }
+  const remoteEventSubs = new Set();
+  function emitRemoteEvent(e2) {
+    for (const sub of remoteEventSubs) {
+      try {
+        sub(e2);
+      } catch {
+      }
+    }
+  }
+  let sseHandle = null;
+  let danmakuUnsubscribe = null;
+  let started$1 = false;
+  const recentIngest = new Map();
+  const INGEST_DEDUP_MS = 1500;
+  function getClientOpts() {
+    const endpoint = chatfilterRemoteEndpoint.value.trim();
+    if (!endpoint) return null;
+    return {
+      endpoint,
+      authToken: chatfilterRemoteAuthToken.value.trim() || void 0
+    };
+  }
+  function startRemoteCluster() {
+    if (started$1) return;
+    const clientOpts = getClientOpts();
+    if (!clientOpts) {
+      chatfilterRemoteStatus.value = "error";
+      emitRemoteEvent({ kind: "error", reason: "未配置 endpoint" });
+      return;
+    }
+    started$1 = true;
+    danmakuUnsubscribe = subscribeDanmaku({
+      onMessage: (ev) => {
+        const text = ev.text?.trim() ?? "";
+        if (!text) return;
+        const now = Date.now();
+        const last = recentIngest.get(text);
+        if (last !== void 0 && now - last < INGEST_DEDUP_MS) return;
+        recentIngest.set(text, now);
+        if (recentIngest.size > 256) {
+          const keys = Array.from(recentIngest.keys()).slice(0, 64);
+          for (const k2 of keys) recentIngest.delete(k2);
+        }
+        const roomId = cachedRoomId.value;
+        void ingest(text, roomId, clientOpts).then((res) => {
+          if (!res.ok) emitRemoteEvent({ kind: "error", reason: `ingest 失败: ${res.body}` });
+        });
+      }
+    });
+    sseHandle = connectRemoteSse({
+      ...clientOpts,
+      onEvent: (e2) => emitRemoteEvent(e2),
+      onStatus: (s2) => {
+        chatfilterRemoteStatus.value = s2;
+      }
+    });
+  }
+  function stopRemoteCluster() {
+    if (!started$1) return;
+    started$1 = false;
+    if (danmakuUnsubscribe) {
+      danmakuUnsubscribe();
+      danmakuUnsubscribe = null;
+    }
+    if (sseHandle) {
+      sseHandle.close();
+      sseHandle = null;
+    }
+    recentIngest.clear();
+    chatfilterRemoteStatus.value = "idle";
+  }
+  function installRemoteClusterLifecycle() {
+    if (chatfilterRemoteEnabled.value) startRemoteCluster();
+    let lastEnabled = chatfilterRemoteEnabled.value;
+    let lastEndpoint = chatfilterRemoteEndpoint.value;
+    let lastToken = chatfilterRemoteAuthToken.value;
+    const check = () => {
+      const enabled = chatfilterRemoteEnabled.value;
+      const endpoint = chatfilterRemoteEndpoint.value;
+      const token = chatfilterRemoteAuthToken.value;
+      if (enabled !== lastEnabled || endpoint !== lastEndpoint || token !== lastToken) {
+        stopRemoteCluster();
+        lastEnabled = enabled;
+        lastEndpoint = endpoint;
+        lastToken = token;
+        if (enabled) startRemoteCluster();
+      }
+    };
+    const unsubEnabled = chatfilterRemoteEnabled.subscribe(check);
+    const unsubEndpoint = chatfilterRemoteEndpoint.subscribe(check);
+    const unsubToken = chatfilterRemoteAuthToken.subscribe(check);
+    return () => {
+      unsubEnabled();
+      unsubEndpoint();
+      unsubToken();
+      stopRemoteCluster();
+    };
+  }
+  const PROMOTE_THRESHOLD = 10;
+  function keyOf(k2) {
+    return `${k2.roomId}${k2.variant}${k2.canonical}`;
+  }
+  const counter = new Map();
+  const replacementFeedCandidates = y$1([]);
+  function rebuildCandidates() {
+    const visible = [];
+    for (const e2 of counter.values()) {
+      if (e2.count >= PROMOTE_THRESHOLD) visible.push(e2);
+    }
+    visible.sort((a2, b2) => b2.count - a2.count);
+    replacementFeedCandidates.value = visible;
+  }
+  function onNormalize(result) {
+    if (!chatfilterFeedReplacementLearn.value) return;
+    if (result.filtered || result.aliasHits.length === 0) return;
+    const roomId = cachedRoomId.value;
+    if (roomId === null) return;
+    const roomKey = String(roomId);
+    const ts = Date.now();
+    let mutated = false;
+    for (const hit of result.aliasHits) {
+      const k2 = { roomId: roomKey, variant: hit.variant, canonical: hit.canonical };
+      const id = keyOf(k2);
+      const entry = counter.get(id);
+      if (entry) {
+        const wasBelow = entry.count < PROMOTE_THRESHOLD;
+        entry.count += 1;
+        entry.lastSeenAt = ts;
+        if (wasBelow && entry.count >= PROMOTE_THRESHOLD) mutated = true;
+      } else {
+        counter.set(id, { ...k2, count: 1, lastSeenAt: ts });
+      }
+    }
+    if (mutated) rebuildCandidates();
+  }
+  let unsubscribe$1 = null;
+  function startReplacementFeed() {
+    if (unsubscribe$1) return;
+    unsubscribe$1 = subscribeNormalizeEvents(onNormalize);
+  }
+  function stopReplacementFeed() {
+    if (unsubscribe$1) {
+      unsubscribe$1();
+      unsubscribe$1 = null;
+    }
+  }
+  function adoptReplacementCandidate(c2) {
+    const rules = { ...localRoomRules.value };
+    const room = rules[c2.roomId] ?? [];
+    const exists = room.some((r2) => r2.from === c2.variant && r2.to === c2.canonical);
+    if (!exists) {
+      rules[c2.roomId] = [...room, { from: c2.variant, to: c2.canonical }];
+      localRoomRules.value = rules;
+    }
+    counter.delete(keyOf(c2));
+    rebuildCandidates();
+  }
+  function dismissReplacementCandidate(c2) {
+    counter.delete(keyOf(c2));
+    rebuildCandidates();
   }
   function normalizeRadarBackendUrl(input) {
     const trimmed = input.trim().replace(/\/+$/, "");
@@ -16120,6 +17276,178 @@ u$2(
         ]
       }
     );
+  }
+  const MAX_ROWS = 200;
+  const rows = y$1([]);
+  let installed = false;
+  function ensureInstalled() {
+    if (installed) return () => {
+    };
+    installed = true;
+    const unsub = subscribeNormalizeEvents((r2) => {
+      const row = {
+        ts: Date.now(),
+        raw: r2.raw,
+        canonical: r2.canonical,
+        filtered: r2.filtered,
+        stages: r2.stageHits.map((h2) => h2.stage),
+        isNew: r2.isNew,
+        count: r2.count
+      };
+      const next = rows.value.length >= MAX_ROWS ? [...rows.value.slice(-199), row] : [...rows.value, row];
+      rows.value = next;
+    });
+    return () => {
+      installed = false;
+      unsub();
+    };
+  }
+  function stageEmoji(stage) {
+    switch (stage) {
+      case "preprocess":
+        return "🧹";
+      case "alias":
+        return "🔄";
+      case "variant":
+      case "pinyin":
+        return "🔉";
+      case "cycle":
+        return "♻️";
+      case "simhash":
+        return "🔍";
+      case "dedup":
+        return "#";
+    }
+  }
+  function fmtTime(ts) {
+    const d2 = new Date(ts);
+    return `${d2.getHours().toString().padStart(2, "0")}:${d2.getMinutes().toString().padStart(2, "0")}:${d2.getSeconds().toString().padStart(2, "0")}`;
+  }
+  function ChatfilterLogPanel() {
+    const filterText = useSignal("");
+    y$2(() => {
+      const cleanup = ensureInstalled();
+      return cleanup;
+    }, []);
+    const q2 = filterText.value.trim().toLowerCase();
+    const visible = q2 ? rows.value.filter((r2) => r2.raw.toLowerCase().includes(q2) || r2.canonical.toLowerCase().includes(q2)) : rows.value;
+    return u$2("details", { className: "cb-settings-accordion", open: true, children: [
+u$2("summary", { children: u$2("span", { className: "cb-accordion-title", children: [
+        "Chatfilter 观察日志（",
+        rows.value.length,
+        "/",
+        MAX_ROWS,
+        "）"
+      ] }) }),
+u$2("div", { className: "cb-section cb-stack", style: { margin: ".5em 0", paddingBottom: "1em" }, children: [
+u$2("div", { className: "cb-row", style: { display: "flex", gap: ".5em", alignItems: "center", flexWrap: "wrap" }, children: [
+u$2(
+            "input",
+            {
+              type: "search",
+              placeholder: "过滤 raw / canonical",
+              value: filterText.value,
+              onInput: (e2) => {
+                filterText.value = e2.currentTarget.value;
+              },
+              style: { flex: "1 1 200px" }
+            }
+          ),
+u$2(
+            "button",
+            {
+              type: "button",
+              onClick: () => {
+                rows.value = [];
+              },
+              title: "清空缓冲",
+              children: "清空"
+            }
+          ),
+u$2(
+            "button",
+            {
+              type: "button",
+              onClick: () => {
+                const json = JSON.stringify(rows.value, null, 2);
+                navigator.clipboard?.writeText(json).catch(() => {
+                });
+              },
+              title: "复制为 JSON 到剪贴板",
+              children: "复制 JSON"
+            }
+          )
+        ] }),
+        replacementFeedCandidates.value.length > 0 && u$2(
+          "div",
+          {
+            style: {
+              border: "1px solid var(--Ga2, #eee)",
+              padding: ".25em .4em",
+              margin: ".25em 0",
+              background: "rgba(255, 220, 100, 0.08)"
+            },
+            children: [
+u$2("div", { style: { fontSize: "0.8em", color: "#666", marginBottom: ".2em" }, children: "替换规则候选（场景 C；命中 ≥ 10 次的高频归一化映射）：" }),
+              replacementFeedCandidates.value.slice(0, 8).map((c2) => u$2(
+                "div",
+                {
+                  style: { display: "flex", gap: ".4em", alignItems: "center", padding: "2px 0", fontSize: "0.85em" },
+                  children: [
+u$2("span", { style: { flex: "1 1 auto" }, children: [
+u$2("code", { children: c2.variant }),
+                      " → ",
+u$2("code", { style: { color: "#4a8" }, children: c2.canonical }),
+u$2("span", { style: { color: "#999", marginLeft: ".5em" }, children: [
+                        "×",
+                        c2.count
+                      ] })
+                    ] }),
+u$2("button", { type: "button", onClick: () => adoptReplacementCandidate(c2), title: "写入当前房间替换规则", children: "采纳" }),
+u$2("button", { type: "button", onClick: () => dismissReplacementCandidate(c2), title: "本会话内不再提示", children: "忽略" })
+                  ]
+                },
+                `${c2.variant}->${c2.canonical}`
+              ))
+            ]
+          }
+        ),
+u$2(
+          "div",
+          {
+            style: {
+              maxHeight: "320px",
+              overflowY: "auto",
+              fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+              fontSize: "0.85em",
+              border: "1px solid var(--Ga2, #eee)",
+              padding: ".25em"
+            },
+            children: visible.length === 0 ? u$2("div", { style: { color: "#999", padding: ".5em" }, children: rows.value.length === 0 ? "等待弹幕…" : "过滤无匹配" }) : visible.slice().reverse().map((r2, idx) => u$2(
+              "div",
+              {
+                style: {
+                  padding: "2px 4px",
+                  borderBottom: "1px dashed var(--Ga2, #f0f0f0)",
+                  color: r2.filtered ? "#999" : "inherit"
+                },
+                title: r2.filtered ? "被 preprocess 丢弃" : `count=${r2.count} ${r2.isNew ? "(new)" : ""}`,
+                children: [
+u$2("span", { style: { color: "#999", marginRight: ".5em" }, children: fmtTime(r2.ts) }),
+u$2("span", { children: r2.raw }),
+                  !r2.filtered && r2.canonical !== r2.raw && u$2(S$1, { children: [
+u$2("span", { style: { margin: "0 .25em", color: "#999" }, children: "→" }),
+u$2("span", { style: { color: "#4a8" }, children: r2.canonical })
+                  ] }),
+                  r2.stages.length > 0 && u$2("span", { style: { marginLeft: ".5em" }, children: r2.stages.map(stageEmoji).join("") })
+                ]
+              },
+              `${r2.ts}-${idx}`
+            ))
+          }
+        )
+      ] })
+    ] });
   }
   const RECENT_ACTION_WINDOW_MS = 5e3;
   const MODE_LABEL$1 = {
@@ -19489,7 +20817,7 @@ u$2("p", { style: { color: "#666", fontSize: "0.8em", margin: ".25em 0 0" }, chi
       ] })
     ] });
   }
-  const SECTION_KEYWORDS$2 = "梗库后端 chatterbox cloud cb 后端 自建 backend localhost url 烂梗 LAPLACE SBHZM";
+  const SECTION_KEYWORDS$3 = "梗库后端 chatterbox cloud cb 后端 自建 backend localhost url 烂梗 LAPLACE SBHZM";
   function statusDotColor(state) {
     switch (state) {
       case "ok":
@@ -19530,7 +20858,7 @@ u$2("p", { style: { color: "#666", fontSize: "0.8em", margin: ".25em 0 0" }, chi
     }
   }
   function CbBackendSection({ query = "" }) {
-    if (!matchesSearchQuery(SECTION_KEYWORDS$2, query)) return null;
+    if (!matchesSearchQuery(SECTION_KEYWORDS$3, query)) return null;
     async function handleProbe() {
       await probeAndUpdateCbBackendHealth();
     }
@@ -19610,6 +20938,184 @@ u$2("span", { style: { fontSize: "0.85em" }, children: [
             cbBackendHealthDetail.value ? `: ${cbBackendHealthDetail.value}` : ""
           ] })
         ] })
+      ] })
+    ] });
+  }
+  const SECTION_KEYWORDS$2 = "chatfilter 弹幕归一化 同义 canonical 趋势 聚类 cluster normalize 拼音 simhash trend 牛逼 niubi yyds 哈哈哈 别名 alias variants";
+  function ChatfilterSection({ query = "" }) {
+    if (!matchesSearchQuery(SECTION_KEYWORDS$2, query)) return null;
+    const disabled = !chatfilterEnabled.value;
+    return u$2("details", { className: "cb-settings-accordion", children: [
+u$2("summary", { children: u$2("span", { className: "cb-accordion-title", children: "Chatfilter 弹幕归一化" }) }),
+u$2("div", { className: "cb-section cb-stack", style: { margin: ".5em 0", paddingBottom: "1em" }, children: [
+u$2("div", { className: "cb-note", style: { color: "#666", fontSize: "0.85em", marginBottom: ".5em" }, children: [
+          '把 "niubi"/"NB"/"牛批" 这类同义弹幕合并为同一条 canonical（"牛逼"），让自动跟车的相似计数更准。 源字典 v',
+          VARIANTS_VERSION,
+          "。"
+        ] }),
+u$2("label", { className: "cb-row", style: { display: "flex", gap: ".5em", alignItems: "center" }, children: [
+u$2(
+            "input",
+            {
+              type: "checkbox",
+              checked: chatfilterEnabled.value,
+              onChange: (e2) => {
+                chatfilterEnabled.value = e2.currentTarget.checked;
+              }
+            }
+          ),
+u$2("span", { children: "启用 Chatfilter（总开关）" })
+        ] }),
+u$2(
+          "fieldset",
+          {
+            style: {
+              border: "1px solid var(--Ga2, #eee)",
+              padding: ".5em",
+              margin: ".5em 0 0",
+              opacity: disabled ? 0.5 : 1
+            },
+            children: [
+u$2("legend", { style: { fontSize: "0.85em", color: "#666", padding: "0 .25em" }, children: "场景开关" }),
+u$2("label", { className: "cb-row", style: { display: "flex", gap: ".5em", alignItems: "center" }, children: [
+u$2(
+                  "input",
+                  {
+                    type: "checkbox",
+                    checked: chatfilterAffectAutoBlendTrend.value,
+                    disabled,
+                    onChange: (e2) => {
+                      chatfilterAffectAutoBlendTrend.value = e2.currentTarget.checked;
+                    }
+                  }
+                ),
+u$2("span", { title: "同义弹幕合并为一条趋势，threshold 命中更准。建议开启。", children: "A · 自动跟车趋势用 canonical" })
+              ] }),
+u$2("label", { className: "cb-row", style: { display: "flex", gap: ".5em", alignItems: "center" }, children: [
+u$2(
+                  "input",
+                  {
+                    type: "checkbox",
+                    checked: chatfilterAffectCustomChatFold.value,
+                    disabled,
+                    onChange: (e2) => {
+                      chatfilterAffectCustomChatFold.value = e2.currentTarget.checked;
+                    }
+                  }
+                ),
+u$2("span", { title: "Chatterbox Chat 把相邻同 canonical 的弹幕折叠为一行（M5 实现）。", children: "B · Custom Chat 同义折叠（M5 待实现）" })
+              ] }),
+u$2("label", { className: "cb-row", style: { display: "flex", gap: ".5em", alignItems: "center" }, children: [
+u$2(
+                  "input",
+                  {
+                    type: "checkbox",
+                    checked: chatfilterFeedReplacementLearn.value,
+                    disabled,
+                    onChange: (e2) => {
+                      chatfilterFeedReplacementLearn.value = e2.currentTarget.checked;
+                    }
+                  }
+                ),
+u$2("span", { title: "把高频归一化映射喂给替换规则学习路径，候选规则在 log panel 里采纳。", children: "C · 喂替换规则学习（M6 待实现）" })
+              ] }),
+u$2("label", { className: "cb-row", style: { display: "flex", gap: ".5em", alignItems: "center" }, children: [
+u$2(
+                  "input",
+                  {
+                    type: "checkbox",
+                    checked: chatfilterLogPanelEnabled.value,
+                    disabled,
+                    onChange: (e2) => {
+                      chatfilterLogPanelEnabled.value = e2.currentTarget.checked;
+                    }
+                  }
+                ),
+u$2("span", { title: "在「发送」tab 底部显示一个 200 行环形缓冲，实时打印每条弹幕的归一化过程。", children: "D · 观察日志面板" })
+              ] })
+            ]
+          }
+        ),
+u$2(
+          "div",
+          {
+            className: "cb-row",
+            style: {
+              display: "flex",
+              gap: ".5em",
+              alignItems: "center",
+              marginTop: ".5em",
+              opacity: disabled ? 0.5 : 1
+            },
+            children: [
+u$2("label", { htmlFor: "chatfilterAggr", style: { color: "#666" }, children: "算法档位：" }),
+u$2(
+                "select",
+                {
+                  id: "chatfilterAggr",
+                  value: chatfilterAggressiveness.value,
+                  disabled,
+                  onChange: (e2) => {
+                    const v2 = e2.currentTarget.value;
+                    if (v2 === "safe" || v2 === "normal" || v2 === "aggressive") {
+                      chatfilterAggressiveness.value = v2;
+                    }
+                  },
+                  children: [
+u$2("option", { value: "safe", children: "safe（仅清洗 + 去重 + 循环压缩）" }),
+u$2("option", { value: "normal", children: "normal（+ 字典别名 + 谐音）" }),
+u$2("option", { value: "aggressive", children: "aggressive（+ SimHash 自动合并，有误合并风险）" })
+                  ]
+                }
+              )
+            ]
+          }
+        ),
+u$2(
+          "fieldset",
+          {
+            style: {
+              border: "1px solid var(--Ga2, #eee)",
+              padding: ".5em",
+              margin: ".5em 0 0",
+              opacity: disabled ? 0.5 : 1
+            },
+            children: [
+u$2("legend", { style: { fontSize: "0.85em", color: "#666", padding: "0 .25em" }, children: "远程语义聚类（可选 · M4 待实现）" }),
+u$2("div", { className: "cb-note", style: { color: "#666", fontSize: "0.85em", marginBottom: ".4em" }, children: '前端归一化已经覆盖 80% 的变体；如果要 BGE-small-zh 级别的语义聚类（"难听" ↔ "南亭" 跨字面合并）， 需要自己部署 Chatfilter Python 服务（VPS / Fly.io / Render），把 endpoint 填到这里。' }),
+u$2("label", { className: "cb-row", style: { display: "flex", gap: ".5em", alignItems: "center", flexWrap: "wrap" }, children: [
+u$2("span", { children: "Endpoint：" }),
+u$2(
+                  "input",
+                  {
+                    type: "url",
+                    placeholder: "http://localhost:8766",
+                    value: chatfilterRemoteEndpoint.value,
+                    disabled,
+                    style: { flex: "1 1 220px" },
+                    onInput: (e2) => {
+                      chatfilterRemoteEndpoint.value = e2.currentTarget.value;
+                    }
+                  }
+                )
+              ] }),
+u$2("label", { className: "cb-row", style: { display: "flex", gap: ".5em", alignItems: "center", marginTop: ".4em" }, children: [
+u$2(
+                  "input",
+                  {
+                    type: "checkbox",
+                    checked: chatfilterRemoteEnabled.value,
+                    disabled: disabled || !chatfilterRemoteEndpoint.value.trim(),
+                    onChange: (e2) => {
+                      chatfilterRemoteEnabled.value = e2.currentTarget.checked;
+                    }
+                  }
+                ),
+u$2("span", { children: "启用远程聚类（M4 接入后自动连接）" })
+              ] })
+            ]
+          }
+        )
       ] })
     ] });
   }
@@ -21720,7 +23226,7 @@ u$2(
     if (!matchesSearchQuery(SECTION_KEYWORDS, query)) return null;
     const sorted = [...shadowBanObservations.value].sort((a2, b2) => b2.count - a2.count || b2.ts - a2.ts);
     const top = sorted.slice(0, 50);
-    const keyOf = (text, roomId) => `${roomId ?? "global"}\0${text}`;
+    const keyOf2 = (text, roomId) => `${roomId ?? "global"}\0${text}`;
     return u$2("details", { className: "cb-settings-accordion", children: [
 u$2("summary", { children: "影子屏蔽观察 / 自动学习" }),
 u$2(
@@ -21816,7 +23322,7 @@ u$2("span", { style: { color: "#999", fontWeight: "normal", marginLeft: ".4em" }
               )
             ] }),
             top.length === 0 ? u$2("div", { className: "cb-empty", style: { color: "#999" }, children: "暂无观察记录。被影子封禁的弹幕会出现在这里，附带候选改写以供你复制或填入输入框。" }) : u$2("div", { className: "cb-rule-list", children: top.map((obs) => {
-              const k2 = keyOf(obs.text, obs.roomId);
+              const k2 = keyOf2(obs.text, obs.roomId);
               const editing = replaceTo.value[k2];
               const showInput = typeof editing === "string";
               const candidates = obs.candidates ?? [];
@@ -21973,6 +23479,8 @@ u$2("div", { style: { maxHeight: "200px", overflowY: "auto" }, children: u$2(Emo
           }
         )
       ] }),
+u$2(GroupHeading, { query, children: "智能归一" }),
+u$2(ChatfilterSection, { query }),
 u$2(GroupHeading, { query, children: "替换规则" }),
 u$2(CloudReplacementSection, { query }),
 u$2(LocalGlobalReplacementSection, { query }),
@@ -22776,7 +24284,8 @@ u$2(AutoSendControls, {}),
 u$2("div", { children: u$2(AutoBlendControls, {}) }),
 u$2("div", { children: u$2(HzmDrivePanelMount, {}) }),
 u$2("div", { style: { margin: ".25rem 0" }, children: u$2(MemesList, {}) }),
-u$2(NormalSendTab, {})
+u$2(NormalSendTab, {}),
+            chatfilterLogPanelEnabled.value && u$2(ChatfilterLogPanel, {})
           ] }) }),
 u$2("div", { className: panelClass(tab === "tongchuan"), children: visited.current.has("tongchuan") && u$2(SttTab, {}) }),
 u$2("div", { className: panelClass(tab === "settings"), children: visited.current.has("settings") && u$2(SettingsTab, {}) }),
@@ -23220,6 +24729,12 @@ u$2(
     y$2(() => {
       startRadarReportLoop();
     }, []);
+    y$2(() => installRemoteClusterLifecycle(), []);
+    y$2(() => {
+      if (chatfilterFeedReplacementLearn.value) startReplacementFeed();
+      else stopReplacementFeed();
+      return () => stopReplacementFeed();
+    }, [chatfilterFeedReplacementLearn.value]);
     y$2(() => {
       if (danmakuDirectMode.value) {
         startDanmakuDirect();

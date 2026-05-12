@@ -412,11 +412,14 @@ describe('integration: WS DANMU_MSG → auto-blend → enqueueDanmaku → echo v
   test('cooldown gate — second triggering burst within cooldown is suppressed; advancing past cooldown re-arms', async () => {
     if (!liveWs) throw new Error('liveWs not initialized')
 
+    // 注：chatfilter 场景 A 默认开，"666" → cycle-compress → canonical "6"
+    // 作为 trendMap key 和发送内容。下面所有 sendDanmakuLog 断言都用 "6"。
+
     // First burst → fires.
     liveWs._emitDanmuMsg(makeDanmuMsg('666', 2001, 'A'))
     liveWs._emitDanmuMsg(makeDanmuMsg('666', 2002, 'B'))
     await flushAsync(autoBlendBurstSettleMs.value + 80)
-    expect(sendDanmakuLog).toEqual(['666'])
+    expect(sendDanmakuLog).toEqual(['6'])
 
     // Release waitForSentEcho on the first send so triggerSend's finally
     // runs and `isSending` flips back to false. Without this, recordDanmaku
@@ -431,7 +434,7 @@ describe('integration: WS DANMU_MSG → auto-blend → enqueueDanmaku → echo v
     liveWs._emitDanmuMsg(makeDanmuMsg('666', 2003, 'C'))
     liveWs._emitDanmuMsg(makeDanmuMsg('666', 2004, 'D'))
     await flushAsync(autoBlendBurstSettleMs.value + 80)
-    expect(sendDanmakuLog).toEqual(['666']) // still just the first one
+    expect(sendDanmakuLog).toEqual(['6']) // still just the first one
 
     // Advance past cooldownSec=1 (1000ms) + a margin. Re-emit burst.
     advanceNow(1500)
@@ -439,7 +442,7 @@ describe('integration: WS DANMU_MSG → auto-blend → enqueueDanmaku → echo v
     liveWs._emitDanmuMsg(makeDanmuMsg('666', 2006, 'F'))
     await flushAsync(autoBlendBurstSettleMs.value + 100)
 
-    expect(sendDanmakuLog).toEqual(['666', '666'])
+    expect(sendDanmakuLog).toEqual(['6', '6'])
   })
 
   test('verify wiring — auto-blend awaits broadcast echo via verifyBroadcast; matching WS echo flips status to "已WS回显"', async () => {
@@ -655,13 +658,15 @@ describe('integration: WS DANMU_MSG → auto-blend ports (avoidRepeat + cooldown
 
     // 但同一时刻别的 trend 仍然能正常触发——证明屏蔽是按文本而不是
     // 全局冻结。
+    // 注：chatfilter 场景 A 默认开，"666" 经 cycle-compress 归一为 "6"，
+    // 所以触发后 enqueueDanmaku 收到的是 canonical "6"。
     liveWs._emitDanmuMsg(makeDanmuMsg('666', 1005, 'E'))
     liveWs._emitDanmuMsg(makeDanmuMsg('666', 1006, 'F'))
     await flushAsync(autoBlendBurstSettleMs.value + 80)
 
-    expect(sendDanmakuLog).toEqual(['上车', '666'])
-    // lastAutoSentText 现在追到了最新的 "666"。
-    expect(_getLastAutoSentTextForTests()).toBe('666')
+    expect(sendDanmakuLog).toEqual(['上车', '6'])
+    // lastAutoSentText 现在追到了最新的 canonical "6"。
+    expect(_getLastAutoSentTextForTests()).toBe('6')
   })
 
   test('cooldownAuto — adaptive cooldown engaged at trigger time differs from manual setting', async () => {
@@ -701,7 +706,8 @@ describe('integration: WS DANMU_MSG → auto-blend ports (avoidRepeat + cooldown
     liveWs._emitDanmuMsg(makeDanmuMsg('666', 8002, 'B'))
     await flushAsync(autoBlendBurstSettleMs.value + 80)
 
-    expect(sendDanmakuLog).toEqual(['666'])
+    // chatfilter 场景 A 把 "666" 归一为 "6" 作 trend key 与发送内容。
+    expect(sendDanmakuLog).toEqual(['6'])
     expect(_getCooldownUntilForTests() - beforeTrigger).toBe(1000)
   })
 })

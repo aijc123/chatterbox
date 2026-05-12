@@ -8,6 +8,7 @@ import { persistSendState, sendMsg } from './store-send'
 
 export * from './store-auto-blend'
 export * from './store-chat'
+export * from './store-chatfilter'
 export * from './store-guard-room'
 export * from './store-hzm'
 export * from './store-llm'
