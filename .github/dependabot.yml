@@ -56,6 +56,16 @@ updates:
         update-types:
           - 'minor'
           - 'patch'
+        # @cloudflare/vitest-pool-workers is pre-1.0 and treats minor
+        # bumps as breaking (0.5 → 0.16 swaps the entire config API +
+        # peerDep vitest version). Exclude from the group so a single
+        # bump can't drag pool-workers into a broken state alongside
+        # safe vitest patches. The package is fully ignored below
+        # anyway, but `exclude-patterns` documents the intent and
+        # protects against the rule being forgotten if a future
+        # Dependabot config change drops the ignore.
+        exclude-patterns:
+          - '@cloudflare/vitest-pool-workers'
       hono:
         patterns:
           - 'hono'
@@ -66,4 +76,16 @@ updates:
       - dependency-name: 'wrangler'
         update-types: ['version-update:semver-major']
       - dependency-name: '@cloudflare/workers-types'
+        update-types: ['version-update:semver-major']
+      # @cloudflare/vitest-pool-workers is pre-1.0 and version-locked to
+      # a specific vitest major (0.16.x requires vitest@^4.1). Upgrading
+      # it requires a coordinated vitest bump AND a config rewrite
+      # (defineWorkersConfig → cloudflareTest() Vite plugin; SELF.fetch
+      # → exports.default.fetch). Dependabot cannot coordinate this
+      # across packages, so any bump it proposes fails CI. Always do
+      # the upgrade manually as one PR.
+      - dependency-name: '@cloudflare/vitest-pool-workers'
+      # vitest majors must be done in lockstep with the matching
+      # pool-workers release. Pin to current major; major bumps by hand.
+      - dependency-name: 'vitest'
         update-types: ['version-update:semver-major']
