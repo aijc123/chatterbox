@@ -14,6 +14,13 @@ permissions:
 jobs:
   codecov:
     runs-on: ubuntu-latest
+    # `secrets` context is NOT allowed inside step-level `if:` expressions
+    # (GitHub Actions parse error: "Unrecognized named-value: 'secrets'").
+    # The supported pattern is to copy the secret to a job-level env var
+    # at workflow load time and then test `env.X` in the step's `if:`. The
+    # value is still masked in logs because it originated from `secrets`.
+    env:
+      DEEPSOURCE_DSN: ${{ secrets.DEEPSOURCE_DSN }}
     steps:
       - uses: actions/checkout@v6
 
@@ -38,11 +45,9 @@ jobs:
         # which auto-executed whatever the upstream root URL served at run
         # time. SHA pinned to v1.1.3 (resolved 2026-05-11). Refreshable via:
         #   gh api repos/deepsourcelabs/test-coverage-action/git/refs/tags/v1.1.3 --jq .object.sha
-        if: ${{ secrets.DEEPSOURCE_DSN != '' }}
-        env:
-          DEEPSOURCE_DSN: ${{ secrets.DEEPSOURCE_DSN }}
+        if: ${{ env.DEEPSOURCE_DSN != '' }}
         uses: deepsourcelabs/test-coverage-action@4284bb73a04adb39faaa6bfcc2d0e3dd137ffed7 # v1.1.3
         with:
           key: javascript
           coverage-file: ./coverage/lcov.info
-          dsn: ${{ secrets.DEEPSOURCE_DSN }}
+          dsn: ${{ env.DEEPSOURCE_DSN }}
