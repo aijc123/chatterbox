@@ -48,3 +48,17 @@ jobs:
   scan-scheduled:
     if: github.event_name != 'pull_request'
     uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
+    with:
+      # Report-only on the scheduled / push scan. Master should stay green —
+      # the SARIF still uploads to the Security tab so existing transitive
+      # vulns stay visible for triage, but a freshly-disclosed CVE in some
+      # build-tool transitive dep won't suddenly turn master red. The PR
+      # scan above keeps `fail-on-vuln: true` (the default), so any *new*
+      # vuln introduced by a diff still blocks merging.
+      #
+      # As of 2026-05-12 master had 9 existing transitive vulns in
+      # build-only deps (brace-expansion/minimatch/picomatch/postcss/tmp
+      # via vite/biome/knip/stryker). None ship to the userscript or
+      # worker runtime; they exist only on CI runners during the build.
+      # Triage individually in the Security tab.
+      fail-on-vuln: false
