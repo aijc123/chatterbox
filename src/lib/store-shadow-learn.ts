@@ -39,3 +39,11 @@ export interface ShadowObservation {
 
 /** Persisted list of shadow-banned messages that AI evasion couldn't (or didn't try to) save. */
 export const shadowBanObservations = gmSignal<ShadowObservation[]>('shadowBanObservations', [])
+
+/**
+ * Keys (`${roomId}\x00${text}`) the user has explicitly dismissed via the
+ * floating chip's × button. Persisted so reopening the panel doesn't bring
+ * back a chip the user has already deliberately closed. Capped to the most
+ * recent ~256 entries so a long-running session doesn't unboundedly grow.
+ */
+export const shadowChipDismissedKeys = gmSignal<string[]>('shadowChipDismissedKeys', [])

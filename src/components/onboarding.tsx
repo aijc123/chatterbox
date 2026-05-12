@@ -40,35 +40,33 @@ export function Onboarding() {
     <div
       role='dialog'
       aria-label='弹幕助手首次引导'
+      className='cb-floating-surface'
       style={{
         position: 'fixed',
         right: 'min(336px, calc(100vw - 288px))',
         bottom: '46px',
         zIndex: 2147483647,
         width: 'min(300px, calc(100vw - 24px))',
-        border: '1px solid rgba(60, 60, 67, .18)',
-        borderRadius: '8px',
-        background: 'rgba(255, 255, 255, .96)',
-        color: '#1d1d1f',
-        boxShadow: '0 18px 48px rgba(0,0,0,.22)',
         padding: '12px',
         fontSize: '13px',
         lineHeight: 1.5,
       }}
     >
       <div style={{ fontWeight: 700, marginBottom: '6px' }}>第一次使用弹幕助手</div>
-      <div style={{ color: '#555', marginBottom: '8px', fontSize: '12px' }}>
+      <div className='cb-floating-soft' style={{ marginBottom: '8px', fontSize: '12px' }}>
         弹幕助手可以循环发送弹幕、按热度自动跟车、接管聊天区，并查询粉丝牌房间状态。
       </div>
       <ol style={{ margin: '0 0 10px 18px', padding: 0 }}>
         {ONBOARDING_STEPS.map(step => (
           <li key={step.title} style={{ marginBottom: '4px' }}>
             <div>{step.title}</div>
-            <div style={{ color: '#666', fontSize: '12px' }}>{step.detail}</div>
+            <div className='cb-floating-softer' style={{ fontSize: '12px' }}>
+              {step.detail}
+            </div>
           </li>
         ))}
       </ol>
-      <div style={{ color: '#666', fontSize: '12px', marginBottom: '8px' }}>
+      <div className='cb-floating-softer' style={{ fontSize: '12px', marginBottom: '8px' }}>
         部分功能（AI 规避、保安室同步、同传）会和外部服务通信，详见「关于 → 隐私说明」。
       </div>
       <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>

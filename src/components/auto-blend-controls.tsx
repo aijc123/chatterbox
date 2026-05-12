@@ -464,6 +464,20 @@ export function AutoBlendControls() {
     // 安全护栏要用同一种 UI primitive。
     let confirmed = true
     let markConfirmedAfter = false
+    // Footgun: send-count × per-send-interval 超过冷却窗口，等同于忽略冷却
+    // 一直刷，极易被风控。开启前强制二次确认。
+    if (!autoBlendEnabled.value && !autoBlendDryRun.value) {
+      const requiredSec = autoBlendSendCount.value * msgSendInterval.value
+      if (requiredSec > autoBlendCooldownSec.value) {
+        const ok = await showConfirm({
+          title: '当前参数会绕过冷却',
+          body: `每次发 ${autoBlendSendCount.value} 遍 × 间隔 ${msgSendInterval.value}s = ${requiredSec}s，已超过冷却 ${autoBlendCooldownSec.value}s。继续会几乎不停地发，极易被风控/封禁。建议把「每次发X遍」调小，或把冷却调大。`,
+          confirmText: '我知道风险，继续',
+          cancelText: '返回调整',
+        })
+        if (!ok) return
+      }
+    }
     const decision = decideAutoBlendToggle(
       {
         currentlyEnabled: autoBlendEnabled.value,
@@ -880,8 +894,12 @@ export function AutoBlendControls() {
         )}
 
         {autoBlendSendCount.value * msgSendInterval.value > autoBlendCooldownSec.value && (
-          <div style={{ color: '#a15c00', fontSize: '12px', lineHeight: 1.5, marginBottom: '.25em' }}>
-            当前要发 {autoBlendSendCount.value * msgSendInterval.value}s，超过冷却 {autoBlendCooldownSec.value}s。
+          <div
+            role='alert'
+            style={{ color: '#ff3b30', fontSize: '12px', fontWeight: 650, lineHeight: 1.5, marginBottom: '.25em' }}
+          >
+            ⚠️ 当前要发 {autoBlendSendCount.value * msgSendInterval.value}s，超过冷却 {autoBlendCooldownSec.value}s
+            ——开启时会再次确认；建议把「每次发X遍」调小或把冷却调大。
           </div>
         )}
 

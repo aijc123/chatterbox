@@ -48,6 +48,27 @@ function statusLabel(state: typeof cbBackendHealthState.value): string {
   }
 }
 
+/**
+ * Sanity-check an override URL so the user gets immediate feedback instead
+ * of waiting for the connectivity probe to fail with an obscure CORS/DNS
+ * error. Returns null when the URL looks usable, otherwise a human hint.
+ */
+function validateBackendUrl(raw: string): string | null {
+  if (!/^https?:\/\//i.test(raw)) {
+    return '缺少协议前缀，请加 http:// 或 https://'
+  }
+  try {
+    const url = new URL(raw)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return '只支持 http:// 或 https:// 协议'
+    }
+    if (!url.hostname) return 'URL 缺少主机名'
+    return null
+  } catch {
+    return 'URL 格式不合法'
+  }
+}
+
 export function CbBackendSection({ query = '' }: { query?: string }) {
   if (!matchesSearchQuery(SECTION_KEYWORDS, query)) return null
 
@@ -101,6 +122,17 @@ export function CbBackendSection({ query = '' }: { query?: string }) {
               cbBackendUrlOverride.value = e.currentTarget.value
             }}
           />
+          {(() => {
+            const v = cbBackendUrlOverride.value.trim()
+            if (v === '') return null
+            const warn = validateBackendUrl(v)
+            if (!warn) return null
+            return (
+              <span role='status' aria-live='polite' style={{ color: '#a15c00', fontSize: '0.8em' }}>
+                ⚠️ {warn}
+              </span>
+            )
+          })()}
         </div>
         <div className='cb-row' style={{ display: 'flex', gap: '.5em', alignItems: 'center', marginTop: '.5em' }}>
           <button className='cb-btn' onClick={handleProbe} disabled={probing} type='button'>

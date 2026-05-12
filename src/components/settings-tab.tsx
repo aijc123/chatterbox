@@ -97,7 +97,7 @@ export function SettingsTab() {
       <LocalRoomReplacementSection query={query} />
       <ShadowObservationSection query={query} />
 
-      <GroupHeading query={query}>LLM（智驾选梗 + YOLO 润色共用）</GroupHeading>
+      <GroupHeading query={query}>LLM（智驾选梗 + YOLO 润色共用）·「YOLO」= LLM 在你发出去之前先重写一遍</GroupHeading>
       <LlmApiSection query={query} />
       <LlmPromptsSection query={query} />
 
@@ -182,6 +182,21 @@ function LlmApiSection({ query }: { query: string }) {
       <div className='cb-section cb-stack' style={{ margin: '.5em 0', paddingBottom: '1em', gap: '.75em' }}>
         <div className='cb-note' style={{ color: '#666', fontSize: '0.85em' }}>
           填一次，「智能辅助驾驶」选梗 与「自动跟车 / 独轮车 / 常规发送」的 YOLO 润色都能用。
+        </div>
+        <div
+          className='cb-note'
+          style={{
+            color: '#6e6e73',
+            fontSize: '0.8em',
+            lineHeight: 1.5,
+            background: 'rgba(118,118,128,.1)',
+            padding: '.4em .55em',
+            borderRadius: '6px',
+          }}
+        >
+          <strong>名词解释 ·「YOLO」</strong> —— You Only Live Once，本项目里指"发出去之前先让 LLM
+          重写一遍弹幕"的开关。代价：每条弹幕都会调用一次大模型 API，产生 token
+          消耗；好处：可以套你写的提示词（卖萌/化身VTuber/避敏感词等）。 关闭后弹幕原样发出。
         </div>
         <LlmApiConfigPanel showTestConnection />
       </div>

@@ -26,6 +26,7 @@ import {
   hzmPauseKeywordsOverride,
   hzmRateLimitPerMin,
   hzmStrictHeuristic,
+  llmApiKey,
   sendMsg,
   setBlacklistTags,
   setSelectedTags,
@@ -125,6 +126,28 @@ function HzmDrivePanel({ source }: { source: MemeSource }) {
     if (isOn) {
       hzmDriveEnabled.value = false
       stopHzmAutoDrive()
+      return
+    }
+    // Footgun #1：与文字独轮车同时开启会叠加每分钟限速。开车前强制二次确认。
+    if (sendMsg.value && !hzmDryRun.value) {
+      const ok = await showConfirm({
+        title: '文字独轮车正在运行',
+        body: '与智驾叠加后两边一起发，可能超过每分钟限速被风控/封禁。建议先停一边再开。继续吗？',
+        confirmText: '我知道风险，继续开车',
+        cancelText: '返回（先停一个）',
+      })
+      if (!ok) return
+    }
+    // Footgun #2：LLM 模式需要 API key。没填就开车会反复在日志报错或回落到启发式，
+    // 用户摸不着头脑。提前拦住并跳设置。
+    if (mode === 'llm' && llmApiKey.value.trim() === '') {
+      const ok = await showConfirm({
+        title: 'LLM 智驾需要 API key',
+        body: '尚未配置 LLM 凭证。点「去设置」会跳到「设置 → LLM」填 key；点取消保持现状。',
+        confirmText: '去设置',
+        cancelText: '取消',
+      })
+      if (ok) activeTab.value = 'settings'
       return
     }
     // 关 → 开：非试运行且未确认过，先弹一次提示。用 showConfirm 替代 native confirm()
@@ -246,8 +269,13 @@ function HzmDrivePanel({ source }: { source: MemeSource }) {
         </div>
 
         {sendMsg.value && (
-          <div style={{ color: '#a15c00', fontSize: '12px', lineHeight: 1.5 }}>
-            文字独轮车正在运行，与智驾叠加可能超出每分钟限速，建议先停一个。
+          <div role='alert' style={{ color: '#ff3b30', fontSize: '12px', fontWeight: 650, lineHeight: 1.5 }}>
+            ⚠️ 文字独轮车正在运行 —— 与智驾叠加会同时往 B 站发，极易超出限速被风控。开车前会再次确认；建议先停一边。
+          </div>
+        )}
+        {mode === 'llm' && llmApiKey.value.trim() === '' && (
+          <div role='alert' style={{ color: '#ff3b30', fontSize: '12px', fontWeight: 650, lineHeight: 1.5 }}>
+            ⚠️ LLM 智驾未配置 API key。开车前请先到「设置 → LLM」填好 key，否则无法工作。
           </div>
         )}
       </div>

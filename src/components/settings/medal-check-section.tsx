@@ -77,6 +77,29 @@ const medalCheckFilterByUid = gmSignal<Record<string, MedalCheckFilter>>('medalC
   }
 })()
 
+/**
+ * The guard-room client refuses non-HTTPS endpoints except loopback. Surface
+ * that contract in the UI so the user fixes the URL before saving, instead of
+ * silently shipping every sync attempt to a dead config.
+ */
+function validateGuardRoomEndpoint(raw: string): string | null {
+  let url: URL
+  try {
+    url = new URL(raw)
+  } catch {
+    return 'URL 格式不合法（缺少协议或主机名）'
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    return '只支持 http:// 或 https:// 协议'
+  }
+  const isLoopback =
+    url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]' || url.hostname === '::1'
+  if (url.protocol === 'http:' && !isLoopback) {
+    return 'HTTP 仅限 localhost / 127.0.0.1；公网请用 https://'
+  }
+  return null
+}
+
 function getMedalCheckCounts(results: MedalRestrictionCheck[]) {
   return {
     restricted: results.filter(result => result.status === 'restricted').length,
@@ -454,13 +477,24 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
           </label>
           <input
             id='guardRoomEndpoint'
-            type='text'
+            type='url'
             placeholder='https://bilibili-guard-room.vercel.app'
             value={guardRoomEndpoint.value}
             onInput={e => {
               guardRoomEndpoint.value = e.currentTarget.value
             }}
           />
+          {(() => {
+            const v = guardRoomEndpoint.value.trim()
+            if (v === '') return null
+            const warn = validateGuardRoomEndpoint(v)
+            if (!warn) return null
+            return (
+              <span role='status' aria-live='polite' style={{ color: '#a15c00', fontSize: '0.8em' }}>
+                ⚠️ {warn}
+              </span>
+            )
+          })()}
           <label htmlFor='guardRoomSyncKey' className='cb-note' style={{ color: '#666' }}>
             同步密钥（在保安室项目首页注册空间后获得，格式：spaceId@syncSecret）
           </label>

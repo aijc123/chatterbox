@@ -1,6 +1,6 @@
 import { useSignal } from '@preact/signals'
 
-import { exportSettings, importSettings } from '../../lib/backup'
+import { exportSettings, type ImportPreviewResult, importSettings, previewImportSettings } from '../../lib/backup'
 import { copyTextToClipboard } from '../../lib/clipboard'
 import { notifyUser } from '../../lib/log'
 import { matchesSearchQuery } from './search'
@@ -9,6 +9,7 @@ export function BackupSection({ query = '' }: { query?: string }) {
   const importOpen = useSignal(false)
   const importText = useSignal('')
   const importMsg = useSignal('')
+  const preview = useSignal<ImportPreviewResult | null>(null)
   if (!matchesSearchQuery('配置备份 恢复 导出 导入 JSON 复制 backup export import 设置导出 设置导入', query))
     return null
 
@@ -32,6 +33,18 @@ export function BackupSection({ query = '' }: { query?: string }) {
     })
   }
 
+  function handlePreview() {
+    const result = previewImportSettings(importText.value)
+    if (!result.ok) {
+      preview.value = null
+      importMsg.value = `❌ 预览失败：${result.error}（常见原因：JSON 格式错误，或来自不兼容的旧版本）`
+      notifyUser('error', '配置预览失败', result.error)
+      return
+    }
+    preview.value = result
+    importMsg.value = ''
+  }
+
   function handleImport() {
     const result = importSettings(importText.value)
     if (!result.ok) {
@@ -52,6 +65,7 @@ export function BackupSection({ query = '' }: { query?: string }) {
         ? `（${result.unknownKeys.length} 项未识别 key 被忽略：${result.unknownKeys.join('、')}）`
         : ''
     importMsg.value = `✅ 已导入 ${result.count} 项，请刷新页面生效${skippedNote}${unknownNote}`
+    preview.value = null
     notifyUser('success', `配置导入成功（${result.count} 项），请刷新页面`)
     if (result.skipped && result.skipped.length > 0) {
       notifyUser('warning', '部分配置因格式不匹配被跳过', result.skipped.join('、'))
@@ -77,6 +91,7 @@ export function BackupSection({ query = '' }: { query?: string }) {
             onClick={() => {
               importOpen.value = !importOpen.value
               importMsg.value = ''
+              preview.value = null
             }}
             type='button'
           >
@@ -120,11 +135,59 @@ export function BackupSection({ query = '' }: { query?: string }) {
               onInput={e => {
                 importText.value = e.currentTarget.value
                 importMsg.value = ''
+                preview.value = null
               }}
             />
-            <button className='cb-btn' onClick={handleImport} disabled={!importText.value.trim()} type='button'>
-              确认导入（刷新后生效）
-            </button>
+            <div style={{ display: 'flex', gap: '.5em', flexWrap: 'wrap' }}>
+              <button className='cb-btn' onClick={handlePreview} disabled={!importText.value.trim()} type='button'>
+                预览变更
+              </button>
+              <button
+                className='cb-btn'
+                onClick={handleImport}
+                disabled={!importText.value.trim() || preview.value === null || !preview.value.ok}
+                title={preview.value === null ? '请先点击「预览变更」确认要覆盖的字段' : '覆盖现有设置'}
+                type='button'
+              >
+                确认覆盖（刷新后生效）
+              </button>
+            </div>
+            {preview.value?.ok && (
+              <section
+                className='cb-panel'
+                aria-label='配置导入预览'
+                style={{ fontSize: '0.82em', lineHeight: 1.5, marginTop: '.25em' }}
+              >
+                <div style={{ fontWeight: 650, marginBottom: '.25em' }}>
+                  即将覆盖 {preview.value.changes.length} 项 · 保持不变 {preview.value.unchanged} 项
+                  {preview.value.skipped.length > 0 ? ` · 跳过 ${preview.value.skipped.length} 项` : ''}
+                  {preview.value.unknownKeys.length > 0 ? ` · 忽略 ${preview.value.unknownKeys.length} 项未识别` : ''}
+                </div>
+                {preview.value.changes.length === 0 ? (
+                  <div className='cb-note' style={{ color: '#666' }}>
+                    没有字段会被覆盖（备份内容与当前设置一致）。
+                  </div>
+                ) : (
+                  <ul style={{ margin: 0, paddingLeft: '1.1em', maxHeight: '160px', overflowY: 'auto' }}>
+                    {preview.value.changes.map(c => (
+                      <li key={c.key} style={{ marginBottom: '2px' }}>
+                        <code style={{ fontFamily: 'monospace', fontSize: '0.95em' }}>{c.key}</code>
+                        <div className='cb-note' style={{ fontSize: '0.9em' }}>
+                          <span style={{ color: '#a15c00' }}>当前 {c.before}</span>
+                          <span style={{ margin: '0 .35em' }}>→</span>
+                          <span style={{ color: '#168a45' }}>导入后 {c.after}</span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {preview.value.skipped.length > 0 && (
+                  <div className='cb-note' style={{ marginTop: '.25em', color: '#a15c00' }}>
+                    跳过（格式不匹配）：{preview.value.skipped.join('、')}
+                  </div>
+                )}
+              </section>
+            )}
             {importMsg.value && (
               <span
                 role='status'

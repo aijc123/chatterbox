@@ -42,21 +42,6 @@ export function Tabs() {
           role='status'
           aria-live='polite'
           title='直播 WebSocket 断开，自动跟车与 Chatterbox Chat 已退化为 DOM 抓取模式（高峰期可能漏事件）'
-          style={{
-            gridColumn: '1 / -1',
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '4px',
-            margin: '4px 0 0',
-            padding: '2px 6px',
-            borderRadius: '999px',
-            background: 'rgba(255, 149, 0, .14)',
-            color: '#a15c00',
-            fontSize: '11px',
-            fontWeight: 620,
-            lineHeight: 1.4,
-          }}
         >
           ⚠️ 直播 WS 已断开 · 已退回 DOM 抓取（高峰期可能漏事件）
         </div>

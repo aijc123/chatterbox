@@ -1,6 +1,7 @@
 import { useSignal } from '@preact/signals'
 import { useEffect } from 'preact/hooks'
 
+import { CUSTOM_CHAT_CSS_MAX_LENGTH, sanitizeCustomChatCss } from '../../lib/custom-chat-css-sanitize'
 import { MILK_GREEN_IMESSAGE_CSS } from '../../lib/custom-chat-presets'
 import {
   customChatCss,
@@ -11,7 +12,14 @@ import {
   customChatTheme,
   customChatUseWs,
 } from '../../lib/store'
+import { showConfirm } from '../ui/alert-dialog'
 import { matchesSearchQuery } from './search'
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} 字符`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / (1024 * 1024)).toFixed(2)} MB`
+}
 
 export function CustomChatSection({ query = '' }: { query?: string }) {
   const cssDraft = useSignal(customChatCss.value)
@@ -132,7 +140,16 @@ export function CustomChatSection({ query = '' }: { query?: string }) {
                   type='button'
                   disabled={!customChatEnabled.value || !cssDraft.value.trim()}
                   onClick={() => {
-                    cssDraft.value = ''
+                    const draftSize = cssDraft.value.length
+                    if (draftSize === 0) return
+                    void showConfirm({
+                      title: '清空自定义 CSS？',
+                      body: `这会删除当前 ${draftSize} 字符的自定义 CSS（包含奶绿 iMessage 预设等）。删除后无法撤销。继续吗？`,
+                      confirmText: '清空',
+                      cancelText: '取消',
+                    }).then(ok => {
+                      if (ok) cssDraft.value = ''
+                    })
                   }}
                 >
                   清空 CSS
@@ -163,6 +180,37 @@ export function CustomChatSection({ query = '' }: { query?: string }) {
                   {cssStatus.value === 'pending' ? '有待保存更改' : '已保存'}
                 </span>
               </div>
+              {(() => {
+                const draft = cssDraft.value
+                if (!draft.trim()) return null
+                const r = sanitizeCustomChatCss(draft)
+                const issues: string[] = []
+                if (r.truncated) {
+                  issues.push(
+                    `已截断到 ${formatBytes(CUSTOM_CHAT_CSS_MAX_LENGTH)}（原文 ${formatBytes(r.originalLength)}）`
+                  )
+                }
+                if (r.removedImports > 0) issues.push(`剔除 ${r.removedImports} 条 @import`)
+                if (r.removedUrlSchemes > 0) issues.push(`中和 ${r.removedUrlSchemes} 条不安全 url()`)
+                if (r.removedLegacyHooks > 0) issues.push(`移除 ${r.removedLegacyHooks} 条 expression/behavior`)
+                if (issues.length === 0) {
+                  return (
+                    <span className='cb-note' style={{ fontSize: '0.8em', color: '#6e6e73' }}>
+                      当前大小 {formatBytes(r.originalLength)} / 上限 {formatBytes(CUSTOM_CHAT_CSS_MAX_LENGTH)}
+                    </span>
+                  )
+                }
+                return (
+                  <span
+                    role='status'
+                    aria-live='polite'
+                    className='cb-note'
+                    style={{ fontSize: '0.8em', color: '#a15c00' }}
+                  >
+                    ⚠️ 注入前会自动处理：{issues.join('；')}
+                  </span>
+                )
+              })()}
             </div>
           </details>
           <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>

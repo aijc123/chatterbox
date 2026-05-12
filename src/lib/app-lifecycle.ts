@@ -818,6 +818,99 @@ const PANEL_STYLE = `
           color: #0a84ff !important;
         }
       }
+
+      /*
+       * Floating surfaces that live OUTSIDE #laplace-chatterbox-dialog:
+       * error boundary, onboarding, user notices, shadow-bypass chip.
+       * They share the same light-glass / dark-glass treatment so they
+       * stay legible against B站's near-black player background.
+       */
+      .cb-floating-surface {
+        color: #1d1d1f;
+        background: rgba(255, 255, 255, .96);
+        border: 1px solid rgba(60, 60, 67, .18);
+        border-radius: 8px;
+        box-shadow: 0 18px 48px rgba(0, 0, 0, .22);
+        backdrop-filter: blur(22px) saturate(1.4);
+        -webkit-backdrop-filter: blur(22px) saturate(1.4);
+      }
+      .cb-floating-soft {
+        color: #555;
+      }
+      .cb-floating-softer {
+        color: #666;
+      }
+      .cb-floating-chip-meta {
+        color: #888;
+      }
+      .cb-floating-code {
+        background: #f5f5f5;
+        color: #1d1d1f;
+      }
+      .cb-floating-divider {
+        color: #666;
+      }
+      .cb-floating-notice-btn {
+        background: #fff;
+      }
+      .cb-error-surface {
+        background: #fff7f7;
+        color: #7f1d1d;
+        border-color: #f3b7b7;
+      }
+      .cb-ws-degraded-banner {
+        grid-column: 1 / -1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        margin: 4px 0 0;
+        padding: 2px 6px;
+        border-radius: 999px;
+        background: rgba(255, 149, 0, .14);
+        color: #a15c00;
+        font-size: 11px;
+        font-weight: 620;
+        line-height: 1.4;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        .cb-floating-surface {
+          color: #f5f5f7;
+          background: rgba(28, 28, 30, .92);
+          border-color: rgba(255, 255, 255, .12);
+          box-shadow: 0 22px 60px rgba(0, 0, 0, .72), 0 1px 0 rgba(255, 255, 255, .08) inset;
+        }
+        .cb-floating-soft {
+          color: #c7c7cc;
+        }
+        .cb-floating-softer {
+          color: #98989d;
+        }
+        .cb-floating-chip-meta {
+          color: #98989d;
+        }
+        .cb-floating-code {
+          background: rgba(118, 118, 128, .26);
+          color: #f5f5f7;
+        }
+        .cb-floating-divider {
+          color: #98989d;
+        }
+        .cb-floating-notice-btn {
+          background: rgba(58, 58, 62, .9);
+          color: #f5f5f7;
+        }
+        .cb-error-surface {
+          background: rgba(60, 24, 24, .92);
+          color: #ff6b6b;
+          border-color: rgba(255, 107, 107, .35);
+        }
+        .cb-ws-degraded-banner {
+          background: rgba(255, 159, 10, .22);
+          color: #ffb454;
+        }
+      }
     `
 function currentLiveRoomSlug(): string | null {
   try {

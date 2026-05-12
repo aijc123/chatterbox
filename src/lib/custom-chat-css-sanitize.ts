@@ -24,6 +24,9 @@ export interface SanitizeResult {
   css: string
   /** The CSS exceeded `CUSTOM_CHAT_CSS_MAX_LENGTH` and was truncated. */
   truncated: boolean
+  /** Original byte length before truncation/strip, in chars. Surfaced so the
+   *  UI can show "已截断 1.2MB → 256KB" instead of only a count of dropped rules. */
+  originalLength: number
   /** Number of `@import` directives that were stripped. */
   removedImports: number
   /** Number of disallowed `url(...)` references that were neutralized. */
@@ -78,9 +81,17 @@ function normalizeEscapes(input: string): string {
  */
 export function sanitizeCustomChatCss(input: string): SanitizeResult {
   if (typeof input !== 'string' || input.length === 0) {
-    return { css: '', truncated: false, removedImports: 0, removedUrlSchemes: 0, removedLegacyHooks: 0 }
+    return {
+      css: '',
+      truncated: false,
+      originalLength: 0,
+      removedImports: 0,
+      removedUrlSchemes: 0,
+      removedLegacyHooks: 0,
+    }
   }
 
+  const originalLength = input.length
   // 先按 *原始* 长度限流:某些用户的合法 CSS preset 可能跨越上限,既得
   // 截断在显式上限内,也得在剥离注释/escape 之后再次校验(见后)。
   let truncated = false
@@ -128,5 +139,5 @@ export function sanitizeCustomChatCss(input: string): SanitizeResult {
     truncated = true
   }
 
-  return { css, truncated, removedImports, removedUrlSchemes, removedLegacyHooks }
+  return { css, truncated, originalLength, removedImports, removedUrlSchemes, removedLegacyHooks }
 }

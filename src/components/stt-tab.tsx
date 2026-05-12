@@ -493,11 +493,15 @@ export function SttTab() {
             id='sonioxMaxLength'
             type='number'
             min='1'
-            style={{ width: '40px' }}
+            max='200'
+            title='允许范围：1–200'
+            aria-label='Soniox 自动分段长度，允许范围 1–200'
+            style={{ width: '46px' }}
             value={sonioxMaxLength.value}
             onInput={e => {
-              const v = Number.parseInt(e.currentTarget.value, 10) || 1
-              sonioxMaxLength.value = Math.max(1, v)
+              const raw = Number.parseInt(e.currentTarget.value, 10)
+              const v = Number.isFinite(raw) ? raw : 1
+              sonioxMaxLength.value = Math.min(200, Math.max(1, v))
             }}
           />
           <span>字自动分段</span>

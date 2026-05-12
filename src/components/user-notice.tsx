@@ -46,14 +46,9 @@ export function UserNotice() {
             key={notice.id}
             role='status'
             aria-live='polite'
+            className='cb-floating-surface'
             style={{
-              border: `1px solid ${toneColor}`,
-              borderRadius: '8px',
-              background: 'rgba(255, 255, 255, .94)',
-              color: '#1d1d1f',
-              boxShadow: '0 18px 48px rgba(0,0,0,.22)',
-              backdropFilter: 'blur(22px) saturate(1.4)',
-              WebkitBackdropFilter: 'blur(22px) saturate(1.4)',
+              borderColor: toneColor,
               padding: '9px 10px',
               fontSize: '12px',
               lineHeight: 1.45,
@@ -65,12 +60,12 @@ export function UserNotice() {
             <button
               type='button'
               onClick={showLog}
+              className='cb-floating-notice-btn'
               style={{
                 marginTop: '7px',
                 minHeight: '24px',
                 border: `1px solid ${toneColor}`,
                 borderRadius: '8px',
-                background: '#fff',
                 color: toneColor,
                 padding: '3px 8px',
                 cursor: 'pointer',

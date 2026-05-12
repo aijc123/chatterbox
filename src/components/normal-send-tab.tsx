@@ -1,3 +1,5 @@
+import { signal } from '@preact/signals'
+
 import { sendManualDanmaku } from '../lib/danmaku-actions'
 import {
   aiEvasion,
@@ -11,13 +13,39 @@ import { PromptPicker } from './prompt-picker'
 import { SendActions } from './send-actions'
 import { YoloCallout } from './yolo-callout'
 
+// Module-scope signal (not `useSignal`) so that calling `NormalSendTab()`
+// outside a preact render context — as the VNode-tree presence tests do —
+// doesn't blow up on a missing hook context. There's only ever one mounted
+// NormalSendTab, so a singleton signal is functionally equivalent here.
+const flashOk = signal(false)
+
 export function NormalSendTab() {
-  if (customChatEnabled.value) return null
+  // When Chatterbox Chat is on, B站's native composer is hidden and our own
+  // floating input lives inside the chat panel. The send-tab textarea would
+  // be a duplicate, but disappearing it entirely confuses users who come
+  // looking for it. Show a one-line pointer instead of a blank panel.
+  if (customChatEnabled.value) {
+    return (
+      <details open data-cb-normal-send-redirected>
+        <summary style={{ cursor: 'pointer', userSelect: 'none', fontWeight: 'bold' }}>
+          <span>常规发送</span>
+        </summary>
+        <div className='cb-body cb-note' style={{ color: '#666', fontSize: '0.9em', padding: '.25em 0' }}>
+          Chatterbox Chat 已接管聊天区——请直接在右侧自定义聊天面板的输入框里发送弹幕。
+          要恢复这里的「常规发送」框，可以到「设置 → Chatterbox Chat」关闭该功能。
+        </div>
+      </details>
+    )
+  }
 
   const sendMessage = async () => {
     const sent = await sendManualDanmaku(fasongText.value)
     if (sent) {
       fasongText.value = ''
+      flashOk.value = true
+      window.setTimeout(() => {
+        flashOk.value = false
+      }, 1400)
     }
   }
 
@@ -63,11 +91,20 @@ export function NormalSendTab() {
         </div>
         <div className='cb-row' style={{ display: 'flex', alignItems: 'center', gap: '.5em' }}>
           <SendActions onSend={msg => void sendManualDanmaku(msg)} />
+          {flashOk.value && (
+            <span
+              role='status'
+              aria-live='polite'
+              style={{ color: '#168a45', fontWeight: 650, fontSize: '11px', marginLeft: 'auto' }}
+            >
+              ✓ 已发送
+            </span>
+          )}
           <button
             type='button'
             className='cb-primary'
             onClick={() => void sendMessage()}
-            style={{ marginLeft: 'auto' }}
+            style={{ marginLeft: flashOk.value ? '.5em' : 'auto' }}
           >
             发送
           </button>

@@ -126,6 +126,111 @@ export interface ImportSettingsResult {
   unknownKeys?: string[]
 }
 
+/**
+ * Cheap deep-equal for backup values (primitives, arrays, plain objects).
+ * Good enough to decide "would overwrite" vs "no-op" without depending on
+ * `node:util` or a runtime in the userscript bundle.
+ */
+function backupValueEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (typeof a !== typeof b) return false
+  if (a === null || b === null) return false
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
+    for (let i = 0; i < a.length; i++) {
+      if (!backupValueEqual(a[i], b[i])) return false
+    }
+    return true
+  }
+  if (typeof a === 'object' && typeof b === 'object') {
+    try {
+      return JSON.stringify(a) === JSON.stringify(b)
+    } catch {
+      return false
+    }
+  }
+  return false
+}
+
+function shortRepr(val: unknown, maxLen = 48): string {
+  if (val === undefined) return '（未设置）'
+  let s: string
+  try {
+    s = typeof val === 'string' ? val : JSON.stringify(val)
+  } catch {
+    s = String(val)
+  }
+  if (s.length > maxLen) s = `${s.slice(0, maxLen - 1)}…`
+  return s
+}
+
+export interface ImportPreviewChange {
+  key: string
+  before: string
+  after: string
+}
+export interface ImportPreviewResult {
+  ok: boolean
+  error?: string
+  changes: ImportPreviewChange[]
+  unchanged: number
+  skipped: string[]
+  unknownKeys: string[]
+}
+
+/**
+ * Parse a backup blob WITHOUT writing anything. Returns the list of fields
+ * whose value would change, plus the would-be-skipped / unknown sets. Lets
+ * the UI show a diff preview before the user commits a potentially
+ * destructive overwrite.
+ */
+export function previewImportSettings(json: string): ImportPreviewResult {
+  let data: Record<string, unknown>
+  try {
+    data = JSON.parse(json) as Record<string, unknown>
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err)
+    return { ok: false, error: `无效的 JSON 格式：${detail}`, changes: [], unchanged: 0, skipped: [], unknownKeys: [] }
+  }
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) {
+    return { ok: false, error: '数据格式错误，需要 JSON 对象', changes: [], unchanged: 0, skipped: [], unknownKeys: [] }
+  }
+  const version = data.__version
+  if (typeof version === 'number' && version > BACKUP_VERSION) {
+    return {
+      ok: false,
+      error: `导入版本 ${version} 高于当前支持的版本 ${BACKUP_VERSION}`,
+      changes: [],
+      unchanged: 0,
+      skipped: [],
+      unknownKeys: [],
+    }
+  }
+  const allowed = new Set<string>(EXPORT_KEYS)
+  const changes: ImportPreviewChange[] = []
+  const skipped: string[] = []
+  const unknownKeys: string[] = []
+  let unchanged = 0
+  for (const [key, val] of Object.entries(data)) {
+    if (key.startsWith('__')) continue
+    if (!allowed.has(key)) {
+      unknownKeys.push(key)
+      continue
+    }
+    if (!isValidImportedValue(key, val)) {
+      skipped.push(key)
+      continue
+    }
+    const current = GM_getValue(key)
+    if (backupValueEqual(current, val)) {
+      unchanged += 1
+      continue
+    }
+    changes.push({ key, before: shortRepr(current), after: shortRepr(val) })
+  }
+  return { ok: true, changes, unchanged, skipped, unknownKeys }
+}
+
 export function importSettings(json: string): ImportSettingsResult {
   let data: Record<string, unknown>
   try {

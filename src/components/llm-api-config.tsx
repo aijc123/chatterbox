@@ -59,6 +59,28 @@ const FIELD_LABEL_STYLE = { fontSize: '11px', fontWeight: 600, color: '#1d1d1f' 
 const FIELD_HINT_STYLE = { fontSize: '11px', color: '#6e6e73' }
 const STACK_STYLE = { display: 'grid', gap: '4px' }
 
+/**
+ * Quick sanity-check on the OpenAI-compatible Base URL. The test-connection
+ * button already exercises the real upstream, but the user normally clicks
+ * it once after typing — and they shouldn't have to round-trip to learn the
+ * URL is missing a scheme.
+ */
+function validateLlmBaseUrl(raw: string): string | null {
+  if (!/^https?:\/\//i.test(raw)) {
+    return '缺少协议前缀，请加 http:// 或 https://'
+  }
+  try {
+    const url = new URL(raw)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return '只支持 http:// 或 https:// 协议'
+    }
+    if (!url.hostname) return 'URL 缺少主机名'
+    return null
+  } catch {
+    return 'URL 格式不合法'
+  }
+}
+
 export interface LlmApiConfigPanelProps {
   /**
    * 隐藏"测试连接"按钮——HZM 面板原本就没暴露这个功能；保留这里只是让设置面板
@@ -202,7 +224,7 @@ export function LlmApiConfigPanel({ showTestConnection = true }: LlmApiConfigPan
         <div style={STACK_STYLE}>
           <span style={FIELD_LABEL_STYLE}>Base URL</span>
           <input
-            type='text'
+            type='url'
             value={llmBaseURL.value}
             onInput={e => {
               llmBaseURL.value = e.currentTarget.value
@@ -213,6 +235,17 @@ export function LlmApiConfigPanel({ showTestConnection = true }: LlmApiConfigPan
             style={inputStyle}
           />
           <span style={FIELD_HINT_STYLE}>带不带 /v1 都行，自动补全到 /v1/chat/completions。</span>
+          {(() => {
+            const v = llmBaseURL.value.trim()
+            if (v === '') return null
+            const warn = validateLlmBaseUrl(v)
+            if (!warn) return null
+            return (
+              <span role='status' aria-live='polite' style={{ color: '#a15c00', fontSize: '11px' }}>
+                ⚠️ {warn}
+              </span>
+            )
+          })()}
         </div>
       )}
 

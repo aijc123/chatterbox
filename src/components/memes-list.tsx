@@ -503,6 +503,9 @@ export function MemesList() {
                 const expanded = submittingFor.value
                 const isSbhzmOpen = expanded?.text === text && expanded.target === 'sbhzm'
                 const isCbOpen = expanded?.text === text && expanded.target === 'cb'
+                const otherFormOpenForThisText =
+                  expanded !== null && expanded.text === text && !isSbhzmOpen && !isCbOpen
+                const otherFormOpenForAnotherText = expanded !== null && expanded.text !== text
                 return (
                   <div
                     key={text}
@@ -544,8 +547,15 @@ export function MemesList() {
                             color: isSbhzmOpen ? '#fff' : 'inherit',
                             border: '1px solid var(--Ga2, #ccc)',
                             borderRadius: '3px',
+                            opacity: !isSbhzmOpen && (otherFormOpenForThisText || isCbOpen) ? 0.55 : 1,
                           }}
-                          title={`选标签后上传到 ${memeSource.name}（API：POST /api/admin/memes）`}
+                          title={
+                            isCbOpen
+                              ? `当前正在贡献到 chatterbox-cloud。点击改为上传到 ${memeSource.name}（一次只能开一个表单）`
+                              : otherFormOpenForAnotherText
+                                ? '另一条候选的表单正打开；点这里会切换到本条'
+                                : `选标签后上传到 ${memeSource.name}（API：POST /api/admin/memes）`
+                          }
                           onClick={() => {
                             submittingFor.value = isSbhzmOpen ? null : { text, target: 'sbhzm' }
                           }}
@@ -565,8 +575,15 @@ export function MemesList() {
                             color: isCbOpen ? '#fff' : '#3b82f6',
                             border: '1px solid #3b82f6',
                             borderRadius: '3px',
+                            opacity: !isCbOpen && (otherFormOpenForThisText || isSbhzmOpen) ? 0.55 : 1,
                           }}
-                          title='选标签后提交到 chatterbox-cloud(进 pending 队列等管理员审核)'
+                          title={
+                            isSbhzmOpen
+                              ? '当前正在上传到 SBHZM。点击改为贡献到 chatterbox-cloud（一次只能开一个表单）'
+                              : otherFormOpenForAnotherText
+                                ? '另一条候选的表单正打开；点这里会切换到本条'
+                                : '选标签后提交到 chatterbox-cloud(进 pending 队列等管理员审核)'
+                          }
                           onClick={() => {
                             submittingFor.value = isCbOpen ? null : { text, target: 'cb' }
                           }}

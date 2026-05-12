@@ -173,8 +173,16 @@ describe('NormalSendTab — YOLO toggle wiring', () => {
     expect(picker).toBeDefined()
   })
 
-  test('returns null when customChatEnabled (so YOLO toggle moves into custom chat composer scope)', () => {
+  test('renders a redirect hint (not the composer) when customChatEnabled — YOLO toggle moves into custom chat composer scope', () => {
     customChatEnabled.value = true
-    expect(NormalSendTab()).toBeNull()
+    const tree = NormalSendTab() as unknown as TreeNode
+    // No YOLO checkbox in this branch — that toggle lives in the custom-chat composer instead.
+    expect(findInputById(tree, 'normalSendYolo')).toBeUndefined()
+    // But the `<details>` with the redirect data-attr should be there so the
+    // user knows where the send composer went.
+    const detailsNode = collectNodes(tree).find(
+      n => n.type === 'details' && n.props?.['data-cb-normal-send-redirected'] !== undefined
+    )
+    expect(detailsNode).toBeDefined()
   })
 })

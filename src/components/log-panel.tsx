@@ -1,11 +1,14 @@
+import { useSignal } from '@preact/signals'
 import { useEffect, useRef } from 'preact/hooks'
 
-import { logLines, maxLogLines } from '../lib/log'
+import { copyTextToClipboard } from '../lib/clipboard'
+import { logLines, maxLogLines, notifyUser } from '../lib/log'
 import { logPanelFocusRequest, logPanelOpen } from '../lib/store'
 
 export function LogPanel() {
   const detailsRef = useRef<HTMLDetailsElement>(null)
   const ref = useRef<HTMLTextAreaElement>(null)
+  const copiedFlash = useSignal(false)
 
   const scrollToBottom = () => {
     if (ref.current) ref.current.scrollTop = ref.current.scrollHeight
@@ -22,6 +25,26 @@ export function LogPanel() {
     ref.current?.focus()
   }, [logPanelFocusRequest.value])
 
+  const handleCopyAll = async () => {
+    const text = logLines.value.join('\n')
+    if (!text) return
+    const ok = await copyTextToClipboard(text)
+    if (ok) {
+      copiedFlash.value = true
+      window.setTimeout(() => {
+        copiedFlash.value = false
+      }, 1400)
+    } else {
+      notifyUser('error', '复制日志失败，请手动选择文本复制')
+    }
+  }
+
+  const handleClear = () => {
+    logLines.value = []
+  }
+
+  const isEmpty = logLines.value.length === 0
+
   return (
     <details
       ref={detailsRef}
@@ -33,6 +56,47 @@ export function LogPanel() {
     >
       <summary style={{ cursor: 'pointer', userSelect: 'none', fontWeight: 'bold' }}>日志</summary>
       <div className='cb-body'>
+        <div
+          className='cb-row'
+          style={{
+            display: 'flex',
+            gap: '.4em',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            marginTop: '.5em',
+          }}
+        >
+          <button
+            type='button'
+            className='cb-btn'
+            onClick={() => {
+              void handleCopyAll()
+            }}
+            disabled={isEmpty}
+            title='把整段日志复制到剪贴板（便于反馈 bug）'
+            style={{ fontSize: '11px', padding: '2px 8px' }}
+          >
+            复制全部
+          </button>
+          <button
+            type='button'
+            className='cb-btn'
+            onClick={handleClear}
+            disabled={isEmpty}
+            title='清空当前会话日志（不影响已发出的弹幕）'
+            style={{ fontSize: '11px', padding: '2px 8px' }}
+          >
+            清空
+          </button>
+          {copiedFlash.value && (
+            <span role='status' aria-live='polite' style={{ color: '#168a45', fontSize: '11px', fontWeight: 650 }}>
+              ✓ 已复制
+            </span>
+          )}
+          <span className='cb-soft' style={{ marginLeft: 'auto', fontSize: '11px' }}>
+            {logLines.value.length}/{maxLogLines.value}
+          </span>
+        </div>
         <textarea
           ref={ref}
           readOnly
@@ -43,7 +107,7 @@ export function LogPanel() {
             height: '60px',
             width: '100%',
             resize: 'vertical',
-            marginTop: '.5em',
+            marginTop: '.4em',
           }}
         />
       </div>

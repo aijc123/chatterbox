@@ -31,14 +31,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
     return (
       <div
-        className='lc-fixed lc-right-2 lc-bottom-[46px] lc-z-[2147483647] lc-w-[320px] lc-max-w-[calc(100vw_-_16px)]'
+        className='cb-floating-surface cb-error-surface lc-fixed lc-right-2 lc-bottom-[46px] lc-z-[2147483647] lc-w-[320px] lc-max-w-[calc(100vw_-_16px)]'
         style={{
           padding: '12px',
-          borderRadius: '12px',
-          background: '#fff7f7',
-          border: '1px solid #f3b7b7',
-          boxShadow: '0 10px 30px rgba(0, 0, 0, 0.12)',
-          color: '#7f1d1d',
         }}
       >
         <div style={{ fontWeight: 'bold', marginBottom: '6px' }}>Chatterbox 面板遇到错误</div>

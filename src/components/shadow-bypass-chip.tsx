@@ -28,7 +28,10 @@ import type { ShadowBypassCandidate } from '../lib/shadow-suggestion'
 import { copyText, fillIntoComposer } from '../lib/danmaku-actions'
 import { appendLog } from '../lib/log'
 import { removeShadowBanObservation } from '../lib/shadow-learn'
-import { shadowBanObservations } from '../lib/store'
+import { shadowBanObservations, shadowChipDismissedKeys } from '../lib/store'
+
+/** Hard cap on persisted dismiss keys (keeps the gm-value bounded). */
+const DISMISSED_KEYS_CAP = 256
 
 /** How long after observation is recorded the chip stays visible. */
 export const SHADOW_CHIP_RECENT_WINDOW_MS = 60_000
@@ -147,15 +150,17 @@ function CandidateRow({ candidate }: { candidate: ShadowBypassCandidate }) {
         fontSize: '12px',
       }}
     >
-      <span style={{ minWidth: '4em', color: '#888', fontSize: '11px' }}>{candidate.label}</span>
+      <span className='cb-floating-chip-meta' style={{ minWidth: '4em', fontSize: '11px' }}>
+        {candidate.label}
+      </span>
       <code
+        className='cb-floating-code'
         style={{
           flex: 1,
           minWidth: 0,
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
-          background: '#f5f5f5',
           padding: '1px 6px',
           borderRadius: '3px',
           fontFamily: 'monospace',
@@ -192,8 +197,8 @@ function CandidateRow({ candidate }: { candidate: ShadowBypassCandidate }) {
 }
 
 export function ShadowBypassChip() {
-  const dismissedKeys = useSignal<Set<string>>(new Set())
   const anchor = useSignal<AnchorInfo | null>(null)
+  const dismissedSet = new Set(shadowChipDismissedKeys.value)
   // Re-measure on a tick so the chip follows the composer if the page reflows
   // (panel toggles, viewport resize, B站 SPA navigation).
   useEffect(() => {
@@ -209,7 +214,7 @@ export function ShadowBypassChip() {
     }
   }, [anchor])
 
-  const target = pickActiveObservation(shadowBanObservations.value, dismissedKeys.value)
+  const target = pickActiveObservation(shadowBanObservations.value, dismissedSet)
   if (!target || !anchor.value) return null
 
   const { top, left, width } = computeChipPlacement(
@@ -220,24 +225,21 @@ export function ShadowBypassChip() {
 
   const dismiss = () => {
     const k = obsKey(target.text, target.roomId)
-    dismissedKeys.value = new Set([...dismissedKeys.value, k])
+    const next = [...shadowChipDismissedKeys.value.filter(existing => existing !== k), k]
+    shadowChipDismissedKeys.value = next.length > DISMISSED_KEYS_CAP ? next.slice(-DISMISSED_KEYS_CAP) : next
   }
 
   return (
     <div
       role='dialog'
       aria-label='影子封禁改写候选'
+      className='cb-floating-surface'
       style={{
         position: 'fixed',
         top: `${top}px`,
         left: `${left}px`,
         width: `${width}px`,
         zIndex: 2147483600,
-        background: 'white',
-        color: '#333',
-        border: '1px solid #ddd',
-        borderRadius: '6px',
-        boxShadow: '0 4px 14px rgba(0,0,0,0.18)',
         padding: '8px 10px',
         fontSize: '12px',
         lineHeight: 1.4,
@@ -276,7 +278,7 @@ export function ShadowBypassChip() {
           </button>
         </div>
       </div>
-      <div style={{ color: '#666', fontSize: '11px', marginBottom: '4px' }}>
+      <div className='cb-floating-divider' style={{ fontSize: '11px', marginBottom: '4px' }}>
         候选改写（不自动发送，点「填入」会替换你的输入框文本）：
       </div>
       {target.candidates?.map(c => (
