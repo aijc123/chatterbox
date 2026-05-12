@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.13.4
+// @version      2.13.5
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -1120,16 +1120,17 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
   }
   function applyTransforms(url, data, opts) {
     if (!url || data === null || typeof data !== "object") return NULL_RESULT;
+    const payload = data;
     if (opts.unlockForbidLive && url.includes(GET_INFO_BY_USER_PATTERN)) {
-      const forbid = data?.data?.forbid_live;
+      const forbid = payload.data?.forbid_live;
       if (!forbid) return { kind: "live", wasBlocking: false };
-      const wasBlocking = !!forbid.is_forbid;
+      const wasBlocking = Boolean(forbid.is_forbid);
       forbid.is_forbid = false;
       forbid.forbid_text = "";
       return { kind: "live", wasBlocking };
     }
     if (opts.unlockSpaceBlock && url.includes(ACC_RELATION_PATTERN)) {
-      const beRel = data?.data?.be_relation;
+      const beRel = payload.data?.be_relation;
       if (!beRel || typeof beRel !== "object") return { kind: "space", wasBlocking: false };
       if (beRel.attribute === 128) {
         beRel.attribute = 0;
@@ -1365,6 +1366,7 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
       parts.push(graphemes.slice(i2, cut).join(""));
       i2 = cut + skipNext;
     }
+    if (parts.length === 0) parts.push("");
     if (parts.length >= 2) {
       const lastG = getGraphemes(parts[parts.length - 1]);
       if (lastG.length < minTail) {
@@ -1851,6 +1853,19 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
   const URL_SCHEME_RE = /url\(\s*(["']?)\s*(javascript:|vbscript:|data:text\/html|data:application\/javascript|data:text\/javascript)[^)]*\)/gi;
   const EXPRESSION_RE = /expression\s*\([^)]*\)/gi;
   const BEHAVIOR_RE = /behavior\s*:[^;]*;?/gi;
+  const COMMENT_RE = /\/\*[\s\S]*?\*\//g;
+  function normalizeEscapes(input) {
+    return input.replace(/\\([0-9a-fA-F]{1,6})\s?|\\([^\n])/g, (_match, hex, char) => {
+      if (typeof hex === "string") {
+        const code = parseInt(hex, 16);
+        if (!Number.isFinite(code) || code === 0 || code >= 55296 && code <= 57343 || code > 1114111) {
+          return "�";
+        }
+        return String.fromCodePoint(code);
+      }
+      return typeof char === "string" ? char : "";
+    });
+  }
   function sanitizeCustomChatCss(input) {
     if (typeof input !== "string" || input.length === 0) {
       return { css: "", truncated: false, removedImports: 0, removedUrlSchemes: 0, removedLegacyHooks: 0 };
@@ -1861,6 +1876,8 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
       css = css.slice(0, CUSTOM_CHAT_CSS_MAX_LENGTH);
       truncated = true;
     }
+    css = css.replace(COMMENT_RE, "");
+    css = normalizeEscapes(css);
     let removedImports = 0;
     css = css.replace(IMPORT_RE, () => {
       removedImports++;
@@ -1880,6 +1897,10 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
       removedLegacyHooks++;
       return "";
     });
+    if (css.length > CUSTOM_CHAT_CSS_MAX_LENGTH) {
+      css = css.slice(0, CUSTOM_CHAT_CSS_MAX_LENGTH);
+      truncated = true;
+    }
     return { css, truncated, removedImports, removedUrlSchemes, removedLegacyHooks };
   }
   const customChatDefaultMigrationKey = "customChatDefaultPresetMigrated";
@@ -1909,7 +1930,7 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
   const customChatPerfDebug = gmSignal("customChatPerfDebug", false);
   const customChatFoldRenameKey = "customChatFoldRenamed";
   if (!_GM_getValue(customChatFoldRenameKey, false)) {
-    const legacy = _GM_getValue("customChatCardMode", void 0);
+    const legacy = _GM_getValue("customChatCardMode");
     if (typeof legacy === "boolean") _GM_setValue("customChatFoldMode", legacy);
     _GM_setValue(customChatFoldRenameKey, true);
   }
@@ -1961,7 +1982,7 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
   const isNonNegativeInt = (v2) => typeof v2 === "number" && Number.isInteger(v2) && v2 >= 0;
   const SEED_KEY = "llmPromptsGlobalSeeded";
   if (!_GM_getValue(SEED_KEY, false)) {
-    const existing = _GM_getValue("llmPromptsGlobal", void 0);
+    const existing = _GM_getValue("llmPromptsGlobal");
     if (existing === void 0 || Array.isArray(existing) && existing.length === 0) {
       _GM_setValue("llmPromptsGlobal", [DEFAULT_GLOBAL_PROMPT]);
     }
@@ -2227,9 +2248,11 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
     return `🚫 ${label}：${msg} 不在当前房间表情包内，已阻止发送`;
   }
   async function mapWithConcurrency(items, limit, fn) {
+    const safeLimit = Number.isFinite(limit) && limit >= 1 ? Math.floor(limit) : 1;
     const results = new Array(items.length);
+    if (items.length === 0) return results;
     let cursor = 0;
-    const workers = new Array(Math.min(limit, items.length)).fill(0).map(async () => {
+    const workers = new Array(Math.min(safeLimit, items.length)).fill(0).map(async () => {
       while (true) {
         const idx = cursor++;
         if (idx >= items.length) return;
@@ -2371,9 +2394,11 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
   }
   function buildReplacementMap() {
     const rid = cachedRoomId.value;
+    const rk = remoteKeywords.value;
+    const localGlobal = localGlobalRules.value;
+    const localRoom = localRoomRules.value;
     if (rid === null && replacementMap.value !== null) return;
     const map = new Map();
-    const rk = remoteKeywords.value;
     if (rk) {
       const globalKeywords = rk.global?.keywords ?? {};
       for (const [from, to] of Object.entries(globalKeywords)) {
@@ -2387,11 +2412,11 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
         }
       }
     }
-    for (const rule of localGlobalRules.value) {
+    for (const rule of localGlobal) {
       if (rule.from) map.set(rule.from, rule.to ?? "");
     }
     if (rid !== null) {
-      const roomRules = localRoomRules.value[String(rid)] ?? [];
+      const roomRules = localRoom[String(rid)] ?? [];
       for (const rule of roomRules) {
         if (rule.from) map.set(rule.from, rule.to ?? "");
       }
@@ -2399,10 +2424,6 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
     replacementMap.value = map;
   }
   j$1(() => {
-    cachedRoomId.value;
-    remoteKeywords.value;
-    localGlobalRules.value;
-    localRoomRules.value;
     buildReplacementMap();
   });
   const REPLACEMENT_MAX_OUTPUT_LENGTH = 4096;
@@ -2547,6 +2568,9 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
     return wordToHex(a2) + wordToHex(b2) + wordToHex(c2) + wordToHex(d2);
   }
   let cachedWbiKeys = null;
+  function getCachedWbiKeys() {
+    return cachedWbiKeys;
+  }
   const wbiDiagnostics = { parseFailures: 0, extractMisses: 0 };
   if (typeof window !== "undefined") {
     window.__chatterboxWbiParseFailures = wbiDiagnostics;
@@ -3143,12 +3167,13 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
     }
     try {
       let query = "";
-      if (cachedWbiKeys) {
+      const wbiKeys = getCachedWbiKeys();
+      if (wbiKeys) {
         query = encodeWbi(
           {
             web_location: getSpmPrefix$2()
           },
-          cachedWbiKeys
+          wbiKeys
         );
       }
       const url = `${BASE_URL.BILIBILI_MSG_SEND}?${query ? `${query}&` : ""}${CHATTERBOX_SEND_MARKER}`;
@@ -3236,6 +3261,7 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
     MANUAL: 2
   };
   const HARD_MIN_GAP_MS = 1010;
+  const MAX_QUEUE_LENGTH = 200;
   const queue = [];
   let processing = false;
   let lastSendCompletedAt = 0;
@@ -3297,6 +3323,15 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
           if (q2 !== item) cancelAutoItem(q2, "preempted");
         }
       }
+      if (queue.length > MAX_QUEUE_LENGTH) {
+        for (let i2 = queue.length - 1; i2 >= 0 && queue.length > MAX_QUEUE_LENGTH; i2--) {
+          const q2 = queue[i2];
+          if (q2.priority === SendPriority.AUTO && !q2.cancelled) {
+            cancelAutoItem(q2, "queue-overflow");
+            queue.splice(i2, 1);
+          }
+        }
+      }
       void processQueue();
     });
   }
@@ -3356,17 +3391,21 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
       appendLog(`⚠️ AI 检测服务出错:${reason}`);
     }
   }
+  const LAPLACE_AUDIT_TIMEOUT_MS = 1e4;
   async function detectSensitiveWords(text) {
     if (isCircuitOpen(Date.now())) {
       return { hasSensitiveContent: false };
     }
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), LAPLACE_AUDIT_TIMEOUT_MS);
     try {
       const resp = await fetch(BASE_URL.LAPLACE_CHAT_AUDIT, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           completionMetadata: { input: text }
-        })
+        }),
+        signal: controller.signal
       });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = await resp.json();
@@ -3376,6 +3415,8 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
     } catch (err) {
       onAuditFailure(err instanceof Error ? err.message : String(err));
       return { hasSensitiveContent: false };
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
   function insertInvisibleChars(word) {
@@ -3475,20 +3516,15 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
   function isValidDanmakuNode(node) {
     if (!node.classList.contains("chat-item") || !node.classList.contains("danmaku-item")) return false;
     const count = node.classList.length;
-    if (count === 2) return true;
-    if (node.classList.contains("chat-colorful-bubble") && node.classList.contains("has-bubble") && count === 4)
-      return true;
-    if (node.classList.contains("has-bubble") && count === 3) return true;
-    if (node.classList.contains("chat-emoticon") && node.classList.contains("bulge-emoticon")) return true;
-    return false;
+    return count === 2 || node.classList.contains("chat-colorful-bubble") && node.classList.contains("has-bubble") && count === 4 || node.classList.contains("has-bubble") && count === 3 || node.classList.contains("chat-emoticon") && node.classList.contains("bulge-emoticon");
   }
   function cleanInlineText(value) {
     return (value ?? "").replace(/\s+/g, " ").trim();
   }
   function isBadNameCandidate(value, text = "") {
     if (!value || value === text || value.length > 36) return true;
-    if (/通过活动|查看我的装扮|获得|装扮|荣耀|粉丝牌|用户等级|头像|复制|举报|回复|关闭/.test(value)) return true;
-    return /^[\d\s:：/.-]+$/.test(value);
+    if (/通过活动|查看我的装扮|获得|装扮|荣耀|粉丝牌|用户等级|头像|复制|举报|回复|关闭/u.test(value)) return true;
+    return /^[\d\s:：/.-]+$/u.test(value);
   }
   function firstUsefulText(el) {
     if (!el) return null;
@@ -3518,7 +3554,7 @@ OPENAI_CHAT: "https://api.openai.com/v1/chat/completions"
         el.getAttribute("data-title") || el.getAttribute("title") || el.getAttribute("aria-label") || el.textContent
       );
       if (!value || value === text || value.length > 18) continue;
-      if (/^(头像|复制|回复|举报|关闭)$/.test(value)) continue;
+      if (/^(头像|复制|回复|举报|关闭)$/u.test(value)) continue;
       if (!badges.includes(value)) badges.push(value);
       if (badges.length >= 5) break;
     }
@@ -5546,10 +5582,14 @@ ws;
   let connectionSerial = 0;
   let lastWsCloseDetail = "";
   let connectionHealthy = false;
-  let visibilityRecoveryWired = false;
+  let visibilityRecoveryHandler = null;
   const recentDanmaku = new Map();
   const RECENT_DANMAKU_MAX = 500;
   const STARTUP_FAILURE_LOG_INTERVAL = 6e4;
+  const liveWsCoercionDiagnostics = { numberFallbacks: 0, stringFallbacks: 0 };
+  if (typeof window !== "undefined") {
+    window.__chatterboxLiveWsCoercion = liveWsCoercionDiagnostics;
+  }
   function asRecord(value) {
     return typeof value === "object" && value !== null ? value : {};
   }
@@ -5563,12 +5603,8 @@ ws;
     if (value !== void 0 && value !== null) liveWsCoercionDiagnostics.numberFallbacks++;
     return fallback;
   }
-  const liveWsCoercionDiagnostics = { numberFallbacks: 0, stringFallbacks: 0 };
-  if (typeof window !== "undefined") {
-    window.__chatterboxLiveWsCoercion = liveWsCoercionDiagnostics;
-  }
   function nonEmptyFields(fields) {
-    return fields.filter((field) => !!field?.value);
+    return fields.filter((field) => field?.value != null && field.value !== "");
   }
   function yuanFromGiftPrice(price) {
     return formatMilliyuanAmount(asNumber(price));
@@ -5902,12 +5938,14 @@ ws;
       previous?.close();
       bindEvents(roomId, live);
       live.addEventListener("live", () => {
+        if (!started$1 || serial !== connectionSerial || liveConnection !== live) return;
         reconnectAttempt = 0;
+        addressIndex = 0;
         connectionHealthy = true;
       });
       live.addEventListener("close", () => {
         connectionHealthy = false;
-        if (!started$1 || liveConnection !== live) return;
+        if (!started$1 || serial !== connectionSerial || liveConnection !== live) return;
         const suffix = lastWsCloseDetail ? ` (${lastWsCloseDetail})` : "";
         appendStartupFailure(live.live ? `connection closed${suffix}` : `closed before room entered${suffix}`);
         const delay = computeReconnectDelay(reconnectAttempt);
@@ -5918,16 +5956,16 @@ ws;
       emitCustomChatWsStatus("error");
       const message = err instanceof Error ? err.message : String(err);
       appendStartupFailure(message);
+      if (!started$1 || serial !== connectionSerial) return;
       const delay = Math.min(3e4, 3e3 + reconnectAttempt * 2e3);
       reconnectAttempt += 1;
       reconnectTimer = setTimeout(() => void connect(), delay);
     }
   }
   function ensureVisibilityRecoveryWired() {
-    if (visibilityRecoveryWired) return;
+    if (visibilityRecoveryHandler !== null) return;
     if (typeof document === "undefined") return;
-    visibilityRecoveryWired = true;
-    document.addEventListener("visibilitychange", () => {
+    const handler = () => {
       if (!shouldForceImmediateReconnect({
         visibilityState: document.visibilityState,
         started: started$1,
@@ -5940,20 +5978,13 @@ ws;
         reconnectTimer = null;
       }
       reconnectAttempt = 0;
+      connectionSerial += 1;
       void connect();
-    });
+    };
+    document.addEventListener("visibilitychange", handler);
+    visibilityRecoveryHandler = handler;
   }
-  function startLiveWsSource() {
-    consumerCount += 1;
-    if (started$1) return;
-    started$1 = true;
-    ensureVisibilityRecoveryWired();
-    emitCustomChatWsStatus("connecting");
-    void connect();
-  }
-  function stopLiveWsSource() {
-    consumerCount = Math.max(0, consumerCount - 1);
-    if (consumerCount > 0) return;
+  function teardownConnection() {
     started$1 = false;
     connectionSerial += 1;
     connectionHealthy = false;
@@ -5964,6 +5995,32 @@ ws;
     }
     liveConnection?.close();
     liveConnection = null;
+    if (visibilityRecoveryHandler !== null && typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", visibilityRecoveryHandler);
+    }
+    visibilityRecoveryHandler = null;
+  }
+  function startLiveWsSource() {
+    consumerCount += 1;
+    let disposed = false;
+    const dispose = () => {
+      if (disposed) return;
+      disposed = true;
+      consumerCount = Math.max(0, consumerCount - 1);
+      if (consumerCount > 0) return;
+      teardownConnection();
+    };
+    if (started$1) return dispose;
+    started$1 = true;
+    ensureVisibilityRecoveryWired();
+    emitCustomChatWsStatus("connecting");
+    void connect();
+    return dispose;
+  }
+  function stopLiveWsSource() {
+    consumerCount = Math.max(0, consumerCount - 1);
+    if (consumerCount > 0) return;
+    teardownConnection();
   }
   const guardRoomLiveDeskSessionId = gmSignal("guardRoomLiveDeskSessionId", "");
   const guardRoomLiveDeskHeartbeatSec = gmSignal("guardRoomLiveDeskHeartbeatSec", 30);
@@ -5985,6 +6042,16 @@ ws;
   function describeFetchError(err) {
     if (err instanceof Error) return err.message;
     return String(err);
+  }
+  const GUARD_ROOM_FETCH_TIMEOUT_MS = 8e3;
+  async function fetchGuardRoom(url, init) {
+    const controller = new AbortController();
+    const t2 = setTimeout(() => controller.abort(), GUARD_ROOM_FETCH_TIMEOUT_MS);
+    try {
+      return await fetch(url, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(t2);
+    }
   }
   function normalizeGuardRoomEndpoint$1(endpoint) {
     const trimmed = endpoint.trim().replace(/\/+$/, "");
@@ -6038,7 +6105,7 @@ ws;
       advice: input.advice?.slice(0, 500)
     };
     try {
-      const response = await fetch(`${endpoint}/api/risk-events`, {
+      const response = await fetchGuardRoom(`${endpoint}/api/risk-events`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -6056,7 +6123,7 @@ ws;
     const syncKey = guardRoomSyncKey.value.trim();
     if (!endpoint || !syncKey) return;
     try {
-      const response = await fetch(`${endpoint}/api/live-desk/heartbeats`, {
+      const response = await fetchGuardRoom(`${endpoint}/api/live-desk/heartbeats`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -6078,7 +6145,7 @@ ws;
     const syncKey = guardRoomSyncKey.value.trim();
     if (!endpoint || !syncKey) return;
     try {
-      const response = await fetch(`${endpoint}/api/shadow-rules`, {
+      const response = await fetchGuardRoom(`${endpoint}/api/shadow-rules`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -6103,16 +6170,19 @@ ws;
     const endpoint = normalizeGuardRoomEndpoint$1(guardRoomEndpoint.value);
     const syncKey = guardRoomSyncKey.value.trim();
     if (!endpoint || !syncKey) return;
-    await fetch(`${endpoint}/api/watchlists/sync`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-sync-key": syncKey
-      },
-      body: JSON.stringify({ rooms })
-    }).then((response) => {
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    });
+    try {
+      const response = await fetchGuardRoom(`${endpoint}/api/watchlists/sync`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-sync-key": syncKey
+        },
+        body: JSON.stringify({ rooms })
+      });
+      if (!response.ok) warnGuardRoomSyncFailureOnce(endpoint, "watchlist", `HTTP ${response.status}`);
+    } catch (err) {
+      warnGuardRoomSyncFailureOnce(endpoint, "watchlist", describeFetchError(err));
+    }
   }
   async function fetchGuardRoomControlProfile() {
     const endpoint = normalizeGuardRoomEndpoint$1(guardRoomEndpoint.value);
@@ -6120,7 +6190,7 @@ ws;
     if (!endpoint || !syncKey) return null;
     let response = null;
     try {
-      response = await fetch(`${endpoint}/api/control-profile/current`, {
+      response = await fetchGuardRoom(`${endpoint}/api/control-profile/current`, {
         method: "GET",
         headers: {
           "x-sync-key": syncKey
@@ -6149,7 +6219,9 @@ ws;
     const roomKey = String(input.roomId);
     const currentByRoom = localRoomRules.value;
     const existingRules = currentByRoom[roomKey] ?? [];
-    const existingFroms = new Set(existingRules.map((r2) => r2.from).filter((s2) => !!s2));
+    const existingFroms = new Set(
+      existingRules.map((r2) => r2.from).filter((s2) => typeof s2 === "string" && s2.length > 0)
+    );
     const newRules = [];
     const learnedFroms = [];
     for (const raw of input.sensitiveWords) {
@@ -6158,25 +6230,38 @@ ws;
       if (existingFroms.has(from)) continue;
       const to = processText(from);
       if (to === from) continue;
-      newRules.push({ from, to });
+      newRules.push({ from, to, source: "learned" });
       existingFroms.add(from);
       learnedFroms.push(from);
     }
     if (newRules.length === 0) return;
-    let merged = [...existingRules, ...newRules];
-    if (merged.length > SHADOW_RULE_PER_ROOM_CAP) {
-      merged = merged.slice(merged.length - SHADOW_RULE_PER_ROOM_CAP);
+    const combined = [...existingRules, ...newRules];
+    const manuals = combined.filter((r2) => r2.source !== "learned");
+    const learned = combined.filter((r2) => r2.source === "learned");
+    let merged;
+    if (manuals.length >= SHADOW_RULE_PER_ROOM_CAP) {
+      merged = manuals.slice(manuals.length - SHADOW_RULE_PER_ROOM_CAP);
+      appendLog(
+        `⚠️ 屏蔽词规则数（房间 ${input.roomId}）已达上限 ${SHADOW_RULE_PER_ROOM_CAP}，新学到的 ${newRules.length} 条未保存。请清理一些手工规则后再试。`
+      );
+    } else {
+      const learnedRoom = SHADOW_RULE_PER_ROOM_CAP - manuals.length;
+      const keptLearned = learned.slice(Math.max(0, learned.length - learnedRoom));
+      merged = [...manuals, ...keptLearned];
     }
     localRoomRules.value = { ...currentByRoom, [roomKey]: merged };
     appendLog(`📚 已学到屏蔽词规则（房间 ${input.roomId}）：${learnedFroms.join("、")}`);
-    for (const rule of newRules) {
-      void syncGuardRoomShadowRule({
-        roomId: input.roomId,
-        from: rule.from,
-        to: rule.to,
-        sourceText: input.originalMessage
-      });
-    }
+    void mapWithConcurrency(newRules, 3, async (rule) => {
+      try {
+        await syncGuardRoomShadowRule({
+          roomId: input.roomId,
+          from: rule.from,
+          to: rule.to,
+          sourceText: input.originalMessage
+        });
+      } catch {
+      }
+    });
   }
   function recordShadowBanObservation(input) {
     const text = input.text.trim();
@@ -6600,18 +6685,35 @@ candidates: input.candidates ?? prev.candidates
       console.error("[Chatterbox] failed to install msg-send hijack:", err);
     }
   })();
+  const DEFAULT_MAX_ENTRIES = 128;
   class FetchCache {
-    cache = new Map();
+
+cache = new Map();
     inFlight = new Map();
+    maxEntries;
+    constructor(opts) {
+      const m2 = opts?.maxEntries;
+      this.maxEntries = typeof m2 === "number" && m2 > 0 ? Math.floor(m2) : DEFAULT_MAX_ENTRIES;
+    }
     async get(opts) {
       const { key, ttlMs, fetcher } = opts;
       const cached = this.cache.get(key);
-      if (cached && Date.now() - cached.ts < ttlMs) return cached.data;
+      if (cached && Date.now() - cached.ts < ttlMs) {
+        this.cache.delete(key);
+        this.cache.set(key, cached);
+        return cached.data;
+      }
+      if (cached) this.cache.delete(key);
       const pending2 = this.inFlight.get(key);
       if (pending2) return pending2;
       const promise = fetcher().then(
         (data) => {
           this.cache.set(key, { ts: Date.now(), data });
+          while (this.cache.size > this.maxEntries) {
+            const oldest = this.cache.keys().next().value;
+            if (oldest === void 0) break;
+            this.cache.delete(oldest);
+          }
           this.inFlight.delete(key);
           return data;
         },
@@ -6629,6 +6731,9 @@ invalidate(key) {
       } else {
         this.cache.delete(key);
       }
+    }
+get _sizeForTests() {
+      return this.cache.size;
     }
 _clearForTests() {
       this.cache.clear();
@@ -6696,20 +6801,39 @@ _clearForTests() {
     const m2 = await __vitePreload(() => Promise.resolve().then(() => client), void 0 );
     return typeof m2.GM_xmlhttpRequest === "function" ? m2.GM_xmlhttpRequest : null;
   }
+  function scrubUrlForLog(raw) {
+    try {
+      const u2 = new URL(raw);
+      return `${u2.origin}${u2.pathname}`;
+    } catch {
+      return "<unparseable-url>";
+    }
+  }
   async function gmFetch(url, init = {}) {
-    const { method = "GET", headers, body, timeoutMs = 2e4 } = init;
+    const { method = "GET", headers, body, timeoutMs = 2e4, signal } = init;
     const xhr = await resolveGmXhr();
     if (!xhr) {
       throw new Error("gmFetch: GM_xmlhttpRequest unavailable (userscript grant missing or test stub).");
     }
+    if (signal?.aborted) {
+      throw new Error(`gmFetch aborted: ${scrubUrlForLog(url)}`);
+    }
     return new Promise((resolve, reject) => {
       let settled = false;
+      let abortListener = null;
+      const cleanupAbort = () => {
+        if (abortListener && signal) {
+          signal.removeEventListener("abort", abortListener);
+          abortListener = null;
+        }
+      };
       const finishOnce = (fn) => {
         if (settled) return;
         settled = true;
+        cleanupAbort();
         fn();
       };
-      xhr({
+      const handle = xhr({
         method,
         url,
         headers,
@@ -6734,16 +6858,28 @@ _clearForTests() {
         onerror: (err) => {
           finishOnce(() => {
             const detail = err && typeof err === "object" ? err.error : "";
-            reject(new Error(`gmFetch network error: ${detail || "unknown"} (url=${url})`));
+            reject(new Error(`gmFetch network error: ${detail || "unknown"} (url=${scrubUrlForLog(url)})`));
           });
         },
         ontimeout: () => {
-          finishOnce(() => reject(new Error(`gmFetch timeout after ${timeoutMs}ms: ${url}`)));
+          finishOnce(() => reject(new Error(`gmFetch timeout after ${timeoutMs}ms: ${scrubUrlForLog(url)}`)));
         },
         onabort: () => {
-          finishOnce(() => reject(new Error(`gmFetch aborted: ${url}`)));
+          finishOnce(() => reject(new Error(`gmFetch aborted: ${scrubUrlForLog(url)}`)));
         }
       });
+      if (signal) {
+        abortListener = () => {
+          if (settled) return;
+          try {
+            ;
+            handle?.abort?.();
+          } catch {
+          }
+          finishOnce(() => reject(new Error(`gmFetch aborted: ${scrubUrlForLog(url)}`)));
+        };
+        signal.addEventListener("abort", abortListener, { once: true });
+      }
     });
   }
   function memeContentKey(s2) {
@@ -6819,7 +6955,7 @@ _clearForTests() {
             throw new Error("chatterbox-cloud 响应缺少 items");
           }
           const items = body.items.filter(
-            (m2) => !!m2 && typeof m2.content === "string" && m2.content.trim().length > 0
+            (m2) => m2 != null && typeof m2.content === "string" && m2.content.trim().length > 0
           ).map((m2) => {
             const tag = m2._source === "laplace" || m2._source === "sbhzm" || m2._source === "cb" ? m2._source : "cb";
             return { ...m2, _source: tag };
@@ -6827,9 +6963,9 @@ _clearForTests() {
           return {
             items,
             sources: {
-              laplace: !!body.sources?.laplace,
-              sbhzm: !!body.sources?.sbhzm,
-              cb: !!body.sources?.cb
+              laplace: Boolean(body.sources?.laplace),
+              sbhzm: Boolean(body.sources?.sbhzm),
+              cb: Boolean(body.sources?.cb)
             },
             fatal: false
           };
@@ -6862,7 +6998,7 @@ _clearForTests() {
     const id = typeof json.id === "number" ? json.id : Number(json.id);
     if (!Number.isFinite(id) || id <= 0) throw new Error("提交成功但响应里没有 id");
     const status = typeof json.status === "string" && ["pending", "approved", "rejected"].includes(json.status) ? json.status : "pending";
-    return { id, status, dedup: !!json.dedup };
+    return { id, status, dedup: Boolean(json.dedup) };
   }
   const SESSION_PUSHED_HASHES = new Set();
   const MIRROR_BATCH_SIZE = 200;
@@ -7961,7 +8097,7 @@ _clearForTests() {
     });
   }
   function isAutoBlendBlacklistedUid(uid) {
-    return !!uid && uid in autoBlendUserBlacklist.value;
+    return uid !== null && uid !== "" && Object.hasOwn(autoBlendUserBlacklist.value, uid);
   }
   function isAutoBlendBlacklistedText(text) {
     if (!text) return false;
@@ -8140,10 +8276,14 @@ _clearForTests() {
         system: [{ type: "text", text: SYSTEM_PROMPT_TEMPLATE(opts.roomName), cache_control: { type: "ephemeral" } }],
         messages: [{ role: "user", content: buildUserMessage(opts) }]
       }),
-      timeoutMs: 15e3
+      timeoutMs: 15e3,
+      signal: opts.signal
     });
     if (!resp.ok) {
-      throw new Error(`Anthropic HTTP ${resp.status}: ${resp.text().slice(0, 200)}`);
+      if (typeof console !== "undefined") {
+        console.error(`[llm-driver] Anthropic ${resp.status}`, resp.text().slice(0, 500));
+      }
+      throw new Error(`Anthropic HTTP ${resp.status} ${resp.statusText || ""}`.trim());
     }
     return parseAnthropicResponse(resp.json());
   }
@@ -8168,10 +8308,14 @@ max_tokens: 1024,
           { role: "user", content: buildUserMessage(opts) }
         ]
       }),
-      timeoutMs: 3e4
+      timeoutMs: 3e4,
+      signal: opts.signal
     });
     if (!resp.ok) {
-      throw new Error(`OpenAI HTTP ${resp.status}: ${resp.text().slice(0, 200)}`);
+      if (typeof console !== "undefined") {
+        console.error(`[llm-driver] OpenAI ${resp.status}`, resp.text().slice(0, 500));
+      }
+      throw new Error(`OpenAI HTTP ${resp.status} ${resp.statusText || ""}`.trim());
     }
     return parseOpenAIResponse(resp.json());
   }
@@ -8266,10 +8410,11 @@ max_tokens: 1024,
           { role: "user", content: opts.userText }
         ]
       }),
-      timeoutMs: 3e4
+      timeoutMs: 3e4,
+      signal: opts.signal
     });
     if (!resp.ok) {
-      throw new Error(`HTTP ${resp.status}: ${resp.text().slice(0, 200)}`);
+      throw new Error(`HTTP ${resp.status} ${resp.statusText || ""}`.trim());
     }
     const content = readContent(resp.json());
     if (!content) throw new Error("返回内容为空");
@@ -8290,24 +8435,25 @@ max_tokens: 1024,
         system: [{ type: "text", text: opts.systemPrompt, cache_control: { type: "ephemeral" } }],
         messages: [{ role: "user", content: opts.userText }]
       }),
-      timeoutMs: 3e4
+      timeoutMs: 3e4,
+      signal: opts.signal
     });
     if (!resp.ok) {
-      throw new Error(`HTTP ${resp.status}: ${resp.text().slice(0, 200)}`);
+      throw new Error(`HTTP ${resp.status} ${resp.statusText || ""}`.trim());
     }
     const content = readAnthropicContent(resp.json());
     if (!content) throw new Error("返回内容为空");
     return content;
   }
-  async function chatCompletionViaLlm(opts) {
-    if (!opts.apiKey.trim()) throw new Error("请先配置 API key");
-    if (!opts.model.trim()) throw new Error("请先选择模型");
-    if (!opts.systemPrompt.trim()) throw new Error("系统提示词为空");
-    if (!opts.userText.trim()) throw new Error("输入内容为空");
+  function chatCompletionViaLlm(opts) {
+    if (!opts.apiKey.trim()) return Promise.reject(new Error("请先配置 API key"));
+    if (!opts.model.trim()) return Promise.reject(new Error("请先选择模型"));
+    if (!opts.systemPrompt.trim()) return Promise.reject(new Error("系统提示词为空"));
+    if (!opts.userText.trim()) return Promise.reject(new Error("输入内容为空"));
     if (opts.provider === "anthropic") return postAnthropicPolish(opts);
     if (opts.provider === "openai") return postOpenAIChatPolish(opts);
     const base = (opts.baseURL ?? "").trim();
-    if (!base) throw new Error("openai-compat 需要填 base URL（在「智能辅助驾驶」里设置）");
+    if (!base) return Promise.reject(new Error("openai-compat 需要填 base URL（在「智能辅助驾驶」里设置）"));
     return postOpenAIChatPolish(opts, buildOpenAICompatChatURL(base));
   }
   function normalizeIdFromLlmOutput(raw) {
@@ -8350,6 +8496,8 @@ max_tokens: 1024,
         return llmPromptsAutoBlend.value[llmActivePromptAutoBlend.value] ?? "";
       case "autoSend":
         return llmPromptsAutoSend.value[llmActivePromptAutoSend.value] ?? "";
+      default:
+        return "";
     }
   }
   function getActiveGlobalPrompt() {
@@ -8470,6 +8618,7 @@ max_tokens: 1024,
     const sessionMap = getOrCreateSessionMap(roomKey);
     const now = Date.now();
     const times = sessionMap.get(text) ?? [];
+    while (times.length > 0 && now - times[0] > SESSION_MAP_MAX_AGE_MS) times.shift();
     times.push(now);
     sessionMap.set(text, times);
     saveRoomSessionMaps();
@@ -8493,8 +8642,8 @@ max_tokens: 1024,
     }
     const stamps = nominationTimestampsByRoom.get(roomKey) ?? [];
     const oneHourAgo = now - 36e5;
-    const recentCount = stamps.filter((t2) => t2 >= oneHourAgo).length;
-    if (recentCount >= MAX_PER_HOUR) return;
+    while (stamps.length > 0 && stamps[0] < oneHourAgo) stamps.shift();
+    if (stamps.length >= MAX_PER_HOUR) return;
     const nextCand = [...candForRoom, text];
     memeContributorCandidatesByRoom.value = {
       ...memeContributorCandidatesByRoom.value,
@@ -8831,9 +8980,10 @@ max_tokens: 1024,
       }
     }
     if (candidates.length === 0) return;
+    candidates.sort((a2, b2) => b2[1] - a2[1]);
     const totalWeight = candidates.reduce((s2, [, c2]) => s2 + c2, 0);
     let r2 = Math.random() * totalWeight;
-    let chosen = candidates[candidates.length - 1][0];
+    let chosen = candidates[0][0];
     for (const [text, count] of candidates) {
       r2 -= count;
       if (r2 <= 0) {
@@ -8875,13 +9025,16 @@ max_tokens: 1024,
     updateStatusText();
     pruneExpired(Date.now());
     const targets = collectBurst(triggeredText, reason);
-    {
+    let cooldownEngaged = false;
+    const engageCooldownOnce = () => {
+      if (cooldownEngaged) return;
+      cooldownEngaged = true;
       const cooldownNow = Date.now();
       cooldownUntil = cooldownNow + getEffectiveCooldownMs(cooldownNow);
-    }
-    for (const { text } of targets) trendMap.delete(text);
-    updateCandidateText();
-    updateStatusText();
+      for (const { text } of targets) trendMap.delete(text);
+      updateCandidateText();
+      updateStatusText();
+    };
     try {
       const csrfToken = getCsrfToken();
       if (!csrfToken) {
@@ -8897,6 +9050,7 @@ max_tokens: 1024,
       }
       let memeRecorded = false;
       for (let ti = 0; ti < targets.length; ti++) {
+        if (!autoBlendEnabled.value) break;
         const { text: originalText, uniqueUsers, totalCount } = targets[ti];
         if (isLockedEmoticon(originalText)) {
           logAutoBlend(formatLockedEmoticonReject(originalText, "自动跟车(表情)"), "warning");
@@ -8906,7 +9060,6 @@ max_tokens: 1024,
           logAutoBlend(formatUnavailableEmoticonReject(originalText, "自动跟车(表情)"), "warning");
           continue;
         }
-        lastAutoSentText = originalText;
         const isEmote = isEmoticonUnique(originalText);
         let polished = originalText;
         if (autoBlendYolo.value && !isEmote) {
@@ -8937,7 +9090,9 @@ max_tokens: 1024,
           logAutoBlend(`  - ${shortAutoBlendText(originalText)}（${formatAutoBlendSenderInfo(uniqueUsers, totalCount)}）`);
         }
         const repeatCount = reason === "burst" && autoBlendSendAllTrending.value ? 1 : Math.max(1, autoBlendSendCount.value);
+        engageCooldownOnce();
         for (let i2 = 0; i2 < repeatCount; i2++) {
+          if (!autoBlendEnabled.value) break;
           let toSend = replaced;
           if (!isEmote && randomChar.value) toSend = addRandomCharacter(toSend);
           if (!isEmote) toSend = trimText(toSend, maxLength.value)[0] ?? toSend;
@@ -8977,6 +9132,7 @@ max_tokens: 1024,
             }
           }
           if (result.success && !result.cancelled) {
+            lastAutoSentText = originalText;
             autoBlendLastActionText.value = `已提交，等待回显：${shortAutoBlendText(display)}`;
             const echoSource = await verifyBroadcast({
               text: toSend,
@@ -9232,7 +9388,7 @@ max_tokens: 1024,
   function shouldScanNativeEventNode(node, rootId) {
     if (node.closest(`#${rootId}`)) return false;
     if (node.classList.contains("danmaku-item")) return false;
-    return node.matches(NATIVE_EVENT_SELECTOR) || !!node.querySelector(NATIVE_EVENT_SELECTOR);
+    return node.matches(NATIVE_EVENT_SELECTOR) || node.querySelector(NATIVE_EVENT_SELECTOR) !== null;
   }
   function compactText(value) {
     return value.replace(/\s+/g, " ").trim();
@@ -9260,7 +9416,7 @@ max_tokens: 1024,
   }
   function parseBadgeLevel(raw) {
     const text = compactText(raw);
-    const match = text.match(/^(?:UL|LV)\s*(\d{1,3})$/i) ?? text.match(/^用户等级[:：]?\s*(\d{1,3})$/);
+    const match = text.match(/^(?:UL|LV)\s*(\d{1,3})$/iu) ?? text.match(/^用户等级[:：]?\s*(\d{1,3})$/u);
     if (!match) return null;
     const value = Number(match[1]);
     return Number.isFinite(value) && value >= 0 ? value : null;
@@ -9269,25 +9425,25 @@ max_tokens: 1024,
     return `LV${Math.max(0, Math.trunc(level))}`;
   }
   function cleanDisplayName(value) {
-    return compactText(value).replace(/\s*[：:]\s*$/, "");
+    return compactText(value).replace(/\s*[：:]\s*$/u, "");
   }
   function isBadDisplayName(value) {
-    return !value || /通过活动|查看我的装扮|获得|装扮|荣耀|粉丝牌|用户等级|头像|复制|举报|回复|关闭/.test(value);
+    return !value || /通过活动|查看我的装扮|获得|装扮|荣耀|粉丝牌|用户等级|头像|复制|举报|回复|关闭/u.test(value);
   }
   function usefulBadgeText(raw, uname) {
     const level = parseBadgeLevel(raw);
-    const text = level === null ? compactText(raw).replace(/^粉丝牌[:：]?/, "").replace(/^荣耀[:：]?/, "").replace(/^用户等级[:：]?/, "") : formatBadgeLevel(level);
+    const text = level === null ? compactText(raw).replace(/^粉丝牌[:：]?/u, "").replace(/^荣耀[:：]?/u, "").replace(/^用户等级[:：]?/u, "") : formatBadgeLevel(level);
     if (!text || text.length > 16) return null;
-    if (/这是\s*TA\s*的|TA 的|TA的|荣耀|粉丝|复制|举报|回复|关闭|头像/.test(text)) return null;
+    if (/这是\s*TA\s*的|TA 的|TA的|荣耀|粉丝|复制|举报|回复|关闭|头像/u.test(text)) return null;
     if (uname && (text === uname || text.startsWith(`${uname} `) || text.startsWith(`${uname}　`))) return null;
     return text;
   }
   function isNoiseEventText(text) {
     const clean = compactText(text);
     if (!clean) return true;
-    if (/^(头像|匿名|复制|举报|回复|关闭|更多|展开|收起|弹幕|礼物|SC|进场|通知|暂停|清屏|状态|显示)$/.test(clean))
+    if (/^(头像|匿名|复制|举报|回复|关闭|更多|展开|收起|弹幕|礼物|SC|进场|通知|暂停|清屏|状态|显示)$/u.test(clean))
       return true;
-    return /^搜索\s*user:/.test(clean);
+    return /^搜索\s*user:/u.test(clean);
   }
   function resolveAvatarUrl(uid) {
     return uid ? `${BASE_URL.BILIBILI_AVATAR}/${uid}?size=96` : void 0;
@@ -9328,14 +9484,14 @@ max_tokens: 1024,
   }
   function nativeKind(node, text) {
     const signal = `${node.className} ${text}`;
-    if (/super[-_ ]?chat|superchat|醒目留言|醒目|￥|¥|\bSC\b/i.test(signal)) return "superchat";
-    if (/舰长|提督|总督|大航海|guard|privilege|开通|续费/i.test(signal)) return "guard";
-    if (/红包|red[-_ ]?envelop/i.test(signal)) return "redpacket";
-    if (/天选|lottery|抽奖/i.test(signal)) return "lottery";
-    if (/关注|follow/i.test(signal)) return "follow";
-    if (/点赞|like/i.test(signal)) return "like";
-    if (/分享|share/i.test(signal)) return "share";
-    if (/gift|礼物|赠送|投喂|送出|小花花|辣条|电池|x\s*\d+/i.test(signal)) return "gift";
+    if (/super[-_ ]?chat|superchat|醒目留言|醒目|￥|¥|\bSC\b/iu.test(signal)) return "superchat";
+    if (/舰长|提督|总督|大航海|guard|privilege|开通|续费/iu.test(signal)) return "guard";
+    if (/红包|red[-_ ]?envelop/iu.test(signal)) return "redpacket";
+    if (/天选|lottery|抽奖/iu.test(signal)) return "lottery";
+    if (/关注|follow/iu.test(signal)) return "follow";
+    if (/点赞|like/iu.test(signal)) return "like";
+    if (/分享|share/iu.test(signal)) return "share";
+    if (/gift|礼物|赠送|投喂|送出|小花花|辣条|电池|x\s*\d+/iu.test(signal)) return "gift";
     return null;
   }
   function nativeBadges(node, text, uname) {
@@ -9349,9 +9505,9 @@ max_tokens: 1024,
       badges.push(clean);
       if (badges.length >= 3) break;
     }
-    if (/总督/i.test(text)) badges.unshift("GUARD 1");
-    else if (/提督/i.test(text)) badges.unshift("GUARD 2");
-    else if (/舰长/i.test(text)) badges.unshift("GUARD 3");
+    if (/总督/iu.test(text)) badges.unshift("GUARD 1");
+    else if (/提督/iu.test(text)) badges.unshift("GUARD 2");
+    else if (/舰长/iu.test(text)) badges.unshift("GUARD 3");
     return [...new Set(badges)];
   }
   function parseNativeEvent(node, ctx) {
@@ -9373,9 +9529,9 @@ max_tokens: 1024,
       fields.push({ key: "gift-count", label: "数量", value: `x${giftMatch[2]}`, kind: "count" });
     }
     if (kind === "guard") {
-      const guard = /总督/.test(text) ? "总督" : /提督/.test(text) ? "提督" : "舰长";
+      const guard = /总督/u.test(text) ? "总督" : /提督/u.test(text) ? "提督" : "舰长";
       fields.push({ key: "guard-level", label: "等级", value: guard, kind: "level" });
-      const month = text.match(/(\d+)\s*(个月|月)/)?.[1];
+      const month = text.match(/(\d+)\s*(个月|月)/u)?.[1];
       if (month) fields.push({ key: "guard-months", label: "月份", value: `${month}个月`, kind: "duration" });
     }
     return {
@@ -9399,10 +9555,9 @@ max_tokens: 1024,
   }
   const CUSTOM_CHAT_MAX_MESSAGES = 220;
   const CUSTOM_CHAT_MAX_RENDER_BATCH = 36;
-  const CUSTOM_CHAT_MAX_RENDER_QUEUE = CUSTOM_CHAT_MAX_MESSAGES;
   function trimRenderQueue(queue2) {
-    if (queue2.length > CUSTOM_CHAT_MAX_RENDER_QUEUE) {
-      queue2.splice(0, queue2.length - CUSTOM_CHAT_MAX_RENDER_QUEUE);
+    if (queue2.length > CUSTOM_CHAT_MAX_MESSAGES) {
+      queue2.splice(0, queue2.length - CUSTOM_CHAT_MAX_MESSAGES);
     }
   }
   function takeRenderBatch(queue2) {
@@ -11245,7 +11400,7 @@ u$2(
       void ensureEmoticonsLoaded();
     }, [isOpen]);
     y$2(() => {
-      if (!isOpen) return;
+      if (!isOpen) return void 0;
       const onResize = () => {
         pos.value = computePosFor(anchorRef.current);
       };
@@ -11275,7 +11430,7 @@ u$2(
     }, [isOpen, anchorRef, onClose, pos]);
     if (!isOpen) return null;
     if (packages.length === 0) {
-      const inRoom = !!cachedRoomId.value;
+      const inRoom = cachedRoomId.value !== null;
       const fetchError = emoticonFetchError.value;
       const fetching = emoticonFetchInFlight !== null;
       let message;
@@ -11860,7 +12015,7 @@ u$2(
         name = cleanDisplayName(name.slice(badge.length));
       }
     }
-    const medalPrefix = name.match(/^[^\s:：]{1,10}\s+\d{1,3}\s+(.{1,32})$/);
+    const medalPrefix = name.match(/^[^\s:：]{1,10}\s+\d{1,3}\s+(.{1,32})$/u);
     const medalName = cleanDisplayName(medalPrefix?.[1] ?? "");
     if (medalName && !isBadDisplayName(medalName)) name = medalName;
     name = cleanDisplayName(name);
@@ -11892,9 +12047,9 @@ u$2(
   }
   function guardLevel(message) {
     const value = `${message.text} ${message.badges.join(" ")} ${message.rawCmd ?? ""}`;
-    if (/总督|GUARD\s*1|舰队\s*1|privilege[_-]?type["':\s]*1/i.test(value)) return "1";
-    if (/提督|GUARD\s*2|舰队\s*2|privilege[_-]?type["':\s]*2/i.test(value)) return "2";
-    if (/舰长|GUARD\s*3|舰队\s*3|privilege[_-]?type["':\s]*3/i.test(value)) return "3";
+    if (/总督|GUARD\s*1|舰队\s*1|privilege[_-]?type["':\s]*1/iu.test(value)) return "1";
+    if (/提督|GUARD\s*2|舰队\s*2|privilege[_-]?type["':\s]*2/iu.test(value)) return "2";
+    if (/舰长|GUARD\s*3|舰队\s*3|privilege[_-]?type["':\s]*3/iu.test(value)) return "3";
     return null;
   }
   function cardType(message) {
@@ -11941,7 +12096,7 @@ u$2(
         fallback.push({
           key: "gift-name",
           label: "礼物",
-          value: giftMatch[1].replace(/^.*?(投喂|赠送|送出)\s*/, ""),
+          value: giftMatch[1].replace(/^.*?(投喂|赠送|送出)\s*/u, ""),
           kind: "text"
         });
       if (giftMatch?.[2]) fallback.push({ key: "gift-count", label: "数量", value: `x${giftMatch[2]}`, kind: "count" });
@@ -12503,7 +12658,7 @@ u$2(
     const token = rerenderToken;
     pendingRerender = {
       token,
-      refreshFrozenSnapshot: !!options.refreshFrozenSnapshot || !!pendingRerender?.refreshFrozenSnapshot
+      refreshFrozenSnapshot: Boolean(options.refreshFrozenSnapshot) || Boolean(pendingRerender?.refreshFrozenSnapshot)
     };
     requestChatFrame();
   }
@@ -12576,9 +12731,9 @@ u$2(
     updateCount();
   }
   function isNativeSendBox(el) {
-    return !!el.querySelector(
+    return el.querySelector(
       'input[type="text"], textarea, input:not([type="submit"]):not([type="hidden"]):not([type="radio"]):not([type="checkbox"]):not([type="range"]):not([type="number"]):not([type="button"]):not([type="image"]):not([type="reset"]):not([type="file"]):not([type="color"])'
-    );
+    ) !== null;
   }
   function isNativeChatHistory(el) {
     return el.classList.contains("chat-history-panel") || el.classList.contains("chat-room") || typeof el.className === "string" && el.className.includes("chat-history");
@@ -12604,7 +12759,7 @@ u$2(
     }
   }
   function updateNativeVisibility() {
-    const mounted = !!root?.isConnected && !!root.querySelector(".lc-chat-composer");
+    const mounted = Boolean(root?.isConnected) && root?.querySelector(".lc-chat-composer") != null;
     const nativeMounted = mounted && !rootUsesFallbackHost;
     const shouldHideNative = nativeMounted && customChatHideNative.value;
     document.documentElement.classList.toggle("lc-custom-chat-mounted", nativeMounted);
@@ -12866,7 +13021,7 @@ u$2(
     const host = historyPanel?.parentElement ?? container.parentElement;
     if (!host) return;
     root = createRoot();
-    rootOutsideHistory = !!historyPanel && host !== historyPanel;
+    rootOutsideHistory = historyPanel !== null && host !== historyPanel;
     root.dataset.theme = customChatTheme.value;
     host.appendChild(root);
     updateNativeVisibility();
@@ -13605,6 +13760,21 @@ html.lc-dm-direct-always .${MARKER$1} {
     }
   }
   let applied = false;
+  const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+  function sanitizeSessionId(raw) {
+    if (!raw) return null;
+    return SESSION_ID_PATTERN.test(raw) ? raw : null;
+  }
+  function stripHandoffParams(url) {
+    try {
+      url.searchParams.delete("guard_room_source");
+      url.searchParams.delete("guard_room_mode");
+      url.searchParams.delete("guard_room_autostart");
+      url.searchParams.delete("guard_room_session");
+      window.history.replaceState(window.history.state, "", url.toString());
+    } catch {
+    }
+  }
   function applyGuardRoomHandoff() {
     if (applied) return;
     applied = true;
@@ -13613,22 +13783,32 @@ html.lc-dm-direct-always .${MARKER$1} {
     guardRoomHandoffActive.value = true;
     const mode = url.searchParams.get("guard_room_mode");
     const autostart = url.searchParams.get("guard_room_autostart") === "1";
-    const sessionId = url.searchParams.get("guard_room_session");
-    if (sessionId) {
+    const sessionId = sanitizeSessionId(url.searchParams.get("guard_room_session"));
+    const hasGuardRoomConfig = guardRoomSyncKey.value.trim().length > 0;
+    if (sessionId && hasGuardRoomConfig) {
       guardRoomLiveDeskSessionId.value = sessionId;
     }
     if (mode === "dry-run") {
       autoBlendDryRun.value = true;
     }
-    if (autostart) {
+    if (autostart && hasGuardRoomConfig) {
       autoBlendEnabled.value = true;
+      notifyUser(
+        "warning",
+        "直播间保安室已接管本页，自动跟车进入试运行",
+        "若不是你本人发起，请关闭自动跟车并删除该链接。"
+      );
       appendLog("直播间保安室：已接管本页，自动跟车进入试运行。");
+    } else if (autostart) {
+      appendLog("⚠️ 收到带 autostart 的接管链接，但未配置直播间保安室 key，已忽略。");
     }
+    stripHandoffParams(url);
   }
   const WINDOW_MS = 60 * 1e3;
   let timer = null;
   let unsubscribe$2 = null;
   const seen = [];
+  let cycleEpoch = 0;
   function trimSeen(now) {
     while (seen.length > 0 && now - seen[0].ts > WINDOW_MS) seen.shift();
   }
@@ -13655,22 +13835,33 @@ html.lc-dm-direct-always .${MARKER$1} {
       riskLevel: guardRoomCurrentRiskLevel.value
     });
   }
+  function scheduleNext$1(epoch) {
+    if (epoch !== cycleEpoch) return;
+    const delayMs = Math.max(10, guardRoomLiveDeskHeartbeatSec.value) * 1e3;
+    timer = setTimeout(() => {
+      if (epoch !== cycleEpoch) return;
+      uploadSnapshot().catch((err) => {
+        appendLogQuiet(`⚠️ 直播间保安室 heartbeat 上传失败：${err instanceof Error ? err.message : String(err)}`);
+      }).finally(() => scheduleNext$1(epoch));
+    }, delayMs);
+  }
   function startLiveDeskSync() {
     if (timer || unsubscribe$2) return;
+    const epoch = ++cycleEpoch;
     unsubscribe$2 = subscribeCustomChatEvents((event) => {
       if (event.kind !== "danmaku") return;
       const now = Date.now();
       seen.push({ ts: now, uid: event.uid });
       trimSeen(now);
     });
-    timer = setInterval(() => {
-      void uploadSnapshot();
-    }, Math.max(10, guardRoomLiveDeskHeartbeatSec.value) * 1e3);
-    void uploadSnapshot();
+    uploadSnapshot().catch((err) => {
+      appendLogQuiet(`⚠️ 直播间保安室 heartbeat 启动上传失败：${err instanceof Error ? err.message : String(err)}`);
+    }).finally(() => scheduleNext$1(epoch));
   }
   function stopLiveDeskSync() {
+    cycleEpoch++;
     if (timer) {
-      clearInterval(timer);
+      clearTimeout(timer);
       timer = null;
     }
     unsubscribe$2?.();
@@ -13742,14 +13933,15 @@ html.lc-dm-direct-always .${MARKER$1} {
           initialized = true;
           buildReplacementMap();
           await waitForWbiKeys();
-          if (cachedWbiKeys) {
+          const wbiKeys = getCachedWbiKeys();
+          if (wbiKeys) {
             try {
               const configQuery = encodeWbi(
                 {
                   room_id: String(roomId),
                   web_location: getSpmPrefix()
                 },
-                cachedWbiKeys
+                wbiKeys
               );
               const configUrl = `${BASE_URL.BILIBILI_GET_DM_CONFIG}?${configQuery}`;
               const configResp = await fetch(configUrl, {
@@ -13769,12 +13961,18 @@ html.lc-dm-direct-always .${MARKER$1} {
                   availableDanmakuColors.value = colors;
                 }
               }
-            } catch {
+            } catch (err) {
+              appendLogQuiet(
+                `⚠️ 弹幕配置加载失败（颜色随机将退回默认）：${err instanceof Error ? err.message : String(err)}`
+              );
             }
           }
           try {
             await fetchEmoticons(roomId);
-          } catch {
+          } catch (err) {
+            appendLogQuiet(
+              `⚠️ 表情列表加载失败（含表情的模板可能显示错乱）：${err instanceof Error ? err.message : String(err)}`
+            );
           }
           if (forceScrollDanmaku.value) {
             const initCsrfToken = getCsrfToken();
@@ -13978,7 +14176,7 @@ html.lc-dm-direct-always .${MARKER$1} {
     if (foldByKey.size > FOLD_GC_THRESHOLD) gcFolds(now);
     const key = foldKey(text);
     const existing = foldByKey.get(key);
-    if (existing && existing.node.isConnected && now - existing.lastSeen <= FOLD_WINDOW_MS) {
+    if (existing?.node.isConnected && now - existing.lastSeen <= FOLD_WINDOW_MS) {
       if (existing.node !== ev.node) {
         ev.node.setAttribute(HIDDEN_ATTR, "1");
       }
@@ -14227,9 +14425,13 @@ distinct_uid_count: Math.min(distinct, b2.msgCount)
         clearTimer();
       }
     });
+    let prevRoomId = null;
     j$1(() => {
-      void cachedRoomId.value;
-      dropBuckets();
+      const curr = cachedRoomId.value;
+      if (prevRoomId !== null && prevRoomId !== curr) {
+        dropBuckets();
+      }
+      prevRoomId = curr;
     });
   }
   const UNAME_NOISE_RE = /通过活动|装扮|粉丝牌|用户等级|头像|复制|举报|回复|关闭/;
@@ -15665,7 +15867,7 @@ u$2(
                     id: "persistSendState",
                     type: "checkbox",
                     disabled: cachedRoomId.value === null,
-                    checked: cachedRoomId.value !== null && !!persistSendState.value[String(cachedRoomId.value)],
+                    checked: cachedRoomId.value !== null && Boolean(persistSendState.value[String(cachedRoomId.value)]),
                     onInput: (e2) => {
                       const roomId = cachedRoomId.value;
                       if (roomId === null) return;
@@ -15996,6 +16198,7 @@ u$2(
       const useLLM = hzmDriveMode.value === "llm" && llmApiKey.value.trim() !== "" && heuristicTickCount % llmRatio === 0;
       if (useLLM) {
         const result = await pickByLLM(activeRoomId, activeSource);
+        if (!hzmDriveEnabled.value || activeRoomId === null || activeSource === null) return;
         if (result.kind === "abstain") {
           scheduleNext(hzmDriveIntervalSec.value);
           return;
@@ -16012,6 +16215,7 @@ u$2(
         });
       }
       if (meme) {
+        if (!hzmDriveEnabled.value || activeRoomId === null || activeSource === null) return;
         await sendOne(activeRoomId, meme);
       }
     } catch (err) {
@@ -16935,7 +17139,7 @@ u$2("div", { className: "cb-body", children: u$2(
       );
     }
     const all = await Promise.all(tasks);
-    return all.filter((x2) => !!x2?.content);
+    return all.filter((x2) => x2?.content != null && x2.content !== "");
   }
   async function fetchSbhzmMemes(source, force = false) {
     const cacheKey = source.listEndpoint;
@@ -17114,7 +17318,7 @@ u$2("div", { className: "cb-body", children: u$2(
   let inflight = null;
   async function refreshTrendingMemes(force = false) {
     const now = Date.now();
-    if (!force && now - lastFetchAt < TTL_MS) return;
+    if (!force && now - lastFetchAt < TTL_MS) return void 0;
     if (inflight) return inflight;
     inflight = (async () => {
       try {
@@ -17906,7 +18110,7 @@ u$2(
       filterText.value = filterText.peek() === tagName ? "" : tagName;
     };
     y$2(() => {
-      if (!memesPanelOpen.value && !memeSource) return;
+      if (!memesPanelOpen.value && !memeSource) return void 0;
       void loadMemes();
       const timer2 = setInterval(() => void loadMemes({ silent: true }), MEME_RELOAD_INTERVAL);
       return () => clearInterval(timer2);
@@ -19163,7 +19367,7 @@ u$2("span", { style: { fontSize: "0.85em" }, children: [
       const draft = cssDraft.value;
       if (draft === customChatCss.value) {
         cssStatus.value = "saved";
-        return;
+        return void 0;
       }
       cssStatus.value = "pending";
       const timer2 = setTimeout(() => {
@@ -20493,7 +20697,7 @@ u$2("button", { type: "button", disabled, onClick: onAdd, children: "添加规�
     };
     const didInit = A$1(false);
     y$2(() => {
-      if (didInit.current) return;
+      if (didInit.current) return void 0;
       didInit.current = true;
       const ls = remoteKeywordsLastSync.value;
       if (!ls || Date.now() - ls > SYNC_INTERVAL) {
@@ -21484,7 +21688,7 @@ u$2(
         flushTimeout.current = setTimeout(() => void flushBuffer(), SONIOX_FLUSH_DELAY_MS);
       }
     };
-    const toggle = async () => {
+    const toggle = () => {
       if (state.value === "stopped") {
         const apiKey = sonioxApiKey.value.trim();
         if (!apiKey) {
