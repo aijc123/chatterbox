@@ -22,7 +22,7 @@ const SECTION_KEYWORDS =
  *   - 场景 B/C/D 默认关——它们会改变用户可感知的 UI 行为，让用户主动开。
  *   - aggressiveness 默认 'normal'；'aggressive' 启用 simhash 自动合并，
  *     有一定误合并风险，UI 上加警告。
- *   - 远程聚类默认关；endpoint 必填且测试连接通过才能勾选启用（M4 实现）。
+ *   - 远程聚类默认关；endpoint 必填才能勾选启用。
  */
 export function ChatfilterSection({ query = '' }: { query?: string }) {
   if (!matchesSearchQuery(SECTION_KEYWORDS, query)) return null
@@ -82,8 +82,8 @@ export function ChatfilterSection({ query = '' }: { query?: string }) {
                 chatfilterAffectCustomChatFold.value = e.currentTarget.checked
               }}
             />
-            <span title='Chatterbox Chat 把相邻同 canonical 的弹幕折叠为一行（M5 实现）。'>
-              B · Custom Chat 同义折叠（M5 待实现）
+            <span title='Chatterbox Chat 把相邻同 canonical 的弹幕折叠为一张卡，"niubi"/"NB"/"牛批" 计同一条。'>
+              B · Custom Chat 同义折叠
             </span>
           </label>
 
@@ -96,8 +96,8 @@ export function ChatfilterSection({ query = '' }: { query?: string }) {
                 chatfilterFeedReplacementLearn.value = e.currentTarget.checked
               }}
             />
-            <span title='把高频归一化映射喂给替换规则学习路径，候选规则在 log panel 里采纳。'>
-              C · 喂替换规则学习（M6 待实现）
+            <span title='同房间内同一 variant→canonical 命中 ≥10 次 → 出现在观察日志面板的候选规则区，点「采纳」才写入当前房间的替换规则。'>
+              C · 喂替换规则学习候选
             </span>
           </label>
 
@@ -146,7 +146,6 @@ export function ChatfilterSection({ query = '' }: { query?: string }) {
           </select>
         </div>
 
-        {/* 远程聚类（M4 才接入；这里先把 UI 占好） */}
         <fieldset
           style={{
             border: '1px solid var(--Ga2, #eee)',
@@ -155,9 +154,7 @@ export function ChatfilterSection({ query = '' }: { query?: string }) {
             opacity: disabled ? 0.5 : 1,
           }}
         >
-          <legend style={{ fontSize: '0.85em', color: '#666', padding: '0 .25em' }}>
-            远程语义聚类（可选 · M4 待实现）
-          </legend>
+          <legend style={{ fontSize: '0.85em', color: '#666', padding: '0 .25em' }}>远程语义聚类（可选）</legend>
           <div className='cb-note' style={{ color: '#666', fontSize: '0.85em', marginBottom: '.4em' }}>
             前端归一化已经覆盖 80% 的变体；如果要 BGE-small-zh 级别的语义聚类（"难听" ↔ "南亭" 跨字面合并），
             需要自己部署 Chatfilter Python 服务（VPS / Fly.io / Render），把 endpoint 填到这里。
@@ -184,7 +181,7 @@ export function ChatfilterSection({ query = '' }: { query?: string }) {
                 chatfilterRemoteEnabled.value = e.currentTarget.checked
               }}
             />
-            <span>启用远程聚类（M4 接入后自动连接）</span>
+            <span>启用远程聚类（勾选后自动 ingest + SSE 订阅）</span>
           </label>
         </fieldset>
       </div>

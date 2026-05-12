@@ -57,6 +57,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
+    "pinyin-pro": "^3.28.1",
     "@laplace.live/internal": "^1.3.13",
     "@lhci/cli": "^0.15.1",
     "@preact/preset-vite": "^2.10.5",

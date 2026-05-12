@@ -90,11 +90,17 @@ export function normalize(raw: string, config: NormalizeConfig, opts: NormalizeO
     }
   }
 
-  // ── ③ variant-pinyin（aggressive；M1 尚是 no-op） ───────────
-  if (lvl === 'aggressive' && PINYIN_LAYER_READY) {
+  // ── ③ variant-pinyin（normal / aggressive） ─────────────────
+  // 用 pinyin-pro 算输入的 toneless 拼音，反查 canonical 拼音表。抓 alias-ac
+  // 没列举的纯谐音变体（"南亭"→"难听"、"加优"→"加油"）。pinyin hit 也作为
+  // aliasHit 上报，让场景 C 的 replacement-feed 能学到这条映射。
+  if (lvl !== 'safe' && PINYIN_LAYER_READY) {
     const py = applyPinyin(text)
     if (py.pinyinHits > 0 && py.result !== text) {
       if (trackHits) hits.push({ stage: 'pinyin', before: text, after: py.result, cacheHit: false })
+      if (py.variantHit) {
+        aliasHits = [...aliasHits, { variant: py.variantHit.variant, canonical: py.variantHit.canonical, start: 0 }]
+      }
       text = py.result
     }
   }
