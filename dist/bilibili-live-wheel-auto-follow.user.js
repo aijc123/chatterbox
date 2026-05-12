@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.13.5
+// @version      2.13.6
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -18697,14 +18697,14 @@ u$2(
       ] })
     ] });
   }
+  const flashOk = y$1(false);
   function NormalSendTab() {
     if (customChatEnabled.value) {
-      return u$2("details", { open: true, children: [
+      return u$2("details", { open: true, "data-cb-normal-send-redirected": true, children: [
 u$2("summary", { style: { cursor: "pointer", userSelect: "none", fontWeight: "bold" }, children: u$2("span", { children: "常规发送" }) }),
 u$2("div", { className: "cb-body cb-note", style: { color: "#666", fontSize: "0.9em", padding: ".25em 0" }, children: "Chatterbox Chat 已接管聊天区——请直接在右侧自定义聊天面板的输入框里发送弹幕。 要恢复这里的「常规发送」框，可以到「设置 → Chatterbox Chat」关闭该功能。" })
       ] });
     }
-    const flashOk = useSignal(false);
     const sendMessage = async () => {
       const sent = await sendManualDanmaku(fasongText.value);
       if (sent) {
