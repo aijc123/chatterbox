@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.13.6
+// @version      2.13.7
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -8337,469 +8337,6 @@ _clearForTests() {
       candidates
     };
   }
-  const LLM_CANDIDATES_HARD_CAP = 256;
-  const SYSTEM_PROMPT_TEMPLATE = (roomName) => `你在 ${roomName} 直播间帮观众发弹幕（独轮车）。从下面给出的 candidates 里选 1 条最贴合最近公屏氛围的发出去。
-仅返回该梗的 id（candidates 里的 id 字符串）。如果都不合适，返回 -1。
-不要解释，不要带前后空格，不要 Markdown，只输出一个 id 字符串或者 -1。`;
-  function buildUserMessage(opts) {
-    return JSON.stringify({
-      recentDanmu: opts.recentChat,
-      candidates: opts.candidates
-    });
-  }
-  function buildOpenAICompatChatURL(base) {
-    const trimmed = base.replace(/\/+$/, "");
-    if (/\/v1\/chat\/completions$/i.test(trimmed)) return trimmed;
-    if (/\/v1$/i.test(trimmed)) return `${trimmed}/chat/completions`;
-    return `${trimmed}/v1/chat/completions`;
-  }
-  function parseAnthropicResponse(json) {
-    if (!json || typeof json !== "object") return null;
-    const arr = json.content;
-    if (!Array.isArray(arr) || arr.length === 0) return null;
-    const text = arr.map((c2) => c2.text ?? "").join("").trim();
-    return text ? { rawId: text } : null;
-  }
-  function extractIdFromReasoning(reasoning) {
-    const tail = reasoning.slice(-300);
-    const matches = tail.match(/-?\d+/g);
-    if (!matches || matches.length === 0) return null;
-    return matches[matches.length - 1] ?? null;
-  }
-  function parseOpenAIResponse(json) {
-    if (!json || typeof json !== "object") return null;
-    const choices = json.choices;
-    if (!Array.isArray(choices) || choices.length === 0) return null;
-    const choice = choices[0];
-    if (!choice) return null;
-    const content = choice.message?.content?.trim() ?? "";
-    if (content) return { rawId: content };
-    const reasoning = choice.message?.reasoning_content?.trim() ?? "";
-    if (reasoning) {
-      const fromReasoning = extractIdFromReasoning(reasoning);
-      if (fromReasoning) return { rawId: fromReasoning };
-    }
-    return null;
-  }
-  async function callAnthropic(opts) {
-    const resp = await gmFetch(BASE_URL.ANTHROPIC_MESSAGES, {
-      method: "POST",
-      headers: {
-        "x-api-key": opts.apiKey,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-"anthropic-dangerous-direct-browser-access": "true"
-      },
-      body: JSON.stringify({
-        model: opts.model,
-        max_tokens: 64,
-        system: [{ type: "text", text: SYSTEM_PROMPT_TEMPLATE(opts.roomName), cache_control: { type: "ephemeral" } }],
-        messages: [{ role: "user", content: buildUserMessage(opts) }]
-      }),
-      timeoutMs: 15e3,
-      signal: opts.signal
-    });
-    if (!resp.ok) {
-      if (typeof console !== "undefined") {
-        console.error(`[llm-driver] Anthropic ${resp.status}`, resp.text().slice(0, 500));
-      }
-      throw new Error(`Anthropic HTTP ${resp.status} ${resp.statusText || ""}`.trim());
-    }
-    return parseAnthropicResponse(resp.json());
-  }
-  async function callOpenAI(opts, urlOverride) {
-    const url = urlOverride ?? BASE_URL.OPENAI_CHAT;
-    const resp = await gmFetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${opts.apiKey}`,
-        "content-type": "application/json"
-      },
-      body: JSON.stringify({
-        model: opts.model,
-
-
-
-
-
-max_tokens: 1024,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT_TEMPLATE(opts.roomName) },
-          { role: "user", content: buildUserMessage(opts) }
-        ]
-      }),
-      timeoutMs: 3e4,
-      signal: opts.signal
-    });
-    if (!resp.ok) {
-      if (typeof console !== "undefined") {
-        console.error(`[llm-driver] OpenAI ${resp.status}`, resp.text().slice(0, 500));
-      }
-      throw new Error(`OpenAI HTTP ${resp.status} ${resp.statusText || ""}`.trim());
-    }
-    return parseOpenAIResponse(resp.json());
-  }
-  async function testLLMConnection(opts) {
-    if (!opts.apiKey.trim()) return { ok: false, error: "API key 为空" };
-    const probe = {
-      ...opts,
-      roomName: "连接测试",
-      recentChat: ["ping"],
-      candidates: [{ id: "1", content: "pong", tags: [] }]
-    };
-    try {
-      let parsed = null;
-      if (opts.provider === "anthropic") {
-        parsed = await callAnthropic(probe);
-      } else if (opts.provider === "openai") {
-        parsed = await callOpenAI(probe);
-      } else {
-        const base = (opts.baseURL ?? "").trim();
-        if (!base) return { ok: false, error: "需要填 base URL（例如 https://api.deepseek.com）" };
-        parsed = await callOpenAI(probe, buildOpenAICompatChatURL(base));
-      }
-      if (parsed === null) return { ok: false, error: "响应里未解析出文本（模型可能返回了空）" };
-      return { ok: true };
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
-    }
-  }
-  async function chooseMemeWithLLM(opts) {
-    if (!opts.apiKey || opts.candidates.length === 0) return null;
-    let effectiveOpts = opts;
-    if (opts.candidates.length > LLM_CANDIDATES_HARD_CAP) {
-      appendLog(
-        `⚠️ 智驾：candidates 超过上限 ${LLM_CANDIDATES_HARD_CAP}（实际 ${opts.candidates.length}），已截断以避免请求超额`
-      );
-      effectiveOpts = { ...opts, candidates: opts.candidates.slice(0, LLM_CANDIDATES_HARD_CAP) };
-    }
-    let parsed = null;
-    if (effectiveOpts.provider === "anthropic") {
-      parsed = await callAnthropic(effectiveOpts);
-    } else if (effectiveOpts.provider === "openai") {
-      parsed = await callOpenAI(effectiveOpts);
-    } else {
-      const base = (effectiveOpts.baseURL ?? "").trim();
-      if (!base) throw new Error("openai-compat 需要填 base URL（例如 https://api.deepseek.com）");
-      parsed = await callOpenAI(effectiveOpts, buildOpenAICompatChatURL(base));
-    }
-    if (!parsed) return null;
-    const raw = parsed.rawId.trim();
-    if (!raw) return null;
-    const id = normalizeIdFromLlmOutput(raw);
-    if (id === "-1") return null;
-    if (id) {
-      const found = effectiveOpts.candidates.find((c2) => c2.id === id);
-      if (found) return found.content;
-    }
-    const byContent = effectiveOpts.candidates.find(
-      (c2) => c2.content === raw || raw.includes(c2.content) || c2.content.includes(raw)
-    );
-    return byContent?.content ?? null;
-  }
-  function readContent(json) {
-    if (!json || typeof json !== "object") return null;
-    const choices = json.choices;
-    if (!Array.isArray(choices) || choices.length === 0) return null;
-    const choice = choices[0];
-    const content = choice?.message?.content?.trim() ?? "";
-    return content || null;
-  }
-  function readAnthropicContent(json) {
-    if (!json || typeof json !== "object") return null;
-    const arr = json.content;
-    if (!Array.isArray(arr) || arr.length === 0) return null;
-    const text = arr.filter((c2) => !c2.type || c2.type === "text").map((c2) => c2.text ?? "").join("").trim();
-    return text || null;
-  }
-  async function postOpenAIChatPolish(opts, urlOverride) {
-    const url = urlOverride ?? BASE_URL.OPENAI_CHAT;
-    const resp = await gmFetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${opts.apiKey.trim()}`,
-        "content-type": "application/json"
-      },
-      body: JSON.stringify({
-        model: opts.model.trim(),
-        max_tokens: opts.maxTokens ?? 256,
-        temperature: 0.7,
-        stream: false,
-        messages: [
-          { role: "system", content: opts.systemPrompt },
-          { role: "user", content: opts.userText }
-        ]
-      }),
-      timeoutMs: 3e4,
-      signal: opts.signal
-    });
-    if (!resp.ok) {
-      throw new Error(`HTTP ${resp.status} ${resp.statusText || ""}`.trim());
-    }
-    const content = readContent(resp.json());
-    if (!content) throw new Error("返回内容为空");
-    return content;
-  }
-  async function postAnthropicPolish(opts) {
-    const resp = await gmFetch(BASE_URL.ANTHROPIC_MESSAGES, {
-      method: "POST",
-      headers: {
-        "x-api-key": opts.apiKey.trim(),
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-        "anthropic-dangerous-direct-browser-access": "true"
-      },
-      body: JSON.stringify({
-        model: opts.model.trim(),
-        max_tokens: opts.maxTokens ?? 256,
-        system: [{ type: "text", text: opts.systemPrompt, cache_control: { type: "ephemeral" } }],
-        messages: [{ role: "user", content: opts.userText }]
-      }),
-      timeoutMs: 3e4,
-      signal: opts.signal
-    });
-    if (!resp.ok) {
-      throw new Error(`HTTP ${resp.status} ${resp.statusText || ""}`.trim());
-    }
-    const content = readAnthropicContent(resp.json());
-    if (!content) throw new Error("返回内容为空");
-    return content;
-  }
-  function chatCompletionViaLlm(opts) {
-    if (!opts.apiKey.trim()) return Promise.reject(new Error("请先配置 API key"));
-    if (!opts.model.trim()) return Promise.reject(new Error("请先选择模型"));
-    if (!opts.systemPrompt.trim()) return Promise.reject(new Error("系统提示词为空"));
-    if (!opts.userText.trim()) return Promise.reject(new Error("输入内容为空"));
-    if (opts.provider === "anthropic") return postAnthropicPolish(opts);
-    if (opts.provider === "openai") return postOpenAIChatPolish(opts);
-    const base = (opts.baseURL ?? "").trim();
-    if (!base) return Promise.reject(new Error("openai-compat 需要填 base URL（在「智能辅助驾驶」里设置）"));
-    return postOpenAIChatPolish(opts, buildOpenAICompatChatURL(base));
-  }
-  function normalizeIdFromLlmOutput(raw) {
-    const stripped = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
-    if (!stripped) return null;
-    try {
-      const parsed = JSON.parse(stripped);
-      if (typeof parsed === "string") return parsed.trim() || null;
-      if (typeof parsed === "number") return String(parsed);
-      if (parsed && typeof parsed === "object") {
-        const v2 = parsed.id;
-        if (typeof v2 === "string") return v2.trim() || null;
-        if (typeof v2 === "number") return String(v2);
-      }
-    } catch {
-    }
-    const m2 = stripped.match(/-1|\d+/);
-    return m2 ? m2[0] : null;
-  }
-  const llmDriver = Object.freeze( Object.defineProperty({
-    __proto__: null,
-    LLM_CANDIDATES_HARD_CAP,
-    buildOpenAICompatChatURL,
-    chatCompletionViaLlm,
-    chooseMemeWithLLM,
-    normalizeIdFromLlmOutput,
-    testLLMConnection
-  }, Symbol.toStringTag, { value: "Module" }));
-  const DEFAULT_PROMPT_PREVIEW_GRAPHEMES = 24;
-  function getPromptPreview(prompt, maxGraphemes = DEFAULT_PROMPT_PREVIEW_GRAPHEMES) {
-    const firstLine = (prompt.split("\n")[0] ?? "").trim();
-    if (!firstLine) return "(空)";
-    return getGraphemes(firstLine).length > maxGraphemes ? `${trimText(firstLine, maxGraphemes)[0]}…` : firstLine;
-  }
-  function getActiveFeaturePrompt(feature) {
-    switch (feature) {
-      case "normalSend":
-        return llmPromptsNormalSend.value[llmActivePromptNormalSend.value] ?? "";
-      case "autoBlend":
-        return llmPromptsAutoBlend.value[llmActivePromptAutoBlend.value] ?? "";
-      case "autoSend":
-        return llmPromptsAutoSend.value[llmActivePromptAutoSend.value] ?? "";
-      default:
-        return "";
-    }
-  }
-  function getActiveGlobalPrompt() {
-    return llmPromptsGlobal.value[llmActivePromptGlobal.value] ?? "";
-  }
-  const PROMPT_SEPARATOR = "\n\n以下是用户的修改提示：\n\n";
-  function getActiveLlmPrompt(feature) {
-    const featurePrompt = getActiveFeaturePrompt(feature);
-    if (!featurePrompt.trim()) return "";
-    const globalPrompt = getActiveGlobalPrompt();
-    if (!globalPrompt.trim()) return featurePrompt;
-    return `${globalPrompt}${PROMPT_SEPARATOR}${featurePrompt}`;
-  }
-  function dequote(text) {
-    const PAIRS = [
-      ['"', '"'],
-      ["“", "”"],
-["'", "'"],
-      ["‘", "’"],
-["「", "」"],
-      ["『", "』"],
-      ["`", "`"]
-    ];
-    for (const [open, close] of PAIRS) {
-      if (text.length >= open.length + close.length && text.startsWith(open) && text.endsWith(close)) {
-        return text.slice(open.length, text.length - close.length).trim();
-      }
-    }
-    return text;
-  }
-  const FEATURE_LABELS = {
-    normalSend: "常规发送",
-    autoBlend: "自动跟车",
-    autoSend: "独轮车"
-  };
-  function describeLlmGap(feature) {
-    if (!llmApiKey.value.trim()) return "请先在「设置 → LLM → API key」中配置 LLM 凭证";
-    if (!llmModel.value.trim()) return "请先在「设置 → LLM → 模型」中选择模型";
-    if (llmProvider.value === "openai-compat" && !llmBaseURL.value.trim()) {
-      return "请先在「设置 → LLM → base URL」中填入 openai-compat 的接口地址";
-    }
-    if (!getActiveLlmPrompt(feature).trim()) {
-      return `请先在「设置 → LLM → 提示词 · ${FEATURE_LABELS[feature]}」中配置提示词`;
-    }
-    return null;
-  }
-  async function polishWithLlm(feature, userText, opts = {}) {
-    const systemPrompt = getActiveLlmPrompt(feature);
-    if (!systemPrompt.trim()) {
-      throw new Error("当前功能未配置 LLM 提示词");
-    }
-    const trimmedUser = userText.trim();
-    if (!trimmedUser) throw new Error("输入内容为空");
-    const response = await chatCompletionViaLlm({
-      provider: llmProvider.value,
-      apiKey: llmApiKey.value,
-      model: llmModel.value,
-      baseURL: llmBaseURL.value,
-      systemPrompt,
-      userText: trimmedUser,
-      signal: opts.signal
-    });
-    return dequote(response.trim());
-  }
-  const MAX_PER_HOUR = 5;
-  const MAX_CANDIDATES = 15;
-  const MAX_SEEN = 200;
-  const MIN_RECURRENCE_GAP_MS = 10 * 60 * 1e3;
-  const SESSION_MAP_KEY = "memeSessionMapByRoom";
-  const SESSION_MAP_MAX_AGE_MS = 2 * 60 * 60 * 1e3;
-  function loadRoomSessionMaps() {
-    const raw = _GM_getValue(SESSION_MAP_KEY, {});
-    const now = Date.now();
-    const out = new Map();
-    for (const [roomKey, byText] of Object.entries(raw)) {
-      const inner = new Map();
-      for (const [text, timestamps] of Object.entries(byText)) {
-        const last = timestamps.at(-1);
-        if (last !== void 0 && now - last < SESSION_MAP_MAX_AGE_MS) {
-          inner.set(text, timestamps);
-        }
-      }
-      if (inner.size > 0) out.set(roomKey, inner);
-    }
-    return out;
-  }
-  function saveRoomSessionMaps() {
-    const raw = {};
-    for (const [roomKey, inner] of roomSessionMaps) {
-      if (inner.size === 0) continue;
-      const obj = {};
-      for (const [text, timestamps] of inner) obj[text] = timestamps;
-      raw[roomKey] = obj;
-    }
-    _GM_setValue(SESSION_MAP_KEY, raw);
-  }
-  function getOrCreateSessionMap(roomKey) {
-    let m2 = roomSessionMaps.get(roomKey);
-    if (!m2) {
-      m2 = new Map();
-      roomSessionMaps.set(roomKey, m2);
-    }
-    return m2;
-  }
-  const roomSessionMaps = loadRoomSessionMaps();
-  const nominationTimestampsByRoom = new Map();
-  function passesQualityFilter(text) {
-    const len = text.length;
-    if (len < 4 || len > 30) return false;
-    if (/^\d+$/.test(text)) return false;
-    if ([...text].every((c2) => c2 === text[0])) return false;
-    return !/^[\p{P}\p{S}\s]+$/u.test(text);
-  }
-  function recordMemeCandidate(text, roomId) {
-    if (!enableMemeContribution.value) return;
-    if (!passesQualityFilter(text)) return;
-    const roomKey = String(roomId);
-    const sessionMap = getOrCreateSessionMap(roomKey);
-    const now = Date.now();
-    const times = sessionMap.get(text) ?? [];
-    while (times.length > 0 && now - times[0] > SESSION_MAP_MAX_AGE_MS) times.shift();
-    times.push(now);
-    sessionMap.set(text, times);
-    saveRoomSessionMaps();
-    if (times.length < 2) return;
-    if (now - times[0] < MIN_RECURRENCE_GAP_MS) return;
-    const seenForRoom = memeContributorSeenTextsByRoom.value[roomKey] ?? [];
-    const candForRoom = memeContributorCandidatesByRoom.value[roomKey] ?? [];
-    if (seenForRoom.includes(text)) return;
-    if (candForRoom.includes(text)) return;
-    const candidateKey = memeContentKey(text);
-    if (candidateKey) {
-      const libraryKeys = new Set(currentMemesList.value.map((m2) => memeContentKey(m2.content)));
-      if (libraryKeys.has(candidateKey)) {
-        const nextSeen2 = [...seenForRoom, text];
-        memeContributorSeenTextsByRoom.value = {
-          ...memeContributorSeenTextsByRoom.value,
-          [roomKey]: nextSeen2.length > MAX_SEEN ? nextSeen2.slice(-MAX_SEEN) : nextSeen2
-        };
-        return;
-      }
-    }
-    const stamps = nominationTimestampsByRoom.get(roomKey) ?? [];
-    const oneHourAgo = now - 36e5;
-    while (stamps.length > 0 && stamps[0] < oneHourAgo) stamps.shift();
-    if (stamps.length >= MAX_PER_HOUR) return;
-    const nextCand = [...candForRoom, text];
-    memeContributorCandidatesByRoom.value = {
-      ...memeContributorCandidatesByRoom.value,
-      [roomKey]: nextCand.length > MAX_CANDIDATES ? nextCand.slice(-MAX_CANDIDATES) : nextCand
-    };
-    const nextSeen = [...seenForRoom, text];
-    memeContributorSeenTextsByRoom.value = {
-      ...memeContributorSeenTextsByRoom.value,
-      [roomKey]: nextSeen.length > MAX_SEEN ? nextSeen.slice(-MAX_SEEN) : nextSeen
-    };
-    stamps.push(now);
-    nominationTimestampsByRoom.set(roomKey, stamps);
-    appendLog(`[贡献者] 检测到高质量烂梗 "${text}"，已加入待贡献池`);
-  }
-  function ignoreMemeCandidate(text, roomId) {
-    const roomKey = String(roomId);
-    const candForRoom = memeContributorCandidatesByRoom.value[roomKey] ?? [];
-    memeContributorCandidatesByRoom.value = {
-      ...memeContributorCandidatesByRoom.value,
-      [roomKey]: candForRoom.filter((c2) => c2 !== text)
-    };
-    const seenForRoom = memeContributorSeenTextsByRoom.value[roomKey] ?? [];
-    if (!seenForRoom.includes(text)) {
-      const nextSeen = [...seenForRoom, text];
-      memeContributorSeenTextsByRoom.value = {
-        ...memeContributorSeenTextsByRoom.value,
-        [roomKey]: nextSeen.length > MAX_SEEN ? nextSeen.slice(-MAX_SEEN) : nextSeen
-      };
-    }
-  }
-  function clearMemeSession(roomId) {
-    const roomKey = String(roomId);
-    roomSessionMaps.delete(roomKey);
-    saveRoomSessionMaps();
-    nominationTimestampsByRoom.delete(roomKey);
-  }
   const VARIANTS_VERSION = "2026-05-12";
   const ALIAS_PATTERNS = [
     [
@@ -9549,6 +9086,7 @@ find(text) {
         }
         mergedFrom = text;
         canonical = lookup.canonical;
+        fp = config.simhash.add(canonical);
         return {
           raw,
           canonical,
@@ -9557,9 +9095,7 @@ find(text) {
           count: targetIngest.count,
           stageHits: hits,
           aliasHits: aliasHits.map((h2) => ({ variant: h2.variant, canonical: h2.canonical })),
-          simhash: lookup.canonical ? (
-fp = config.simhash.add(canonical)
-          ) : 0n,
+          simhash: fp,
           durationMs: performance.now() - t0,
           mergedFrom
         };
@@ -9631,6 +9167,469 @@ fp = config.simhash.add(canonical)
     if (!chatfilterEnabled.value || !chatfilterAffectCustomChatFold.value) return null;
     const canonical = getTrendKey(rawText, getChatfilterRuntimeConfig());
     return canonical && canonical.length > 0 ? canonical : null;
+  }
+  const LLM_CANDIDATES_HARD_CAP = 256;
+  const SYSTEM_PROMPT_TEMPLATE = (roomName) => `你在 ${roomName} 直播间帮观众发弹幕（独轮车）。从下面给出的 candidates 里选 1 条最贴合最近公屏氛围的发出去。
+仅返回该梗的 id（candidates 里的 id 字符串）。如果都不合适，返回 -1。
+不要解释，不要带前后空格，不要 Markdown，只输出一个 id 字符串或者 -1。`;
+  function buildUserMessage(opts) {
+    return JSON.stringify({
+      recentDanmu: opts.recentChat,
+      candidates: opts.candidates
+    });
+  }
+  function buildOpenAICompatChatURL(base) {
+    const trimmed = base.replace(/\/+$/, "");
+    if (/\/v1\/chat\/completions$/i.test(trimmed)) return trimmed;
+    if (/\/v1$/i.test(trimmed)) return `${trimmed}/chat/completions`;
+    return `${trimmed}/v1/chat/completions`;
+  }
+  function parseAnthropicResponse(json) {
+    if (!json || typeof json !== "object") return null;
+    const arr = json.content;
+    if (!Array.isArray(arr) || arr.length === 0) return null;
+    const text = arr.map((c2) => c2.text ?? "").join("").trim();
+    return text ? { rawId: text } : null;
+  }
+  function extractIdFromReasoning(reasoning) {
+    const tail = reasoning.slice(-300);
+    const matches = tail.match(/-?\d+/g);
+    if (!matches || matches.length === 0) return null;
+    return matches[matches.length - 1] ?? null;
+  }
+  function parseOpenAIResponse(json) {
+    if (!json || typeof json !== "object") return null;
+    const choices = json.choices;
+    if (!Array.isArray(choices) || choices.length === 0) return null;
+    const choice = choices[0];
+    if (!choice) return null;
+    const content = choice.message?.content?.trim() ?? "";
+    if (content) return { rawId: content };
+    const reasoning = choice.message?.reasoning_content?.trim() ?? "";
+    if (reasoning) {
+      const fromReasoning = extractIdFromReasoning(reasoning);
+      if (fromReasoning) return { rawId: fromReasoning };
+    }
+    return null;
+  }
+  async function callAnthropic(opts) {
+    const resp = await gmFetch(BASE_URL.ANTHROPIC_MESSAGES, {
+      method: "POST",
+      headers: {
+        "x-api-key": opts.apiKey,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+"anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({
+        model: opts.model,
+        max_tokens: 64,
+        system: [{ type: "text", text: SYSTEM_PROMPT_TEMPLATE(opts.roomName), cache_control: { type: "ephemeral" } }],
+        messages: [{ role: "user", content: buildUserMessage(opts) }]
+      }),
+      timeoutMs: 15e3,
+      signal: opts.signal
+    });
+    if (!resp.ok) {
+      if (typeof console !== "undefined") {
+        console.error(`[llm-driver] Anthropic ${resp.status}`, resp.text().slice(0, 500));
+      }
+      throw new Error(`Anthropic HTTP ${resp.status} ${resp.statusText || ""}`.trim());
+    }
+    return parseAnthropicResponse(resp.json());
+  }
+  async function callOpenAI(opts, urlOverride) {
+    const url = urlOverride ?? BASE_URL.OPENAI_CHAT;
+    const resp = await gmFetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${opts.apiKey}`,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        model: opts.model,
+
+
+
+
+
+max_tokens: 1024,
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT_TEMPLATE(opts.roomName) },
+          { role: "user", content: buildUserMessage(opts) }
+        ]
+      }),
+      timeoutMs: 3e4,
+      signal: opts.signal
+    });
+    if (!resp.ok) {
+      if (typeof console !== "undefined") {
+        console.error(`[llm-driver] OpenAI ${resp.status}`, resp.text().slice(0, 500));
+      }
+      throw new Error(`OpenAI HTTP ${resp.status} ${resp.statusText || ""}`.trim());
+    }
+    return parseOpenAIResponse(resp.json());
+  }
+  async function testLLMConnection(opts) {
+    if (!opts.apiKey.trim()) return { ok: false, error: "API key 为空" };
+    const probe = {
+      ...opts,
+      roomName: "连接测试",
+      recentChat: ["ping"],
+      candidates: [{ id: "1", content: "pong", tags: [] }]
+    };
+    try {
+      let parsed = null;
+      if (opts.provider === "anthropic") {
+        parsed = await callAnthropic(probe);
+      } else if (opts.provider === "openai") {
+        parsed = await callOpenAI(probe);
+      } else {
+        const base = (opts.baseURL ?? "").trim();
+        if (!base) return { ok: false, error: "需要填 base URL（例如 https://api.deepseek.com）" };
+        parsed = await callOpenAI(probe, buildOpenAICompatChatURL(base));
+      }
+      if (parsed === null) return { ok: false, error: "响应里未解析出文本（模型可能返回了空）" };
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+  async function chooseMemeWithLLM(opts) {
+    if (!opts.apiKey || opts.candidates.length === 0) return null;
+    let effectiveOpts = opts;
+    if (opts.candidates.length > LLM_CANDIDATES_HARD_CAP) {
+      appendLog(
+        `⚠️ 智驾：candidates 超过上限 ${LLM_CANDIDATES_HARD_CAP}（实际 ${opts.candidates.length}），已截断以避免请求超额`
+      );
+      effectiveOpts = { ...opts, candidates: opts.candidates.slice(0, LLM_CANDIDATES_HARD_CAP) };
+    }
+    let parsed = null;
+    if (effectiveOpts.provider === "anthropic") {
+      parsed = await callAnthropic(effectiveOpts);
+    } else if (effectiveOpts.provider === "openai") {
+      parsed = await callOpenAI(effectiveOpts);
+    } else {
+      const base = (effectiveOpts.baseURL ?? "").trim();
+      if (!base) throw new Error("openai-compat 需要填 base URL（例如 https://api.deepseek.com）");
+      parsed = await callOpenAI(effectiveOpts, buildOpenAICompatChatURL(base));
+    }
+    if (!parsed) return null;
+    const raw = parsed.rawId.trim();
+    if (!raw) return null;
+    const id = normalizeIdFromLlmOutput(raw);
+    if (id === "-1") return null;
+    if (id) {
+      const found = effectiveOpts.candidates.find((c2) => c2.id === id);
+      if (found) return found.content;
+    }
+    const byContent = effectiveOpts.candidates.find(
+      (c2) => c2.content === raw || raw.includes(c2.content) || c2.content.includes(raw)
+    );
+    return byContent?.content ?? null;
+  }
+  function readContent(json) {
+    if (!json || typeof json !== "object") return null;
+    const choices = json.choices;
+    if (!Array.isArray(choices) || choices.length === 0) return null;
+    const choice = choices[0];
+    const content = choice?.message?.content?.trim() ?? "";
+    return content || null;
+  }
+  function readAnthropicContent(json) {
+    if (!json || typeof json !== "object") return null;
+    const arr = json.content;
+    if (!Array.isArray(arr) || arr.length === 0) return null;
+    const text = arr.filter((c2) => !c2.type || c2.type === "text").map((c2) => c2.text ?? "").join("").trim();
+    return text || null;
+  }
+  async function postOpenAIChatPolish(opts, urlOverride) {
+    const url = urlOverride ?? BASE_URL.OPENAI_CHAT;
+    const resp = await gmFetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${opts.apiKey.trim()}`,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        model: opts.model.trim(),
+        max_tokens: opts.maxTokens ?? 256,
+        temperature: 0.7,
+        stream: false,
+        messages: [
+          { role: "system", content: opts.systemPrompt },
+          { role: "user", content: opts.userText }
+        ]
+      }),
+      timeoutMs: 3e4,
+      signal: opts.signal
+    });
+    if (!resp.ok) {
+      throw new Error(`HTTP ${resp.status} ${resp.statusText || ""}`.trim());
+    }
+    const content = readContent(resp.json());
+    if (!content) throw new Error("返回内容为空");
+    return content;
+  }
+  async function postAnthropicPolish(opts) {
+    const resp = await gmFetch(BASE_URL.ANTHROPIC_MESSAGES, {
+      method: "POST",
+      headers: {
+        "x-api-key": opts.apiKey.trim(),
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({
+        model: opts.model.trim(),
+        max_tokens: opts.maxTokens ?? 256,
+        system: [{ type: "text", text: opts.systemPrompt, cache_control: { type: "ephemeral" } }],
+        messages: [{ role: "user", content: opts.userText }]
+      }),
+      timeoutMs: 3e4,
+      signal: opts.signal
+    });
+    if (!resp.ok) {
+      throw new Error(`HTTP ${resp.status} ${resp.statusText || ""}`.trim());
+    }
+    const content = readAnthropicContent(resp.json());
+    if (!content) throw new Error("返回内容为空");
+    return content;
+  }
+  function chatCompletionViaLlm(opts) {
+    if (!opts.apiKey.trim()) return Promise.reject(new Error("请先配置 API key"));
+    if (!opts.model.trim()) return Promise.reject(new Error("请先选择模型"));
+    if (!opts.systemPrompt.trim()) return Promise.reject(new Error("系统提示词为空"));
+    if (!opts.userText.trim()) return Promise.reject(new Error("输入内容为空"));
+    if (opts.provider === "anthropic") return postAnthropicPolish(opts);
+    if (opts.provider === "openai") return postOpenAIChatPolish(opts);
+    const base = (opts.baseURL ?? "").trim();
+    if (!base) return Promise.reject(new Error("openai-compat 需要填 base URL（在「智能辅助驾驶」里设置）"));
+    return postOpenAIChatPolish(opts, buildOpenAICompatChatURL(base));
+  }
+  function normalizeIdFromLlmOutput(raw) {
+    const stripped = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+    if (!stripped) return null;
+    try {
+      const parsed = JSON.parse(stripped);
+      if (typeof parsed === "string") return parsed.trim() || null;
+      if (typeof parsed === "number") return String(parsed);
+      if (parsed && typeof parsed === "object") {
+        const v2 = parsed.id;
+        if (typeof v2 === "string") return v2.trim() || null;
+        if (typeof v2 === "number") return String(v2);
+      }
+    } catch {
+    }
+    const m2 = stripped.match(/-1|\d+/);
+    return m2 ? m2[0] : null;
+  }
+  const llmDriver = Object.freeze( Object.defineProperty({
+    __proto__: null,
+    LLM_CANDIDATES_HARD_CAP,
+    buildOpenAICompatChatURL,
+    chatCompletionViaLlm,
+    chooseMemeWithLLM,
+    normalizeIdFromLlmOutput,
+    testLLMConnection
+  }, Symbol.toStringTag, { value: "Module" }));
+  const DEFAULT_PROMPT_PREVIEW_GRAPHEMES = 24;
+  function getPromptPreview(prompt, maxGraphemes = DEFAULT_PROMPT_PREVIEW_GRAPHEMES) {
+    const firstLine = (prompt.split("\n")[0] ?? "").trim();
+    if (!firstLine) return "(空)";
+    return getGraphemes(firstLine).length > maxGraphemes ? `${trimText(firstLine, maxGraphemes)[0]}…` : firstLine;
+  }
+  function getActiveFeaturePrompt(feature) {
+    switch (feature) {
+      case "normalSend":
+        return llmPromptsNormalSend.value[llmActivePromptNormalSend.value] ?? "";
+      case "autoBlend":
+        return llmPromptsAutoBlend.value[llmActivePromptAutoBlend.value] ?? "";
+      case "autoSend":
+        return llmPromptsAutoSend.value[llmActivePromptAutoSend.value] ?? "";
+      default:
+        return "";
+    }
+  }
+  function getActiveGlobalPrompt() {
+    return llmPromptsGlobal.value[llmActivePromptGlobal.value] ?? "";
+  }
+  const PROMPT_SEPARATOR = "\n\n以下是用户的修改提示：\n\n";
+  function getActiveLlmPrompt(feature) {
+    const featurePrompt = getActiveFeaturePrompt(feature);
+    if (!featurePrompt.trim()) return "";
+    const globalPrompt = getActiveGlobalPrompt();
+    if (!globalPrompt.trim()) return featurePrompt;
+    return `${globalPrompt}${PROMPT_SEPARATOR}${featurePrompt}`;
+  }
+  function dequote(text) {
+    const PAIRS = [
+      ['"', '"'],
+      ["“", "”"],
+["'", "'"],
+      ["‘", "’"],
+["「", "」"],
+      ["『", "』"],
+      ["`", "`"]
+    ];
+    for (const [open, close] of PAIRS) {
+      if (text.length >= open.length + close.length && text.startsWith(open) && text.endsWith(close)) {
+        return text.slice(open.length, text.length - close.length).trim();
+      }
+    }
+    return text;
+  }
+  const FEATURE_LABELS = {
+    normalSend: "常规发送",
+    autoBlend: "自动跟车",
+    autoSend: "独轮车"
+  };
+  function describeLlmGap(feature) {
+    if (!llmApiKey.value.trim()) return "请先在「设置 → LLM → API key」中配置 LLM 凭证";
+    if (!llmModel.value.trim()) return "请先在「设置 → LLM → 模型」中选择模型";
+    if (llmProvider.value === "openai-compat" && !llmBaseURL.value.trim()) {
+      return "请先在「设置 → LLM → base URL」中填入 openai-compat 的接口地址";
+    }
+    if (!getActiveLlmPrompt(feature).trim()) {
+      return `请先在「设置 → LLM → 提示词 · ${FEATURE_LABELS[feature]}」中配置提示词`;
+    }
+    return null;
+  }
+  async function polishWithLlm(feature, userText, opts = {}) {
+    const systemPrompt = getActiveLlmPrompt(feature);
+    if (!systemPrompt.trim()) {
+      throw new Error("当前功能未配置 LLM 提示词");
+    }
+    const trimmedUser = userText.trim();
+    if (!trimmedUser) throw new Error("输入内容为空");
+    const response = await chatCompletionViaLlm({
+      provider: llmProvider.value,
+      apiKey: llmApiKey.value,
+      model: llmModel.value,
+      baseURL: llmBaseURL.value,
+      systemPrompt,
+      userText: trimmedUser,
+      signal: opts.signal
+    });
+    return dequote(response.trim());
+  }
+  const MAX_PER_HOUR = 5;
+  const MAX_CANDIDATES = 15;
+  const MAX_SEEN = 200;
+  const MIN_RECURRENCE_GAP_MS = 10 * 60 * 1e3;
+  const SESSION_MAP_KEY = "memeSessionMapByRoom";
+  const SESSION_MAP_MAX_AGE_MS = 2 * 60 * 60 * 1e3;
+  function loadRoomSessionMaps() {
+    const raw = _GM_getValue(SESSION_MAP_KEY, {});
+    const now = Date.now();
+    const out = new Map();
+    for (const [roomKey, byText] of Object.entries(raw)) {
+      const inner = new Map();
+      for (const [text, timestamps] of Object.entries(byText)) {
+        const last = timestamps.at(-1);
+        if (last !== void 0 && now - last < SESSION_MAP_MAX_AGE_MS) {
+          inner.set(text, timestamps);
+        }
+      }
+      if (inner.size > 0) out.set(roomKey, inner);
+    }
+    return out;
+  }
+  function saveRoomSessionMaps() {
+    const raw = {};
+    for (const [roomKey, inner] of roomSessionMaps) {
+      if (inner.size === 0) continue;
+      const obj = {};
+      for (const [text, timestamps] of inner) obj[text] = timestamps;
+      raw[roomKey] = obj;
+    }
+    _GM_setValue(SESSION_MAP_KEY, raw);
+  }
+  function getOrCreateSessionMap(roomKey) {
+    let m2 = roomSessionMaps.get(roomKey);
+    if (!m2) {
+      m2 = new Map();
+      roomSessionMaps.set(roomKey, m2);
+    }
+    return m2;
+  }
+  const roomSessionMaps = loadRoomSessionMaps();
+  const nominationTimestampsByRoom = new Map();
+  function passesQualityFilter(text) {
+    const len = text.length;
+    if (len < 4 || len > 30) return false;
+    if (/^\d+$/.test(text)) return false;
+    if ([...text].every((c2) => c2 === text[0])) return false;
+    return !/^[\p{P}\p{S}\s]+$/u.test(text);
+  }
+  function recordMemeCandidate(text, roomId) {
+    if (!enableMemeContribution.value) return;
+    if (!passesQualityFilter(text)) return;
+    const roomKey = String(roomId);
+    const sessionMap = getOrCreateSessionMap(roomKey);
+    const now = Date.now();
+    const times = sessionMap.get(text) ?? [];
+    while (times.length > 0 && now - times[0] > SESSION_MAP_MAX_AGE_MS) times.shift();
+    times.push(now);
+    sessionMap.set(text, times);
+    saveRoomSessionMaps();
+    if (times.length < 2) return;
+    if (now - times[0] < MIN_RECURRENCE_GAP_MS) return;
+    const seenForRoom = memeContributorSeenTextsByRoom.value[roomKey] ?? [];
+    const candForRoom = memeContributorCandidatesByRoom.value[roomKey] ?? [];
+    if (seenForRoom.includes(text)) return;
+    if (candForRoom.includes(text)) return;
+    const candidateKey = memeContentKey(text);
+    if (candidateKey) {
+      const libraryKeys = new Set(currentMemesList.value.map((m2) => memeContentKey(m2.content)));
+      if (libraryKeys.has(candidateKey)) {
+        const nextSeen2 = [...seenForRoom, text];
+        memeContributorSeenTextsByRoom.value = {
+          ...memeContributorSeenTextsByRoom.value,
+          [roomKey]: nextSeen2.length > MAX_SEEN ? nextSeen2.slice(-MAX_SEEN) : nextSeen2
+        };
+        return;
+      }
+    }
+    const stamps = nominationTimestampsByRoom.get(roomKey) ?? [];
+    const oneHourAgo = now - 36e5;
+    while (stamps.length > 0 && stamps[0] < oneHourAgo) stamps.shift();
+    if (stamps.length >= MAX_PER_HOUR) return;
+    const nextCand = [...candForRoom, text];
+    memeContributorCandidatesByRoom.value = {
+      ...memeContributorCandidatesByRoom.value,
+      [roomKey]: nextCand.length > MAX_CANDIDATES ? nextCand.slice(-MAX_CANDIDATES) : nextCand
+    };
+    const nextSeen = [...seenForRoom, text];
+    memeContributorSeenTextsByRoom.value = {
+      ...memeContributorSeenTextsByRoom.value,
+      [roomKey]: nextSeen.length > MAX_SEEN ? nextSeen.slice(-MAX_SEEN) : nextSeen
+    };
+    stamps.push(now);
+    nominationTimestampsByRoom.set(roomKey, stamps);
+    appendLog(`[贡献者] 检测到高质量烂梗 "${text}"，已加入待贡献池`);
+  }
+  function ignoreMemeCandidate(text, roomId) {
+    const roomKey = String(roomId);
+    const candForRoom = memeContributorCandidatesByRoom.value[roomKey] ?? [];
+    memeContributorCandidatesByRoom.value = {
+      ...memeContributorCandidatesByRoom.value,
+      [roomKey]: candForRoom.filter((c2) => c2 !== text)
+    };
+    const seenForRoom = memeContributorSeenTextsByRoom.value[roomKey] ?? [];
+    if (!seenForRoom.includes(text)) {
+      const nextSeen = [...seenForRoom, text];
+      memeContributorSeenTextsByRoom.value = {
+        ...memeContributorSeenTextsByRoom.value,
+        [roomKey]: nextSeen.length > MAX_SEEN ? nextSeen.slice(-MAX_SEEN) : nextSeen
+      };
+    }
+  }
+  function clearMemeSession(roomId) {
+    const roomKey = String(roomId);
+    roomSessionMaps.delete(roomKey);
+    saveRoomSessionMaps();
+    nominationTimestampsByRoom.delete(roomKey);
   }
   const trendMap = new Map();
   let nextTrendPruneAt = Number.POSITIVE_INFINITY;
@@ -10229,6 +10228,308 @@ fp = config.simhash.add(canonical)
     autoBlendCandidateProgress.value = null;
     autoBlendLastActionText.value = moderationStopReason ?? "暂无";
     moderationStopReason = null;
+  }
+  function normalizeEndpoint(endpoint) {
+    return endpoint.replace(/\/+$/, "");
+  }
+  function authHeaders(token) {
+    if (!token) return void 0;
+    return { Authorization: `Bearer ${token}` };
+  }
+  async function ingest(text, roomId, opts) {
+    const params = new URLSearchParams();
+    params.set("text", text);
+    if (roomId !== null) params.set("room", String(roomId));
+    const url = `${normalizeEndpoint(opts.endpoint)}/ingest?${params.toString()}`;
+    try {
+      const resp = await gmFetch(url, {
+        method: "POST",
+        headers: authHeaders(opts.authToken),
+        timeoutMs: opts.ingestTimeoutMs ?? 8e3
+      });
+      return { ok: resp.ok, body: resp.text() };
+    } catch (err) {
+      return { ok: false, body: err instanceof Error ? err.message : String(err) };
+    }
+  }
+  async function fetchState(opts) {
+    const url = `${normalizeEndpoint(opts.endpoint)}/state`;
+    try {
+      const resp = await gmFetch(url, {
+        method: "GET",
+        headers: authHeaders(opts.authToken),
+        timeoutMs: opts.stateTimeoutMs ?? 12e3
+      });
+      if (!resp.ok) return { error: `${resp.status} ${resp.statusText}` };
+      try {
+        return resp.json();
+      } catch {
+        return { error: "invalid JSON response" };
+      }
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+  const DEFAULT_SSE_SILENT = 5e3;
+  const DEFAULT_POLL_INTERVAL = 5e3;
+  function tryParseEvent(data) {
+    try {
+      const parsed = JSON.parse(data);
+      return { kind: "state", data: parsed };
+    } catch {
+      return null;
+    }
+  }
+  function connectRemoteSse(opts) {
+    const endpoint = opts.endpoint.replace(/\/+$/, "");
+    const silentTimeoutMs = opts.sseSilentTimeoutMs ?? DEFAULT_SSE_SILENT;
+    const pollIntervalMs = opts.pollIntervalMs ?? DEFAULT_POLL_INTERVAL;
+    let closed = false;
+    let es = null;
+    let silentTimer = null;
+    let pollTimer2 = null;
+    const cleanup = () => {
+      if (silentTimer !== null) {
+        clearTimeout(silentTimer);
+        silentTimer = null;
+      }
+      if (pollTimer2 !== null) {
+        clearTimeout(pollTimer2);
+        pollTimer2 = null;
+      }
+      if (es !== null) {
+        try {
+          es.close();
+        } catch {
+        }
+        es = null;
+      }
+    };
+    const startPolling = () => {
+      if (closed) return;
+      cleanup();
+      opts.onStatus("polling");
+      const tick2 = async () => {
+        if (closed) return;
+        const result = await fetchState(opts);
+        if ("error" in result) {
+          opts.onEvent({ kind: "error", reason: result.error });
+        } else {
+          opts.onEvent({ kind: "state", data: result });
+        }
+        if (closed) return;
+        pollTimer2 = setTimeout(tick2, pollIntervalMs);
+      };
+      void tick2();
+    };
+    const armSilentTimeout = () => {
+      if (silentTimer !== null) clearTimeout(silentTimer);
+      silentTimer = setTimeout(() => {
+        startPolling();
+      }, silentTimeoutMs);
+    };
+    const startSse = () => {
+      if (closed) return;
+      opts.onStatus("connecting");
+      if (typeof EventSource === "undefined") {
+        startPolling();
+        return;
+      }
+      try {
+        es = new EventSource(`${endpoint}/events`);
+      } catch (err) {
+        opts.onEvent({ kind: "error", reason: err instanceof Error ? err.message : String(err) });
+        startPolling();
+        return;
+      }
+      armSilentTimeout();
+      es.onmessage = (ev) => {
+        if (silentTimer !== null) {
+          clearTimeout(silentTimer);
+          silentTimer = null;
+        }
+        opts.onStatus("connected");
+        const parsed = tryParseEvent(ev.data);
+        if (parsed !== null) opts.onEvent(parsed);
+        armSilentTimeout();
+      };
+      es.onerror = () => {
+        if (closed) return;
+        if (es && es.readyState === EventSource.CLOSED) {
+          opts.onEvent({ kind: "error", reason: "SSE 连接关闭" });
+          startPolling();
+        }
+      };
+    };
+    startSse();
+    return {
+      close() {
+        closed = true;
+        cleanup();
+        opts.onStatus("idle");
+      }
+    };
+  }
+  const remoteEventSubs = new Set();
+  function emitRemoteEvent(e2) {
+    for (const sub of remoteEventSubs) {
+      try {
+        sub(e2);
+      } catch {
+      }
+    }
+  }
+  let sseHandle = null;
+  let danmakuUnsubscribe = null;
+  let started$1 = false;
+  const recentIngest = new Map();
+  const INGEST_DEDUP_MS = 1500;
+  function getClientOpts() {
+    const endpoint = chatfilterRemoteEndpoint.value.trim();
+    if (!endpoint) return null;
+    return {
+      endpoint,
+      authToken: chatfilterRemoteAuthToken.value.trim() || void 0
+    };
+  }
+  function startRemoteCluster() {
+    if (started$1) return;
+    const clientOpts = getClientOpts();
+    if (!clientOpts) {
+      chatfilterRemoteStatus.value = "error";
+      emitRemoteEvent({ kind: "error", reason: "未配置 endpoint" });
+      return;
+    }
+    started$1 = true;
+    danmakuUnsubscribe = subscribeDanmaku({
+      onMessage: (ev) => {
+        const text = ev.text?.trim() ?? "";
+        if (!text) return;
+        const now = Date.now();
+        const last = recentIngest.get(text);
+        if (last !== void 0 && now - last < INGEST_DEDUP_MS) return;
+        recentIngest.set(text, now);
+        if (recentIngest.size > 256) {
+          const keys = Array.from(recentIngest.keys()).slice(0, 64);
+          for (const k2 of keys) recentIngest.delete(k2);
+        }
+        const roomId = cachedRoomId.value;
+        void ingest(text, roomId, clientOpts).then((res) => {
+          if (!res.ok) emitRemoteEvent({ kind: "error", reason: `ingest 失败: ${res.body}` });
+        });
+      }
+    });
+    sseHandle = connectRemoteSse({
+      ...clientOpts,
+      onEvent: (e2) => emitRemoteEvent(e2),
+      onStatus: (s2) => {
+        chatfilterRemoteStatus.value = s2;
+      }
+    });
+  }
+  function stopRemoteCluster() {
+    if (!started$1) return;
+    started$1 = false;
+    if (danmakuUnsubscribe) {
+      danmakuUnsubscribe();
+      danmakuUnsubscribe = null;
+    }
+    if (sseHandle) {
+      sseHandle.close();
+      sseHandle = null;
+    }
+    recentIngest.clear();
+    chatfilterRemoteStatus.value = "idle";
+  }
+  function installRemoteClusterLifecycle() {
+    if (chatfilterRemoteEnabled.value) startRemoteCluster();
+    let lastEnabled = chatfilterRemoteEnabled.value;
+    let lastEndpoint = chatfilterRemoteEndpoint.value;
+    let lastToken = chatfilterRemoteAuthToken.value;
+    const check = () => {
+      const enabled = chatfilterRemoteEnabled.value;
+      const endpoint = chatfilterRemoteEndpoint.value;
+      const token = chatfilterRemoteAuthToken.value;
+      if (enabled !== lastEnabled || endpoint !== lastEndpoint || token !== lastToken) {
+        stopRemoteCluster();
+        lastEnabled = enabled;
+        lastEndpoint = endpoint;
+        lastToken = token;
+        if (enabled) startRemoteCluster();
+      }
+    };
+    const unsubEnabled = chatfilterRemoteEnabled.subscribe(check);
+    const unsubEndpoint = chatfilterRemoteEndpoint.subscribe(check);
+    const unsubToken = chatfilterRemoteAuthToken.subscribe(check);
+    return () => {
+      unsubEnabled();
+      unsubEndpoint();
+      unsubToken();
+      stopRemoteCluster();
+    };
+  }
+  const PROMOTE_THRESHOLD = 10;
+  function keyOf(k2) {
+    return `${k2.roomId}${k2.variant}${k2.canonical}`;
+  }
+  const counter = new Map();
+  const replacementFeedCandidates = y$1([]);
+  function rebuildCandidates() {
+    const visible = [];
+    for (const e2 of counter.values()) {
+      if (e2.count >= PROMOTE_THRESHOLD) visible.push(e2);
+    }
+    visible.sort((a2, b2) => b2.count - a2.count);
+    replacementFeedCandidates.value = visible;
+  }
+  function onNormalize(result) {
+    if (!chatfilterFeedReplacementLearn.value) return;
+    if (result.filtered || result.aliasHits.length === 0) return;
+    const roomId = cachedRoomId.value;
+    if (roomId === null) return;
+    const roomKey = String(roomId);
+    const ts = Date.now();
+    let mutated = false;
+    for (const hit of result.aliasHits) {
+      const k2 = { roomId: roomKey, variant: hit.variant, canonical: hit.canonical };
+      const id = keyOf(k2);
+      const entry = counter.get(id);
+      if (entry) {
+        const wasBelow = entry.count < PROMOTE_THRESHOLD;
+        entry.count += 1;
+        entry.lastSeenAt = ts;
+        if (wasBelow && entry.count >= PROMOTE_THRESHOLD) mutated = true;
+      } else {
+        counter.set(id, { ...k2, count: 1, lastSeenAt: ts });
+      }
+    }
+    if (mutated) rebuildCandidates();
+  }
+  let unsubscribe$4 = null;
+  function startReplacementFeed() {
+    if (unsubscribe$4) return;
+    unsubscribe$4 = subscribeNormalizeEvents(onNormalize);
+  }
+  function stopReplacementFeed() {
+    if (unsubscribe$4) {
+      unsubscribe$4();
+      unsubscribe$4 = null;
+    }
+  }
+  function adoptReplacementCandidate(c2) {
+    const rules = { ...localRoomRules.value };
+    const room = rules[c2.roomId] ?? [];
+    const exists = room.some((r2) => r2.from === c2.variant && r2.to === c2.canonical);
+    if (!exists) {
+      rules[c2.roomId] = [...room, { from: c2.variant, to: c2.canonical }];
+      localRoomRules.value = rules;
+    }
+    counter.delete(keyOf(c2));
+    rebuildCandidates();
+  }
+  function dismissReplacementCandidate(c2) {
+    counter.delete(keyOf(c2));
+    rebuildCandidates();
   }
   let emoticonCacheSource = null;
   let emoticonCache = new Map();
@@ -14442,7 +14743,7 @@ html.lc-dm-direct-always .${MARKER$1} {
       autoBlendUserBlacklist.value = next;
     }
   }
-  let unsubscribe$4 = null;
+  let unsubscribe$3 = null;
   let styleEl$1 = null;
   let attachedContainer = null;
   let alwaysShowDispose = null;
@@ -14503,12 +14804,12 @@ html.lc-dm-direct-always .${MARKER$1} {
     }
   }
   function startDanmakuDirect() {
-    if (unsubscribe$4) return;
+    if (unsubscribe$3) return;
     alwaysShowDispose = j$1(() => {
       document.documentElement.classList.toggle("lc-dm-direct-always", danmakuDirectAlwaysShow.value);
     });
     initContextMenuHijack();
-    unsubscribe$4 = subscribeDanmaku({
+    unsubscribe$3 = subscribeDanmaku({
       onAttach: (container) => {
         styleEl$1 = document.createElement("style");
         styleEl$1.id = STYLE_ID$1;
@@ -14532,9 +14833,9 @@ html.lc-dm-direct-always .${MARKER$1} {
       alwaysShowDispose = null;
       document.documentElement.classList.remove("lc-dm-direct-always");
     }
-    if (unsubscribe$4) {
-      unsubscribe$4();
-      unsubscribe$4 = null;
+    if (unsubscribe$3) {
+      unsubscribe$3();
+      unsubscribe$3 = null;
     }
     if (attachedContainer) {
       attachedContainer.removeEventListener("click", handleDelegatedClick, true);
@@ -14762,7 +15063,7 @@ html.lc-dm-direct-always .${MARKER$1} {
   }
   const WINDOW_MS = 60 * 1e3;
   let timer = null;
-  let unsubscribe$3 = null;
+  let unsubscribe$2 = null;
   const seen = [];
   let cycleEpoch = 0;
   function trimSeen(now) {
@@ -14802,9 +15103,9 @@ html.lc-dm-direct-always .${MARKER$1} {
     }, delayMs);
   }
   function startLiveDeskSync() {
-    if (timer || unsubscribe$3) return;
+    if (timer || unsubscribe$2) return;
     const epoch = ++cycleEpoch;
-    unsubscribe$3 = subscribeCustomChatEvents((event) => {
+    unsubscribe$2 = subscribeCustomChatEvents((event) => {
       if (event.kind !== "danmaku") return;
       const now = Date.now();
       seen.push({ ts: now, uid: event.uid });
@@ -14820,8 +15121,8 @@ html.lc-dm-direct-always .${MARKER$1} {
       clearTimeout(timer);
       timer = null;
     }
-    unsubscribe$3?.();
-    unsubscribe$3 = null;
+    unsubscribe$2?.();
+    unsubscribe$2 = null;
     seen.splice(0, seen.length);
   }
   function computeJitteredSleepMs(intervalSec, withJitter) {
@@ -15101,7 +15402,7 @@ html.lc-dm-direct-always .${MARKER$1} {
 }
 `;
   const foldByKey = new Map();
-  let unsubscribe$2 = null;
+  let unsubscribe$1 = null;
   let styleEl = null;
   function gcFolds(now) {
     for (const [key, entry] of foldByKey) {
@@ -15144,8 +15445,8 @@ html.lc-dm-direct-always .${MARKER$1} {
     foldByKey.set(key, { node: ev.node, count: 1, lastSeen: now });
   }
   function startNativeChatFold() {
-    if (unsubscribe$2) return;
-    unsubscribe$2 = subscribeDanmaku({
+    if (unsubscribe$1) return;
+    unsubscribe$1 = subscribeDanmaku({
       onAttach: () => {
         if (!styleEl) {
           styleEl = document.createElement("style");
@@ -15159,9 +15460,9 @@ emitExisting: false
     });
   }
   function stopNativeChatFold() {
-    if (unsubscribe$2) {
-      unsubscribe$2();
-      unsubscribe$2 = null;
+    if (unsubscribe$1) {
+      unsubscribe$1();
+      unsubscribe$1 = null;
     }
     if (styleEl) {
       styleEl.remove();
@@ -15174,308 +15475,6 @@ emitExisting: false
       badge.remove();
     }
     foldByKey.clear();
-  }
-  function normalizeEndpoint(endpoint) {
-    return endpoint.replace(/\/+$/, "");
-  }
-  function authHeaders(token) {
-    if (!token) return void 0;
-    return { Authorization: `Bearer ${token}` };
-  }
-  async function ingest(text, roomId, opts) {
-    const params = new URLSearchParams();
-    params.set("text", text);
-    if (roomId !== null) params.set("room", String(roomId));
-    const url = `${normalizeEndpoint(opts.endpoint)}/ingest?${params.toString()}`;
-    try {
-      const resp = await gmFetch(url, {
-        method: "POST",
-        headers: authHeaders(opts.authToken),
-        timeoutMs: opts.ingestTimeoutMs ?? 8e3
-      });
-      return { ok: resp.ok, body: resp.text() };
-    } catch (err) {
-      return { ok: false, body: err instanceof Error ? err.message : String(err) };
-    }
-  }
-  async function fetchState(opts) {
-    const url = `${normalizeEndpoint(opts.endpoint)}/state`;
-    try {
-      const resp = await gmFetch(url, {
-        method: "GET",
-        headers: authHeaders(opts.authToken),
-        timeoutMs: opts.stateTimeoutMs ?? 12e3
-      });
-      if (!resp.ok) return { error: `${resp.status} ${resp.statusText}` };
-      try {
-        return resp.json();
-      } catch {
-        return { error: "invalid JSON response" };
-      }
-    } catch (err) {
-      return { error: err instanceof Error ? err.message : String(err) };
-    }
-  }
-  const DEFAULT_SSE_SILENT = 5e3;
-  const DEFAULT_POLL_INTERVAL = 5e3;
-  function tryParseEvent(data) {
-    try {
-      const parsed = JSON.parse(data);
-      return { kind: "state", data: parsed };
-    } catch {
-      return null;
-    }
-  }
-  function connectRemoteSse(opts) {
-    const endpoint = opts.endpoint.replace(/\/+$/, "");
-    const silentTimeoutMs = opts.sseSilentTimeoutMs ?? DEFAULT_SSE_SILENT;
-    const pollIntervalMs = opts.pollIntervalMs ?? DEFAULT_POLL_INTERVAL;
-    let closed = false;
-    let es = null;
-    let silentTimer = null;
-    let pollTimer2 = null;
-    const cleanup = () => {
-      if (silentTimer !== null) {
-        clearTimeout(silentTimer);
-        silentTimer = null;
-      }
-      if (pollTimer2 !== null) {
-        clearTimeout(pollTimer2);
-        pollTimer2 = null;
-      }
-      if (es !== null) {
-        try {
-          es.close();
-        } catch {
-        }
-        es = null;
-      }
-    };
-    const startPolling = () => {
-      if (closed) return;
-      cleanup();
-      opts.onStatus("polling");
-      const tick2 = async () => {
-        if (closed) return;
-        const result = await fetchState(opts);
-        if ("error" in result) {
-          opts.onEvent({ kind: "error", reason: result.error });
-        } else {
-          opts.onEvent({ kind: "state", data: result });
-        }
-        if (closed) return;
-        pollTimer2 = setTimeout(tick2, pollIntervalMs);
-      };
-      void tick2();
-    };
-    const armSilentTimeout = () => {
-      if (silentTimer !== null) clearTimeout(silentTimer);
-      silentTimer = setTimeout(() => {
-        startPolling();
-      }, silentTimeoutMs);
-    };
-    const startSse = () => {
-      if (closed) return;
-      opts.onStatus("connecting");
-      if (typeof EventSource === "undefined") {
-        startPolling();
-        return;
-      }
-      try {
-        es = new EventSource(`${endpoint}/events`);
-      } catch (err) {
-        opts.onEvent({ kind: "error", reason: err instanceof Error ? err.message : String(err) });
-        startPolling();
-        return;
-      }
-      armSilentTimeout();
-      es.onmessage = (ev) => {
-        if (silentTimer !== null) {
-          clearTimeout(silentTimer);
-          silentTimer = null;
-        }
-        opts.onStatus("connected");
-        const parsed = tryParseEvent(ev.data);
-        if (parsed !== null) opts.onEvent(parsed);
-        armSilentTimeout();
-      };
-      es.onerror = () => {
-        if (closed) return;
-        if (es && es.readyState === EventSource.CLOSED) {
-          opts.onEvent({ kind: "error", reason: "SSE 连接关闭" });
-          startPolling();
-        }
-      };
-    };
-    startSse();
-    return {
-      close() {
-        closed = true;
-        cleanup();
-        opts.onStatus("idle");
-      }
-    };
-  }
-  const remoteEventSubs = new Set();
-  function emitRemoteEvent(e2) {
-    for (const sub of remoteEventSubs) {
-      try {
-        sub(e2);
-      } catch {
-      }
-    }
-  }
-  let sseHandle = null;
-  let danmakuUnsubscribe = null;
-  let started$1 = false;
-  const recentIngest = new Map();
-  const INGEST_DEDUP_MS = 1500;
-  function getClientOpts() {
-    const endpoint = chatfilterRemoteEndpoint.value.trim();
-    if (!endpoint) return null;
-    return {
-      endpoint,
-      authToken: chatfilterRemoteAuthToken.value.trim() || void 0
-    };
-  }
-  function startRemoteCluster() {
-    if (started$1) return;
-    const clientOpts = getClientOpts();
-    if (!clientOpts) {
-      chatfilterRemoteStatus.value = "error";
-      emitRemoteEvent({ kind: "error", reason: "未配置 endpoint" });
-      return;
-    }
-    started$1 = true;
-    danmakuUnsubscribe = subscribeDanmaku({
-      onMessage: (ev) => {
-        const text = ev.text?.trim() ?? "";
-        if (!text) return;
-        const now = Date.now();
-        const last = recentIngest.get(text);
-        if (last !== void 0 && now - last < INGEST_DEDUP_MS) return;
-        recentIngest.set(text, now);
-        if (recentIngest.size > 256) {
-          const keys = Array.from(recentIngest.keys()).slice(0, 64);
-          for (const k2 of keys) recentIngest.delete(k2);
-        }
-        const roomId = cachedRoomId.value;
-        void ingest(text, roomId, clientOpts).then((res) => {
-          if (!res.ok) emitRemoteEvent({ kind: "error", reason: `ingest 失败: ${res.body}` });
-        });
-      }
-    });
-    sseHandle = connectRemoteSse({
-      ...clientOpts,
-      onEvent: (e2) => emitRemoteEvent(e2),
-      onStatus: (s2) => {
-        chatfilterRemoteStatus.value = s2;
-      }
-    });
-  }
-  function stopRemoteCluster() {
-    if (!started$1) return;
-    started$1 = false;
-    if (danmakuUnsubscribe) {
-      danmakuUnsubscribe();
-      danmakuUnsubscribe = null;
-    }
-    if (sseHandle) {
-      sseHandle.close();
-      sseHandle = null;
-    }
-    recentIngest.clear();
-    chatfilterRemoteStatus.value = "idle";
-  }
-  function installRemoteClusterLifecycle() {
-    if (chatfilterRemoteEnabled.value) startRemoteCluster();
-    let lastEnabled = chatfilterRemoteEnabled.value;
-    let lastEndpoint = chatfilterRemoteEndpoint.value;
-    let lastToken = chatfilterRemoteAuthToken.value;
-    const check = () => {
-      const enabled = chatfilterRemoteEnabled.value;
-      const endpoint = chatfilterRemoteEndpoint.value;
-      const token = chatfilterRemoteAuthToken.value;
-      if (enabled !== lastEnabled || endpoint !== lastEndpoint || token !== lastToken) {
-        stopRemoteCluster();
-        lastEnabled = enabled;
-        lastEndpoint = endpoint;
-        lastToken = token;
-        if (enabled) startRemoteCluster();
-      }
-    };
-    const unsubEnabled = chatfilterRemoteEnabled.subscribe(check);
-    const unsubEndpoint = chatfilterRemoteEndpoint.subscribe(check);
-    const unsubToken = chatfilterRemoteAuthToken.subscribe(check);
-    return () => {
-      unsubEnabled();
-      unsubEndpoint();
-      unsubToken();
-      stopRemoteCluster();
-    };
-  }
-  const PROMOTE_THRESHOLD = 10;
-  function keyOf(k2) {
-    return `${k2.roomId}${k2.variant}${k2.canonical}`;
-  }
-  const counter = new Map();
-  const replacementFeedCandidates = y$1([]);
-  function rebuildCandidates() {
-    const visible = [];
-    for (const e2 of counter.values()) {
-      if (e2.count >= PROMOTE_THRESHOLD) visible.push(e2);
-    }
-    visible.sort((a2, b2) => b2.count - a2.count);
-    replacementFeedCandidates.value = visible;
-  }
-  function onNormalize(result) {
-    if (!chatfilterFeedReplacementLearn.value) return;
-    if (result.filtered || result.aliasHits.length === 0) return;
-    const roomId = cachedRoomId.value;
-    if (roomId === null) return;
-    const roomKey = String(roomId);
-    const ts = Date.now();
-    let mutated = false;
-    for (const hit of result.aliasHits) {
-      const k2 = { roomId: roomKey, variant: hit.variant, canonical: hit.canonical };
-      const id = keyOf(k2);
-      const entry = counter.get(id);
-      if (entry) {
-        const wasBelow = entry.count < PROMOTE_THRESHOLD;
-        entry.count += 1;
-        entry.lastSeenAt = ts;
-        if (wasBelow && entry.count >= PROMOTE_THRESHOLD) mutated = true;
-      } else {
-        counter.set(id, { ...k2, count: 1, lastSeenAt: ts });
-      }
-    }
-    if (mutated) rebuildCandidates();
-  }
-  let unsubscribe$1 = null;
-  function startReplacementFeed() {
-    if (unsubscribe$1) return;
-    unsubscribe$1 = subscribeNormalizeEvents(onNormalize);
-  }
-  function stopReplacementFeed() {
-    if (unsubscribe$1) {
-      unsubscribe$1();
-      unsubscribe$1 = null;
-    }
-  }
-  function adoptReplacementCandidate(c2) {
-    const rules = { ...localRoomRules.value };
-    const room = rules[c2.roomId] ?? [];
-    const exists = room.some((r2) => r2.from === c2.variant && r2.to === c2.canonical);
-    if (!exists) {
-      rules[c2.roomId] = [...room, { from: c2.variant, to: c2.canonical }];
-      localRoomRules.value = rules;
-    }
-    counter.delete(keyOf(c2));
-    rebuildCandidates();
-  }
-  function dismissReplacementCandidate(c2) {
-    counter.delete(keyOf(c2));
-    rebuildCandidates();
   }
   function normalizeRadarBackendUrl(input) {
     const trimmed = input.trim().replace(/\/+$/, "");
