@@ -12,7 +12,6 @@
 // @source       https://github.com/aijc123/bilibili-live-wheel-auto-follow
 // @supportURL   https://github.com/aijc123/bilibili-live-wheel-auto-follow/issues
 // @match        *://live.bilibili.com/*
-// @match        *://space.bilibili.com/*
 // @require      https://unpkg.com/@soniox/speech-to-text-web@1.4.0/dist/speech-to-text-web.umd.cjs
 // @require      data:application/javascript,%3Bwindow.SonioxSpeechToTextWeb%3Dwindow%5B%22speech-to-text-web%22%5D%3B
 // @connect      bilibili-guard-room.vercel.app

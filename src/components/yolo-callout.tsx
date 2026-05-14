@@ -26,8 +26,35 @@ export function YoloCallout({
   /** YOLO 配置齐全时显示的"已就绪"提示文字。 */
   readyText: string
 }) {
-  if (!enabled) return null
   const gap = describeLlmGap(feature)
+  // 即使 YOLO 没勾上,只要存在 LLM 配置缺口就显示一行弱提示——避免用户勾上
+  // YOLO 后才发现"为什么没反应"。提示只显示"前往设置 →"按钮,文案极简。
+  if (!enabled) {
+    if (!gap) return null
+    return (
+      <div className='cb-note' style={{ paddingLeft: '1.4em', fontSize: '11px', color: '#999' }}>
+        ⓘ {gap}
+        <button
+          type='button'
+          style={{
+            marginLeft: '.5em',
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            color: '#1677ff',
+            cursor: 'pointer',
+            fontSize: 'inherit',
+            textDecoration: 'underline',
+          }}
+          onClick={() => {
+            activeTab.value = 'settings'
+          }}
+        >
+          前往设置 →
+        </button>
+      </div>
+    )
+  }
   if (!gap) {
     return (
       <div className='cb-note' style={{ paddingLeft: '1.4em' }}>

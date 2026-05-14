@@ -14,7 +14,9 @@ import { appendLog } from '../lib/log'
 import { applyReplacements } from '../lib/replacement'
 import { enqueueDanmaku, SendPriority } from '../lib/send-queue'
 import {
+  clearSonioxApiKey,
   sonioxApiKey,
+  sonioxApiKeyPersist,
   sonioxAudioDeviceId,
   sonioxAutoSend,
   sonioxLanguageHints,
@@ -372,7 +374,40 @@ export function SttTab() {
           >
             {apiKeyVisible.value ? '隐藏' : '显示'}
           </button>
+          <button
+            type='button'
+            disabled={!sonioxApiKey.value}
+            onClick={() => clearSonioxApiKey()}
+            style={{ fontSize: '11px' }}
+            title='把 key 从内存和 GM 存储里都抹掉'
+          >
+            清除
+          </button>
         </div>
+        <label
+          htmlFor='sonioxApiKeyPersist'
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            color: '#666',
+            fontSize: '0.85em',
+            cursor: 'pointer',
+            marginBottom: '.25em',
+          }}
+        >
+          <input
+            id='sonioxApiKeyPersist'
+            type='checkbox'
+            checked={sonioxApiKeyPersist.value}
+            onInput={e => {
+              sonioxApiKeyPersist.value = e.currentTarget.checked
+            }}
+          />
+          <span title='不勾：key 仅留在内存，刷新页面就清空，GM 存储里的旧值也立即抹掉'>
+            保存到 GM 存储（关闭后仅本次会话有效）
+          </span>
+        </label>
         <div
           className='cb-row'
           style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.25em' }}
@@ -388,10 +423,33 @@ export function SttTab() {
           </a>
           <span className='cb-note'>注册后把 API Key 粘贴到上方。</span>
         </div>
-        <div className='cb-note' style={{ color: '#666', fontSize: '0.85em', marginTop: '.25em' }}>
-          API Key 仅保存在你的浏览器（GM 存储）。开启同传后，麦克风音频流会通过 WebSocket 发送到 api.soniox.com
-          进行识别。
-        </div>
+        {sonioxApiKeyPersist.value && sonioxApiKey.value ? (
+          <div
+            role='status'
+            aria-live='polite'
+            style={{
+              color: '#b00020',
+              background: 'rgba(176,0,32,.08)',
+              border: '1px solid rgba(176,0,32,.25)',
+              padding: '6px 8px',
+              borderRadius: '4px',
+              fontSize: '12px',
+              fontWeight: 600,
+              lineHeight: 1.45,
+              marginTop: '.25em',
+            }}
+          >
+            ⚠️ Soniox key 已明文存进浏览器 GM 存储。共用电脑、浏览器同步、其他扩展、备份导出都能直接读到。
+            担心泄漏：上面取消勾选「保存到 GM 存储」改为仅本会话。
+          </div>
+        ) : (
+          <div className='cb-note' style={{ color: '#666', fontSize: '0.85em', marginTop: '.25em' }}>
+            {sonioxApiKeyPersist.value
+              ? '提示：填入 key 后会明文存进 GM 存储。关掉「保存到 GM 存储」可改为仅本会话。'
+              : 'Key 仅留在内存，刷新页面后清空。'}
+            开启同传后，麦克风音频流会通过 WebSocket 发送到 api.soniox.com 进行识别。
+          </div>
+        )}
       </div>
 
       <div

@@ -114,7 +114,19 @@ export function ShadowObservationSection({ query = '' }: { query?: string }) {
               value='auto-resend'
               checked={shadowBanMode.value === 'auto-resend'}
               onInput={() => {
-                shadowBanMode.value = 'auto-resend'
+                // 切到 auto-resend 之前弹窗确认——这个模式会以你的账号在被屏蔽时
+                // 自动调 LLM 改写并自动重发,每条命中都会消耗 LLM token,改写质量
+                // 不保证,且重发本身可能成为风控信号。
+                if (shadowBanMode.value === 'auto-resend') return
+                void (async () => {
+                  const ok = await showConfirm({
+                    title: '自动重发模式将以你的账号自动重发被屏蔽的弹幕',
+                    body: '开启后，每次检测到影子屏蔽都会：1) 自动调 LLM 改写（每条消耗 token） 2) 把改写后的版本以你的账号自动重发 3) 如果同时开了「自动学习」会写入本地房间规则。改写质量不保证，且自动重发本身也可能成为 B 站风控信号。建议先保持「只给候选」模式手动确认几次。',
+                    confirmText: '我已了解风险，切换到自动重发',
+                    cancelText: '保持只给候选',
+                  })
+                  if (ok) shadowBanMode.value = 'auto-resend'
+                })()
               }}
             />{' '}
             自动 AI 改写并重发

@@ -18,9 +18,11 @@ import {
 } from '../../lib/guard-room-live-desk-state'
 import { appendLog } from '../../lib/log'
 import {
+  clearGuardRoomSyncKey,
   guardRoomEndpoint,
   guardRoomHandoffActive,
   guardRoomSyncKey,
+  guardRoomSyncKeyPersist,
   guardRoomWebsiteControlEnabled,
 } from '../../lib/store'
 import { matchesSearchQuery } from './search'
@@ -507,6 +509,60 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
               guardRoomSyncKey.value = e.currentTarget.value
             }}
           />
+          <div className='cb-row' style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+            <label
+              htmlFor='guardRoomSyncKeyPersist'
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                color: '#666',
+                fontSize: '0.85em',
+                cursor: 'pointer',
+              }}
+            >
+              <input
+                id='guardRoomSyncKeyPersist'
+                type='checkbox'
+                checked={guardRoomSyncKeyPersist.value}
+                onInput={e => {
+                  guardRoomSyncKeyPersist.value = e.currentTarget.checked
+                }}
+              />
+              <span title='不勾：密钥仅留在内存，刷新页面就清空，GM 存储里的旧值也立即抹掉'>
+                保存到 GM 存储（关闭后仅本次会话有效）
+              </span>
+            </label>
+            <button
+              type='button'
+              disabled={!guardRoomSyncKey.value}
+              onClick={() => clearGuardRoomSyncKey()}
+              style={{ fontSize: '11px', marginLeft: 'auto' }}
+              title='把密钥从内存和 GM 存储里都抹掉'
+            >
+              清除
+            </button>
+          </div>
+          {guardRoomSyncKeyPersist.value && guardRoomSyncKey.value && (
+            <div
+              role='status'
+              aria-live='polite'
+              style={{
+                color: '#b00020',
+                background: 'rgba(176,0,32,.08)',
+                border: '1px solid rgba(176,0,32,.25)',
+                padding: '6px 8px',
+                borderRadius: '4px',
+                fontSize: '12px',
+                fontWeight: 600,
+                lineHeight: 1.45,
+                marginTop: '.25em',
+              }}
+            >
+              ⚠️ 保安室同步密钥已明文存进浏览器 GM 存储。共用电脑、浏览器同步、其他扩展、备份导出都能直接读到。
+              担心泄漏：上面取消勾选「保存到 GM 存储」改为仅本会话。
+            </div>
+          )}
           <div className='cb-row'>
             <button
               type='button'

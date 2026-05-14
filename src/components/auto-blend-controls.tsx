@@ -34,6 +34,7 @@ import {
   autoBlendWindowSec,
   autoBlendYolo,
   hasConfirmedAutoBlendRealFire,
+  lastAutoBlendRealFireConfirmAt,
   llmActivePromptAutoBlend,
   llmPromptsAutoBlend,
   msgSendInterval,
@@ -85,8 +86,41 @@ function NumberInput({
   )
 }
 
-function markCustom(): void {
-  autoBlendPreset.value = 'custom'
+/**
+ * 调过参所以切到 custom——只在调整后的值真的偏离了当前预设基线时才把
+ * 预设标签换成「自定义」。这样用户把一个值从 35 改回 35，或者切到隐藏
+ * 的等值时，仍然保留「正常」/「稳一点」标签。
+ *
+ * 实现：onChange 调到这里时，对应的 signal 已被赋值（callsite 顺序：先 set,
+ * 再 markCustomIfDrifted）。读所有 preset signals 与 baseline 比对。
+ *
+ * 仅用于 AUTO_BLEND_PRESETS 包含的字段。dryRun / yolo / cooldownAuto /
+ * avoidRepeat 这种 preset 之外的开关不在预设定义里，改它们不影响预设标签。
+ */
+function markCustomIfDrifted(): void {
+  const preset = autoBlendPreset.peek()
+  if (preset === 'custom') return
+  const baseline = AUTO_BLEND_PRESETS[preset]
+  // 完整 preset values 包括 require/sendCount/sendAllTrending/useReplacements,
+  // 它们在 getAutoBlendPresetValues 里有默认值。但这些"扩展字段"在三档之间
+  // 共享同一默认（requireDistinctUsers=true, sendCount=1, sendAllTrending=false,
+  // useReplacements=true），所以直接硬编码这些默认作为基线。
+  if (
+    autoBlendWindowSec.peek() !== baseline.windowSec ||
+    autoBlendThreshold.peek() !== baseline.threshold ||
+    autoBlendCooldownSec.peek() !== baseline.cooldownSec ||
+    autoBlendRoutineIntervalSec.peek() !== baseline.routineIntervalSec ||
+    autoBlendMinDistinctUsers.peek() !== baseline.minDistinctUsers ||
+    autoBlendBurstSettleMs.peek() !== baseline.burstSettleMs ||
+    autoBlendRateLimitWindowMin.peek() !== baseline.rateLimitWindowMin ||
+    autoBlendRateLimitStopThreshold.peek() !== baseline.rateLimitStopThreshold ||
+    autoBlendRequireDistinctUsers.peek() !== true ||
+    autoBlendSendCount.peek() !== 1 ||
+    autoBlendSendAllTrending.peek() !== false ||
+    autoBlendUseReplacements.peek() !== true
+  ) {
+    autoBlendPreset.value = 'custom'
+  }
 }
 
 function modeButtonStyle(active: boolean) {
@@ -478,19 +512,28 @@ export function AutoBlendControls() {
         if (!ok) return
       }
     }
+    // 30 天 TTL：超过这个时间窗口的旧确认视为过期,重新弹窗。即使
+    // hasConfirmedAutoBlendRealFire=true 也要看 lastAutoBlendRealFireConfirmAt
+    // 是否在 TTL 内。这样用户半年前点过"我知道"之后,再开车仍会被重新提醒。
+    const CONFIRM_TTL_MS = 30 * 24 * 60 * 60 * 1000
+    const confirmRecent =
+      hasConfirmedAutoBlendRealFire.value &&
+      lastAutoBlendRealFireConfirmAt.value > 0 &&
+      Date.now() - lastAutoBlendRealFireConfirmAt.value < CONFIRM_TTL_MS
     const decision = decideAutoBlendToggle(
       {
         currentlyEnabled: autoBlendEnabled.value,
         dryRun: autoBlendDryRun.value,
-        hasConfirmedRealFire: hasConfirmedAutoBlendRealFire.value,
+        hasConfirmedRealFire: confirmRecent,
       },
       // sync stub —— 实际 confirm 在外面做。返回 true 让 helper 走"用户已确认"
       // 分支，proceed/markConfirmed 我们自己再决定。
       () => true
     )
     if (decision.markConfirmed) {
+      const ttlNote = hasConfirmedAutoBlendRealFire.value ? '（距上次确认已超过 30 天，再次提醒）' : ''
       confirmed = await showConfirm({
-        title: '自动跟车将以你的账号真实发送弹幕',
+        title: `自动跟车将以你的账号真实发送弹幕${ttlNote}`,
         body: '试运行已关闭。建议先打开「试运行」观察一段时间。是否继续直接开启？',
         confirmText: '我已了解，开始跟车',
         cancelText: '取消',
@@ -498,7 +541,10 @@ export function AutoBlendControls() {
       markConfirmedAfter = confirmed
     }
     if (!confirmed || !decision.proceed) return
-    if (markConfirmedAfter) hasConfirmedAutoBlendRealFire.value = true
+    if (markConfirmedAfter) {
+      hasConfirmedAutoBlendRealFire.value = true
+      lastAutoBlendRealFireConfirmAt.value = Date.now()
+    }
     autoBlendEnabled.value = !autoBlendEnabled.value
   }
 
@@ -616,8 +662,8 @@ export function AutoBlendControls() {
               value={autoBlendWindowSec.value}
               min={3}
               onChange={v => {
-                markCustom()
                 autoBlendWindowSec.value = v
+                markCustomIfDrifted()
               }}
             />
             <span>秒内刷出</span>
@@ -625,8 +671,8 @@ export function AutoBlendControls() {
               value={autoBlendThreshold.value}
               min={2}
               onChange={v => {
-                markCustom()
                 autoBlendThreshold.value = v
+                markCustomIfDrifted()
               }}
             />
             <span>条相同弹幕</span>
@@ -646,8 +692,8 @@ export function AutoBlendControls() {
               type='checkbox'
               checked={autoBlendRequireDistinctUsers.value}
               onInput={e => {
-                markCustom()
                 autoBlendRequireDistinctUsers.value = e.currentTarget.checked
+                markCustomIfDrifted()
               }}
             />
             <label htmlFor='autoBlendRequireDistinctUsers'>且至少</label>
@@ -657,8 +703,8 @@ export function AutoBlendControls() {
               width='40px'
               disabled={!autoBlendRequireDistinctUsers.value}
               onChange={v => {
-                markCustom()
                 autoBlendMinDistinctUsers.value = v
+                markCustomIfDrifted()
               }}
             />
             <span>人都在刷</span>
@@ -674,8 +720,8 @@ export function AutoBlendControls() {
               width='50px'
               disabled={autoBlendCooldownAuto.value}
               onChange={v => {
-                markCustom()
                 autoBlendCooldownSec.value = v
+                markCustomIfDrifted()
               }}
             />
             <span>秒，补跟</span>
@@ -684,8 +730,8 @@ export function AutoBlendControls() {
               min={10}
               width='50px'
               onChange={v => {
-                markCustom()
                 autoBlendRoutineIntervalSec.value = v
+                markCustomIfDrifted()
               }}
             />
             <span>秒</span>
@@ -701,8 +747,8 @@ export function AutoBlendControls() {
               max={10000}
               width='58px'
               onChange={v => {
-                markCustom()
                 autoBlendBurstSettleMs.value = v
+                markCustomIfDrifted()
               }}
             />
             <span>毫秒</span>
@@ -717,8 +763,8 @@ export function AutoBlendControls() {
               max={60}
               width='44px'
               onChange={v => {
-                markCustom()
                 autoBlendRateLimitWindowMin.value = v
+                markCustomIfDrifted()
               }}
             />
             <span>分钟内</span>
@@ -728,8 +774,8 @@ export function AutoBlendControls() {
               max={20}
               width='40px'
               onChange={v => {
-                markCustom()
                 autoBlendRateLimitStopThreshold.value = v
+                markCustomIfDrifted()
               }}
             />
             <span>次后停车</span>
@@ -745,14 +791,18 @@ export function AutoBlendControls() {
               width='40px'
               disabled={autoBlendSendAllTrending.value}
               onChange={v => {
-                markCustom()
                 autoBlendSendCount.value = v
+                markCustomIfDrifted()
               }}
             />
             <span>遍</span>
           </div>
           {autoBlendSendAllTrending.value ? (
             <SettingHint>已被「多句一起跟」覆盖：突发命中时一波内每句各发 1 次。</SettingHint>
+          ) : autoBlendSendCount.value > 1 ? (
+            <SettingHint>
+              {`同一句被选中后重复发送 ${autoBlendSendCount.value} 次。注意：每发一遍都会延续一次冷却，所以下一波命中要等约 ${autoBlendSendCount.value * autoBlendCooldownSec.value} 秒（${autoBlendSendCount.value} × ${autoBlendCooldownSec.value}s）。`}
+            </SettingHint>
           ) : (
             <SettingHint>同一句被选中后重复发送的次数；建议配合发送间隔和冷却一起调。</SettingHint>
           )}
@@ -765,7 +815,8 @@ export function AutoBlendControls() {
               type='checkbox'
               checked={autoBlendDryRun.value}
               onInput={e => {
-                markCustom()
+                // dryRun 不在预设定义里（三档预设都不指定 dryRun 值），改它不应
+                // 把预设标签变成「自定义」。
                 autoBlendDryRun.value = e.currentTarget.checked
               }}
             />
@@ -788,8 +839,8 @@ export function AutoBlendControls() {
               type='checkbox'
               checked={autoBlendUseReplacements.value}
               onInput={e => {
-                markCustom()
                 autoBlendUseReplacements.value = e.currentTarget.checked
+                markCustomIfDrifted()
               }}
             />
             <label htmlFor='autoBlendUseReplacements'>套用替换规则</label>
@@ -835,7 +886,7 @@ export function AutoBlendControls() {
               type='checkbox'
               checked={autoBlendAvoidRepeat.value}
               onInput={e => {
-                markCustom()
+                // avoidRepeat 不在预设定义里，改它不应换预设标签。
                 autoBlendAvoidRepeat.value = e.currentTarget.checked
               }}
             />
@@ -853,7 +904,7 @@ export function AutoBlendControls() {
               type='checkbox'
               checked={autoBlendCooldownAuto.value}
               onInput={e => {
-                markCustom()
+                // cooldownAuto 不在预设定义里，改它不应换预设标签。
                 autoBlendCooldownAuto.value = e.currentTarget.checked
               }}
             />
@@ -871,8 +922,8 @@ export function AutoBlendControls() {
               type='checkbox'
               checked={autoBlendSendAllTrending.value}
               onInput={e => {
-                markCustom()
                 autoBlendSendAllTrending.value = e.currentTarget.checked
+                markCustomIfDrifted()
               }}
             />
             <label

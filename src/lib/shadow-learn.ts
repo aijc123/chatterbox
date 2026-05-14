@@ -57,7 +57,8 @@ export function learnShadowRules(input: LearnShadowRulesInput): void {
     existingRules.map(r => r.from).filter((s): s is string => typeof s === 'string' && s.length > 0)
   )
 
-  const newRules: Array<{ from: string; to: string; source: 'learned' }> = []
+  const learnedAt = Date.now()
+  const newRules: Array<{ from: string; to: string; source: 'learned'; learnedAt: number }> = []
   const learnedFroms: string[] = []
   for (const raw of input.sensitiveWords) {
     if (!isValidSensitiveWord(raw)) continue
@@ -65,7 +66,7 @@ export function learnShadowRules(input: LearnShadowRulesInput): void {
     if (existingFroms.has(from)) continue
     const to = processText(from)
     if (to === from) continue
-    newRules.push({ from, to, source: 'learned' })
+    newRules.push({ from, to, source: 'learned', learnedAt })
     existingFroms.add(from)
     learnedFroms.push(from)
   }
@@ -83,7 +84,7 @@ export function learnShadowRules(input: LearnShadowRulesInput): void {
   // learn 进来的规则在到达 CAP 时无处可放。运行一段时间后(用户人工清理 / 重新
   // 调入新规则)就会自然恢复成新格式。
   const combined = [...existingRules, ...newRules]
-  type RuleWithSource = { from?: string; to?: string; source?: 'learned' | 'manual' }
+  type RuleWithSource = { from?: string; to?: string; source?: 'learned' | 'manual'; learnedAt?: number }
   const manuals = combined.filter((r): r is RuleWithSource => (r as RuleWithSource).source !== 'learned')
   const learned = combined.filter((r): r is RuleWithSource => (r as RuleWithSource).source === 'learned')
   let merged: RuleWithSource[]

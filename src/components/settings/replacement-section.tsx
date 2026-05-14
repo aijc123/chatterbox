@@ -15,6 +15,23 @@ const SYNC_INTERVAL = 10 * 60 * 1000
 interface ReplacementRule {
   from?: string
   to?: string
+  source?: 'manual' | 'learned'
+  learnedAt?: number
+}
+
+/**
+ * 把毫秒时间戳格式化成"X 前"的相对时间字符串。
+ *
+ * 我们专门给"自动学到的"规则用，避免 UI 出现绝对日期；用户看的是"这条是最近
+ * 还是很久以前学的"，不是"具体几月几号"。粒度足够区分"刚学的（可能是垃圾）"
+ * 和"用了一阵的（大概率有用）"。
+ */
+function formatRelativeTime(ts: number, now = Date.now()): string {
+  const diff = Math.max(0, now - ts)
+  if (diff < 60_000) return '刚刚'
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`
+  return `${Math.floor(diff / 86_400_000)} 天前`
 }
 
 function ReplacementRuleList({
@@ -584,6 +601,53 @@ export function LocalRoomReplacementSection({ query = '' }: { query?: string }) 
     buildReplacementMap()
   }
 
+  /**
+   * 删除一条 learned 规则。learned 规则的索引基于"已过滤的 learned 列表"，
+   * 需要从原始数组里找到对应 from/learnedAt 才能定位。源数组里 manual 跟
+   * learned 是混在一起的（保留写入顺序）；用 (from, learnedAt) 当复合键能
+   * 精确匹配，避免误删同名 manual 规则。
+   */
+  const removeLearnedRule = (learned: ReplacementRule) => {
+    const rid = editingRoomId.value
+    if (!rid) return
+    const all = { ...localRoomRules.value }
+    const existing = (all[rid] ?? []).filter(
+      r => !(r.source === 'learned' && r.from === learned.from && r.learnedAt === learned.learnedAt)
+    )
+    if (existing.length === 0) delete all[rid]
+    else all[rid] = existing
+    localRoomRules.value = all
+    buildReplacementMap()
+    appendLog(`📚 已撤销学到的屏蔽词规则：${learned.from} → ${learned.to}`)
+  }
+
+  /** 一键撤销 N 条最近 learned 规则（按 learnedAt 倒序）。 */
+  const removeRecentLearned = async (n: number) => {
+    const rid = editingRoomId.value
+    if (!rid) return
+    const existing = localRoomRules.value[rid] ?? []
+    const recentLearned = existing
+      .filter(r => r.source === 'learned')
+      .sort((a, b) => (b.learnedAt ?? 0) - (a.learnedAt ?? 0))
+      .slice(0, n)
+    if (recentLearned.length === 0) return
+    const ok = await showConfirm({
+      title: `撤销最近 ${recentLearned.length} 条学习的规则`,
+      body: recentLearned.map(r => `${r.from} → ${r.to}`).join('\n'),
+      confirmText: `撤销这 ${recentLearned.length} 条`,
+      cancelText: '取消',
+    })
+    if (!ok) return
+    const keepSet = new Set(recentLearned.map(r => `${r.from}\x00${r.learnedAt}`))
+    const filtered = existing.filter(r => !(r.source === 'learned' && keepSet.has(`${r.from}\x00${r.learnedAt}`)))
+    const all = { ...localRoomRules.value }
+    if (filtered.length === 0) delete all[rid]
+    else all[rid] = filtered
+    localRoomRules.value = all
+    buildReplacementMap()
+    appendLog(`📚 已撤销 ${recentLearned.length} 条最近自动学到的规则`)
+  }
+
   const addRoom = () => {
     const rid = newRoomId.value.trim()
     if (!rid) return
@@ -682,11 +746,94 @@ export function LocalRoomReplacementSection({ query = '' }: { query?: string }) 
 
         {editingRoomId.value ? (
           <>
-            <ReplacementRuleList
-              rules={editingRules}
-              emptyText='暂无此房间的替换规则，请在下方添加'
-              onRemove={removeRoomRule}
-            />
+            {(() => {
+              // 把规则按 source 拆开展示：手工规则（含未标记的老数据）走原 list,
+              // 学到的规则单独区块以时间倒序呈现 + 撤销按钮。
+              const manualRules = editingRules.filter(r => r.source !== 'learned')
+              const learnedRules = editingRules
+                .filter(r => r.source === 'learned')
+                .sort((a, b) => (b.learnedAt ?? 0) - (a.learnedAt ?? 0))
+              // manualRules 在源数组里的 index 不连续；onRemove 给出的是 manual
+              // 列表里的 index，要映射回源数组 index。
+              const manualOriginalIdx = editingRules
+                .map((r, i) => ({ r, i }))
+                .filter(({ r }) => r.source !== 'learned')
+                .map(({ i }) => i)
+
+              return (
+                <>
+                  <ReplacementRuleList
+                    rules={manualRules}
+                    emptyText='暂无此房间的手工规则，请在下方添加'
+                    onRemove={i => removeRoomRule(manualOriginalIdx[i])}
+                  />
+                  {learnedRules.length > 0 && (
+                    <details className='cb-panel' style={{ marginTop: '.5em' }}>
+                      <summary style={{ cursor: 'pointer', userSelect: 'none', fontWeight: 'bold', fontSize: '0.9em' }}>
+                        自动学到的规则 ({learnedRules.length})
+                      </summary>
+                      <div className='cb-note' style={{ color: '#666', fontSize: '0.85em', marginTop: '.35em' }}>
+                        这些规则由「自动重发 + 自动学习」从 AI 改写结果中沉淀而来。
+                        若发现某条改写不准确，点旁边的「撤销」即可删除。
+                      </div>
+                      <div
+                        style={{
+                          display: 'flex',
+                          gap: '.5em',
+                          alignItems: 'center',
+                          flexWrap: 'wrap',
+                          margin: '.4em 0',
+                        }}
+                      >
+                        <button type='button' className='cb-rule-remove' onClick={() => void removeRecentLearned(5)}>
+                          撤销最近 5 条
+                        </button>
+                        {learnedRules.length > 10 && (
+                          <button
+                            type='button'
+                            className='cb-rule-remove'
+                            onClick={() => void removeRecentLearned(learnedRules.length)}
+                          >
+                            清空全部 ({learnedRules.length})
+                          </button>
+                        )}
+                      </div>
+                      <div className='cb-rule-list'>
+                        {learnedRules.map(rule => (
+                          <div key={`${rule.from}\x00${rule.learnedAt}`} className='cb-rule-item'>
+                            <div className='cb-rule-pair'>
+                              <div>
+                                <div className='cb-label'>
+                                  替换前
+                                  {rule.learnedAt && (
+                                    <span style={{ marginLeft: '.5em', color: '#999', fontWeight: 'normal' }}>
+                                      · {formatRelativeTime(rule.learnedAt)}
+                                    </span>
+                                  )}
+                                </div>
+                                <code>{rule.from || '(空)'}</code>
+                              </div>
+                              <div>
+                                <div className='cb-label'>替换后</div>
+                                <code>{rule.to || '(空)'}</code>
+                              </div>
+                            </div>
+                            <button
+                              type='button'
+                              className='cb-rule-remove'
+                              onClick={() => removeLearnedRule(rule)}
+                              aria-label='撤销这条自动学到的规则'
+                            >
+                              撤销
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  )}
+                </>
+              )
+            })()}
             <ReplacementRuleForm
               from={roomReplaceFrom.value}
               to={roomReplaceTo.value}

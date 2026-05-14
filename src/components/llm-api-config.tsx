@@ -60,25 +60,73 @@ const FIELD_HINT_STYLE = { fontSize: '11px', color: '#6e6e73' }
 const STACK_STYLE = { display: 'grid', gap: '4px' }
 
 /**
+ * 已知 OpenAI 兼容服务商的 hostname 白名单。命中 = 静默通过；不命中 = 显示
+ * 黄色"未知服务商"提示，并不阻断（用户自部署 / Ollama 局域网 / 新服务商
+ * 都需要能通过）。仅文案级提醒——TM 弹窗仍是最后一道闸门。
+ *
+ * 列表来源：[const.ts](../lib/const.ts) 注释 + UI placeholder + 社区常用。
+ * 用 `endsWith('.' + suffix)` 或精确匹配，避免 `evil-deepseek.com` 这种钓鱼域
+ * 假冒 `deepseek.com`。
+ */
+const KNOWN_LLM_HOSTS = [
+  'api.anthropic.com',
+  'api.openai.com',
+  'api.deepseek.com',
+  'api.moonshot.cn',
+  'openrouter.ai',
+  'token-plan-sgp.xiaomimimo.com',
+  'api.siliconflow.cn',
+  'api.together.xyz',
+  'api.groq.com',
+] as const
+
+/** 局域网 / 本机 hostname，Ollama 等本地服务常用，不视为可疑。 */
+function isLocalHost(hostname: string): boolean {
+  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') return true
+  if (/^192\.168\./.test(hostname)) return true
+  if (/^10\./.test(hostname)) return true
+  if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname)) return true
+  if (hostname.endsWith('.local')) return true
+  return false
+}
+
+function isKnownLlmHost(hostname: string): boolean {
+  const h = hostname.toLowerCase()
+  return KNOWN_LLM_HOSTS.some(known => h === known || h.endsWith(`.${known}`))
+}
+
+/**
  * Quick sanity-check on the OpenAI-compatible Base URL. The test-connection
  * button already exercises the real upstream, but the user normally clicks
  * it once after typing — and they shouldn't have to round-trip to learn the
  * URL is missing a scheme.
+ *
+ * 返回 `{ severity, message }`：
+ * - `'error'`: URL 格式问题（红字）
+ * - `'warn'`: 域名不在已知服务商白名单（黄字，不阻断）
+ * - `null`: 通过校验
  */
-function validateLlmBaseUrl(raw: string): string | null {
+function validateLlmBaseUrl(raw: string): { severity: 'error' | 'warn'; message: string } | null {
   if (!/^https?:\/\//i.test(raw)) {
-    return '缺少协议前缀，请加 http:// 或 https://'
+    return { severity: 'error', message: '缺少协议前缀，请加 http:// 或 https://' }
   }
+  let url: URL
   try {
-    const url = new URL(raw)
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-      return '只支持 http:// 或 https:// 协议'
-    }
-    if (!url.hostname) return 'URL 缺少主机名'
-    return null
+    url = new URL(raw)
   } catch {
-    return 'URL 格式不合法'
+    return { severity: 'error', message: 'URL 格式不合法' }
   }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    return { severity: 'error', message: '只支持 http:// 或 https:// 协议' }
+  }
+  if (!url.hostname) return { severity: 'error', message: 'URL 缺少主机名' }
+  if (!isKnownLlmHost(url.hostname) && !isLocalHost(url.hostname)) {
+    return {
+      severity: 'warn',
+      message: `这个域名（${url.hostname}）不在已知 LLM 服务商列表里。请确认是你信任的服务商（如 DeepSeek/Moonshot/OpenRouter/Ollama 等），否则你的 API key 可能被钓鱼。Tampermonkey 也会弹窗确认。`,
+    }
+  }
+  return null
 }
 
 export interface LlmApiConfigPanelProps {
@@ -238,11 +286,22 @@ export function LlmApiConfigPanel({ showTestConnection = true }: LlmApiConfigPan
           {(() => {
             const v = llmBaseURL.value.trim()
             if (v === '') return null
-            const warn = validateLlmBaseUrl(v)
-            if (!warn) return null
+            const result = validateLlmBaseUrl(v)
+            if (!result) return null
+            const isError = result.severity === 'error'
             return (
-              <span role='status' aria-live='polite' style={{ color: '#a15c00', fontSize: '11px' }}>
-                ⚠️ {warn}
+              <span
+                role='status'
+                aria-live='polite'
+                style={{
+                  color: isError ? '#b00020' : '#a15c00',
+                  fontSize: '11px',
+                  fontWeight: isError ? 600 : 500,
+                  lineHeight: 1.4,
+                  display: 'block',
+                }}
+              >
+                ⚠️ {result.message}
               </span>
             )
           })()}
@@ -273,10 +332,35 @@ export function LlmApiConfigPanel({ showTestConnection = true }: LlmApiConfigPan
         </div>
       )}
 
+      {/* 安全提示分两条：明文落盘的风险条只在 persist + 已配置 key 时显示得显眼，
+          其它情况退回浅色 helper hint。Tampermonkey 的 @connect 提示永远显示，
+          因为它跟域名授权流程有关，跟 key 是否落盘无关。 */}
+      {llmApiKeyPersist.value && apiKeyConfigured ? (
+        <div
+          role='status'
+          aria-live='polite'
+          style={{
+            color: '#b00020',
+            background: 'rgba(176,0,32,.08)',
+            border: '1px solid rgba(176,0,32,.25)',
+            padding: '6px 8px',
+            borderRadius: '4px',
+            fontSize: '12px',
+            fontWeight: 600,
+            lineHeight: 1.45,
+          }}
+        >
+          ⚠️ Key 已明文存进浏览器 GM 存储。共用电脑、浏览器同步、其他扩展、备份导出
+          都能直接读到。担心泄漏：上面取消勾选「保存到 GM 存储」改为仅本会话。
+        </div>
+      ) : (
+        <div className='cb-note' style={{ color: '#a15c00' }}>
+          {llmApiKeyPersist.value
+            ? '提示：填入 key 后会明文存进 GM 存储。关掉「保存到 GM 存储」可改为仅本会话。'
+            : 'Key 仅留在内存，刷新页面后清空。'}
+        </div>
+      )}
       <div className='cb-note' style={{ color: '#a15c00' }}>
-        {llmApiKeyPersist.value
-          ? 'Key 明文保存在浏览器 GM 存储；共用电脑或备份导出会暴露。担心可关掉「保存到 GM 存储」改为仅本会话。'
-          : 'Key 仅留在内存，刷新页面后清空。'}
         openai-compat 自定义域首次调用时 Tampermonkey 会弹权限确认，需手动允许。
       </div>
     </div>

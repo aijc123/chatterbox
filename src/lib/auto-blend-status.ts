@@ -12,6 +12,12 @@ export interface AutoBlendStatusInput {
   isSending: boolean
   cooldownUntil: number
   now: number
+  /**
+   * 当前是否启用自适应冷却。仅用于"冷却 ≥ 30s 看着像挂了" 这种用户困惑场景下
+   * 在状态文案里加一句解释（冷场房间 CPM 低被算到天花板）。可选参数,旧调用方
+   * 不传也能跑。
+   */
+  cooldownAuto?: boolean
 }
 
 export function formatAutoBlendSenderInfo(uniqueUsers: number, totalCount: number): string {
@@ -28,13 +34,21 @@ export function formatAutoBlendStatus({
   isSending,
   cooldownUntil,
   now,
+  cooldownAuto,
 }: AutoBlendStatusInput): string {
   if (!enabled) return '已关闭'
   if (dryRun) return '试运行（不发送）'
   if (isSending) return '正在跟车'
 
   const left = Math.max(0, Math.ceil((cooldownUntil - now) / 1000))
-  return left > 0 ? `冷却中 ${left}s` : '观察中'
+  if (left <= 0) return '观察中'
+  // 自适应模式下 ≥ 30s 通常意味着房间冷场，CPM 低被映射到接近 60s 天花板。
+  // 用户看到"冷却中 58s"很容易以为脚本卡了——加一句解释把"为什么这么久"
+  // 显式说出来。
+  if (cooldownAuto && left >= 30) {
+    return `冷却中 ${left}s（冷场房间冷却拉长，按弹幕速率自适应）`
+  }
+  return `冷却中 ${left}s`
 }
 
 export function formatAutoBlendCandidate(candidates: AutoBlendCandidate[]): string {

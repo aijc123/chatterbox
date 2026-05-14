@@ -33,8 +33,15 @@ import { shadowBanObservations, shadowChipDismissedKeys } from '../lib/store'
 /** Hard cap on persisted dismiss keys (keeps the gm-value bounded). */
 const DISMISSED_KEYS_CAP = 256
 
-/** How long after observation is recorded the chip stays visible. */
-export const SHADOW_CHIP_RECENT_WINDOW_MS = 60_000
+/**
+ * How long after observation is recorded the chip stays visible.
+ *
+ * 之前是 60s，但用户场景里 60s 太短：发了一条 → 4s 检测出屏蔽 → 用户去做点
+ * 别的（喝水/翻聊天）→ 1 分钟回来气泡已经没了。改成 5min 让"出去几分钟回来
+ * 还能点候选"成为常态。观察记录本身仍然永久保存在 shadowBanObservations
+ * 列表里，可通过设置 → 影子屏蔽观察 查到。
+ */
+export const SHADOW_CHIP_RECENT_WINDOW_MS = 5 * 60 * 1000
 /** How often we re-measure the anchor element's position. */
 const ANCHOR_REFRESH_MS = 500
 /** Vertical gap between chip bottom and composer top. */

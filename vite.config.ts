@@ -23,7 +23,10 @@ export default defineConfig({
         website: 'https://aijc123.github.io/bilibili-live-wheel-auto-follow/',
         source: 'https://github.com/aijc123/bilibili-live-wheel-auto-follow',
         supportURL: 'https://github.com/aijc123/bilibili-live-wheel-auto-follow/issues',
-        match: ['*://live.bilibili.com/*', '*://space.bilibili.com/*'],
+        // 只匹配直播间页面。space.bilibili.com 以前也在 match 列表里，但
+        // main.tsx 在非 `live.bilibili.com` hostname 上立即 return（见 main.tsx:15-21），
+        // 死匹配，保留只会让 TM 安装提示多列一个让新用户警觉的域名。
+        match: ['*://live.bilibili.com/*'],
         connect: [
           'bilibili-guard-room.vercel.app',
           'localhost',

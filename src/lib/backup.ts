@@ -34,10 +34,9 @@ const EXPORT_KEYS = [
   'lastAppliedPresetBaseline',
   'autoBlendAdvancedOpen',
   'autoBlendDryRun',
-  'autoBlendAvoidRisky',
-  'autoBlendBlockedWords',
+  // 'autoBlendAvoidRisky'、'autoBlendBlockedWords' — 已废除，生产代码不读，
+  // 留在 GM 存储是死字段。老备份里若包含会进入 unknownKeys 列表被静默忽略。
   // 'autoBlendIncludeReply' — 已废除（@ 回复一律不跟），不再导入/导出。
-  // 老备份里若包含会进入 unknownKeys 列表被静默忽略，无副作用。
   'autoBlendUseReplacements',
   'autoBlendAvoidRepeat',
   'autoBlendRequireDistinctUsers',
@@ -71,17 +70,19 @@ const EXPORT_KEYS = [
   'customChatShowNotice',
   'customChatCss',
   'customChatPerfDebug',
-  // Guard room
+  // Guard room — note: guardRoomSyncKey 是 Bearer 凭证，不进 backup（跟 LLM
+  // 凭证同策略，避免用户分享备份时无意识泄漏 token）。persist toggle 进 backup
+  // 以保留用户偏好。
   'guardRoomEndpoint',
-  'guardRoomSyncKey',
+  'guardRoomSyncKeyPersist',
   'guardRoomWebsiteControlEnabled',
   // UI panel state
   'logPanelOpen',
   'autoSendPanelOpen',
   'autoBlendPanelOpen',
   'memesPanelOpen',
-  // STT
-  'sonioxApiKey',
+  // STT — sonioxApiKey 是凭证，不进 backup（同上）。
+  'sonioxApiKeyPersist',
   'sonioxLanguageHints',
   'sonioxAutoSend',
   'sonioxMaxLength',
@@ -93,6 +94,8 @@ const EXPORT_KEYS = [
   'localRoomRules',
   // Log
   'maxLogLines',
+  // Confirm TTL — 一并备份，避免恢复后立刻又被弹窗。
+  'lastAutoBlendRealFireConfirmAt',
 ] as const
 
 export function exportSettings(): string {

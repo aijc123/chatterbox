@@ -41,7 +41,12 @@ export const SEND_ECHO_TIMEOUT_MS = 4000
 export type EchoSource = 'ws' | 'dom' | 'local' | null
 
 const RECENT_DOM_DANMAKU_HISTORY_MS = 15_000
-const RECENT_DOM_DANMAKU_HISTORY_MAX = 240
+// 15s × 25 msg/s（LPL 决赛/顶流主播开播级 CPM 1500+）= 375 entries 是文档化的
+// 极端突发；旧值 240 在 16 msg/s 就会被 FIFO 提前淘汰，让 verifyBroadcast 在
+// 4s 后查 recentDom 时找不到 3.5s 前的自己回显，误报"未广播"。把上限提到
+// 1000 给 60 msg/s 持续 15s 留余量（≈ 50KB 内存,可控）。仍保留数量上限作
+// 内存防护,不只靠时间裁剪。
+const RECENT_DOM_DANMAKU_HISTORY_MAX = 1000
 
 const recentDomDanmaku: Array<{ text: string; uid: string | null; observedAt: number }> = []
 
@@ -85,6 +90,14 @@ function findRecentDomDanmakuSource(
     if (event.text !== target) continue
     if (uid && event.uid && event.uid !== uid) continue
     if (selfUid && event.uid === selfUid) continue // self-insert is not proof
+    // 已知限制：当 `event.uid` 为 null（B站 DOM 改版让 danmaku-stream 抽不到 uid）
+    // 且 `selfUid` 非空时，无法区分这是别人的真广播还是自己的本地自插入。
+    // 现行约定（见 tests/send-verification.test.ts 'synchronous backfill from
+    // DOM history before subscribing (non-self uid)'）：把 null uid 视为"非自身"
+    // 并返回 'dom' 作为广播证据。代价：B 站 DOM 抽取失败时一条真的影子屏蔽
+    // 消息会被误判为已广播（false negative on shadow ban）。这条 trade-off
+    // 沿用 chatterbox 上游约定不改；要想反过来"宁可漏报不要误报"，得同时
+    // 改测试 + 用户文档。
     return 'dom'
   }
   return null
@@ -101,7 +114,8 @@ function matchesCustomChatEchoEvent(event: CustomChatEvent, target: string, uid:
 function matchesDomEchoEvent(event: DanmakuEvent, target: string, uid: string | null, selfUid: string | null): boolean {
   if (event.text.trim() !== target) return false
   if (uid && event.uid && event.uid !== uid) return false
-  // see findRecentDomDanmakuSource
+  // see findRecentDomDanmakuSource — null event.uid 沿用上游约定视为非自身，
+  // 不在这里 conservatively reject。代价见同函数注释。
   return !(selfUid && event.uid === selfUid)
 }
 

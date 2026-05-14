@@ -15,6 +15,7 @@ import {
   formatAutoBlendStatus,
   shortAutoBlendText,
 } from './auto-blend-status'
+import { releaseAutoBlendLock, tryAcquireAutoBlendLock } from './auto-blend-tab-lock'
 import { detectTrend, type TrendEvent } from './auto-blend-trend'
 import { getAutoBlendTrendKey } from './chatfilter-runtime'
 import { subscribeCustomChatEvents } from './custom-chat-events'
@@ -118,6 +119,11 @@ let firstRateLimitHitAt = 0
 let moderationStopReason: string | null = null
 let consecutiveSilentDrops = 0
 const SILENT_DROP_CHECK_THRESHOLD = 3
+// B 站新发的、我们字符串/数字码都没识别的错误。3 次连发后强制 dry-run,
+// 避免在被禁言的状态下继续真发(假阳性会被风控反推)。任何已识别错误或
+// 成功发送会清零。
+let consecutiveUnknownErrors = 0
+const UNKNOWN_ERROR_DRYRUN_THRESHOLD = 3
 
 // Let a freshly-started wave breathe briefly before following it. With a
 // threshold of 2, firing on the exact second message makes every log look like
@@ -266,6 +272,7 @@ function handleSendFailure(result: SendDanmakuResult, roomId?: number): boolean 
   const codeKind = classifyByCode(result.errorCode)
 
   if (codeKind === 'muted' || (codeKind === null && isMutedError(error))) {
+    consecutiveUnknownErrors = 0
     const risk = classifyRiskEvent(result.error, result.errorData)
     void syncGuardRoomRiskEvent({
       ...risk,
@@ -281,6 +288,7 @@ function handleSendFailure(result: SendDanmakuResult, roomId?: number): boolean 
   }
 
   if (codeKind === 'account' || (codeKind === null && isAccountRestrictedError(error))) {
+    consecutiveUnknownErrors = 0
     const risk = classifyRiskEvent(result.error, result.errorData)
     void syncGuardRoomRiskEvent({
       ...risk,
@@ -305,8 +313,24 @@ function handleSendFailure(result: SendDanmakuResult, roomId?: number): boolean 
       errorCode: result.errorCode,
       reason: result.error,
     })
+    // 我们的数字码 + 字符串匹配都没识别这个错误。可能是 B 站新发的、还没适配
+    // 的限制类型。只有 errorCode 真的有值才算"未知错误"——errorCode 完全缺失
+    // 通常是网络/CORS 之类的，不计数。
+    if (result.errorCode !== undefined && result.errorCode !== 0) {
+      consecutiveUnknownErrors += 1
+      if (consecutiveUnknownErrors >= UNKNOWN_ERROR_DRYRUN_THRESHOLD && !autoBlendDryRun.value) {
+        autoBlendDryRun.value = true
+        consecutiveUnknownErrors = 0
+        logAutoBlend(
+          `⚠️ 自动跟车：连续 ${UNKNOWN_ERROR_DRYRUN_THRESHOLD} 次收到我们不认识的 B 站响应（errorCode=${result.errorCode}, reason="${error ?? ''}"），已切换到试运行模式避免在未知风险下继续真发。请把这条反馈给维护者。`,
+          'warning'
+        )
+      }
+    }
     return false
   }
+  // 走到这里说明是 rate-limit 错误,已识别,清未知错误计数。
+  consecutiveUnknownErrors = 0
 
   if (now - firstRateLimitHitAt > getRateLimitWindowMs()) {
     firstRateLimitHitAt = now
@@ -376,6 +400,7 @@ function updateStatusText(): void {
     isSending,
     cooldownUntil,
     now: Date.now(),
+    cooldownAuto: autoBlendCooldownAuto.value,
   })
 }
 
@@ -878,6 +903,17 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
     autoBlendLastActionText.value = `出错：${msg}`
     logAutoBlend('自动跟车出错', 'error', msg)
   } finally {
+    // 防紧凑重触发：如果所有 target 都因为表情过滤 / YOLO 失败 / LLM 空返回被
+    // 跳过（cooldownEngaged 仍为 false），但 trendMap 里那些已达标的 entry 仍在,
+    // 下一条同样的弹幕进来会立刻再触发同一波。强制一个短冷却 + 清掉本批
+    // trendMap entry，避免日志被刷屏 + 浪费 LLM 配额。短冷却（5s）比正常冷却
+    // 短，因为这一波本来就没"实际发出去"，不应消费完整 20-45s。
+    if (!cooldownEngaged && targets.length > 0) {
+      const FILTERED_WAVE_COOLDOWN_MS = 5000
+      cooldownUntil = Math.max(cooldownUntil, Date.now() + FILTERED_WAVE_COOLDOWN_MS)
+      for (const { text } of targets) trendMap.delete(text)
+      updateCandidateText()
+    }
     isSending = false
     updateStatusText()
   }
@@ -890,6 +926,7 @@ export function startAutoBlend(): void {
   firstRateLimitHitAt = 0
   moderationStopReason = null
   consecutiveSilentDrops = 0
+  consecutiveUnknownErrors = 0
   nextTrendPruneAt = Number.POSITIVE_INFINITY
   lastPruneWindowMs = 0
   autoBlendStatusText.value = '观察中'
@@ -922,6 +959,34 @@ export function startAutoBlend(): void {
 
   routineActive = true
   scheduleNextRoutine()
+
+  // 跨 tab 互斥：异步抢锁。startAutoBlend 必须保持同步签名（既有测试和 useEffect
+  // 都按 sync 调用），所以这里不 await。如果抢锁失败（另一个 tab 持锁），异步
+  // 回调 stopAutoBlend + 把 enabled 置 false + 提示用户。
+  //
+  // 微小窗口（一次微任务）内 runtime 已启动但锁未确认——可接受，因为：
+  //   - recordDanmaku 只往 trendMap 加,不直接发
+  //   - scheduleBurstSend 用 setTimeout(>= 100ms burstSettleMs)
+  //   - routineTimerTick 间隔 ≥ 10s
+  // 微任务先于这些 timer 触发,所以这一窗口内不会出现实际发送。
+  const roomIdAtStart = cachedRoomId.peek()
+  if (roomIdAtStart !== null) {
+    void tryAcquireAutoBlendLock(roomIdAtStart).then(acquired => {
+      if (!acquired && autoBlendEnabled.value) {
+        autoBlendEnabled.value = false
+        // stopAutoBlend 会被 app.tsx 的 useEffect 触发,但我们也显式调一遍
+        // 以防止 race（signal 已置 false 但 effect 还没跑）。stopAutoBlend
+        // 是幂等的——见 `if (cleanupTimer)` 等守卫。
+        stopAutoBlend()
+        autoBlendStatusText.value = '已被另一 tab 占用'
+        autoBlendLastActionText.value = '另一个 tab 已经在跟车，本 tab 让出'
+        logAutoBlend(
+          '⚠️ 自动跟车：检测到本浏览器另一个 tab 已经在同一直播间开了自动跟车，本 tab 不重复启动——避免 B 站按双倍频率风控。请关掉那个 tab 后再试。',
+          'warning'
+        )
+      }
+    })
+  }
 }
 
 export function stopAutoBlend(): void {
@@ -961,6 +1026,7 @@ export function stopAutoBlend(): void {
   // re-set isSending=false harmlessly.
   isSending = false
   consecutiveSilentDrops = 0
+  consecutiveUnknownErrors = 0
   rateLimitHitCount = 0
   firstRateLimitHitAt = 0
   lastAutoSentText = null
@@ -970,6 +1036,8 @@ export function stopAutoBlend(): void {
   autoBlendCandidateProgress.value = null
   autoBlendLastActionText.value = moderationStopReason ?? '暂无'
   moderationStopReason = null
+  // 释放跨 tab 互斥锁，让另一个 tab 能接管。
+  releaseAutoBlendLock()
 }
 
 /**
@@ -981,6 +1049,7 @@ export function stopAutoBlend(): void {
 export function _resetAutoBlendStateForTests(): void {
   isSending = false
   consecutiveSilentDrops = 0
+  consecutiveUnknownErrors = 0
   rateLimitHitCount = 0
   firstRateLimitHitAt = 0
   moderationStopReason = null
