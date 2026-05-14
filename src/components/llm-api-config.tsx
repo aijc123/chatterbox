@@ -1,5 +1,6 @@
 import { useSignal } from '@preact/signals'
 
+import { validateLlmBaseUrl } from '../lib/llm-base-url-validate'
 import {
   clearLlmApiKey,
   type LlmProvider,
@@ -58,76 +59,6 @@ function modeButtonStyle(active: boolean) {
 const FIELD_LABEL_STYLE = { fontSize: '11px', fontWeight: 600, color: '#1d1d1f' }
 const FIELD_HINT_STYLE = { fontSize: '11px', color: '#6e6e73' }
 const STACK_STYLE = { display: 'grid', gap: '4px' }
-
-/**
- * 已知 OpenAI 兼容服务商的 hostname 白名单。命中 = 静默通过；不命中 = 显示
- * 黄色"未知服务商"提示，并不阻断（用户自部署 / Ollama 局域网 / 新服务商
- * 都需要能通过）。仅文案级提醒——TM 弹窗仍是最后一道闸门。
- *
- * 列表来源：[const.ts](../lib/const.ts) 注释 + UI placeholder + 社区常用。
- * 用 `endsWith('.' + suffix)` 或精确匹配，避免 `evil-deepseek.com` 这种钓鱼域
- * 假冒 `deepseek.com`。
- */
-const KNOWN_LLM_HOSTS = [
-  'api.anthropic.com',
-  'api.openai.com',
-  'api.deepseek.com',
-  'api.moonshot.cn',
-  'openrouter.ai',
-  'token-plan-sgp.xiaomimimo.com',
-  'api.siliconflow.cn',
-  'api.together.xyz',
-  'api.groq.com',
-] as const
-
-/** 局域网 / 本机 hostname，Ollama 等本地服务常用，不视为可疑。 */
-function isLocalHost(hostname: string): boolean {
-  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') return true
-  if (/^192\.168\./.test(hostname)) return true
-  if (/^10\./.test(hostname)) return true
-  if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname)) return true
-  if (hostname.endsWith('.local')) return true
-  return false
-}
-
-function isKnownLlmHost(hostname: string): boolean {
-  const h = hostname.toLowerCase()
-  return KNOWN_LLM_HOSTS.some(known => h === known || h.endsWith(`.${known}`))
-}
-
-/**
- * Quick sanity-check on the OpenAI-compatible Base URL. The test-connection
- * button already exercises the real upstream, but the user normally clicks
- * it once after typing — and they shouldn't have to round-trip to learn the
- * URL is missing a scheme.
- *
- * 返回 `{ severity, message }`：
- * - `'error'`: URL 格式问题（红字）
- * - `'warn'`: 域名不在已知服务商白名单（黄字，不阻断）
- * - `null`: 通过校验
- */
-function validateLlmBaseUrl(raw: string): { severity: 'error' | 'warn'; message: string } | null {
-  if (!/^https?:\/\//i.test(raw)) {
-    return { severity: 'error', message: '缺少协议前缀，请加 http:// 或 https://' }
-  }
-  let url: URL
-  try {
-    url = new URL(raw)
-  } catch {
-    return { severity: 'error', message: 'URL 格式不合法' }
-  }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    return { severity: 'error', message: '只支持 http:// 或 https:// 协议' }
-  }
-  if (!url.hostname) return { severity: 'error', message: 'URL 缺少主机名' }
-  if (!isKnownLlmHost(url.hostname) && !isLocalHost(url.hostname)) {
-    return {
-      severity: 'warn',
-      message: `这个域名（${url.hostname}）不在已知 LLM 服务商列表里。请确认是你信任的服务商（如 DeepSeek/Moonshot/OpenRouter/Ollama 等），否则你的 API key 可能被钓鱼。Tampermonkey 也会弹窗确认。`,
-    }
-  }
-  return null
-}
 
 export interface LlmApiConfigPanelProps {
   /**

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.13.11
+// @version      2.13.12
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -18037,30 +18037,6 @@ u$2("span", { style: { color: "#4a8" }, children: r2.canonical })
     resetRuntime();
     updateHzmStatusText();
   }
-  const PROVIDER_LABEL = {
-    anthropic: "Anthropic",
-    openai: "OpenAI",
-
-"openai-compat": "OpenAI 兼容"
-  };
-  const PROVIDER_TITLE = {
-    anthropic: "Anthropic（推荐 claude-haiku-4-5-20251001）",
-    openai: "OpenAI（推荐 gpt-4o-mini）",
-    "openai-compat": "OpenAI 兼容（DeepSeek / Moonshot / OpenRouter / Ollama / 小米 mimo）"
-  };
-  function maskKey(k2) {
-    const trimmed = k2.trim();
-    if (trimmed.length <= 8) return trimmed ? `${trimmed[0]}***${trimmed.at(-1)}` : "";
-    return `${trimmed.slice(0, 4)}…${trimmed.slice(-4)}`;
-  }
-  function modeButtonStyle$1(active) {
-    return {
-      fontWeight: active ? "bold" : void 0
-    };
-  }
-  const FIELD_LABEL_STYLE = { fontSize: "11px", fontWeight: 600, color: "#1d1d1f" };
-  const FIELD_HINT_STYLE = { fontSize: "11px", color: "#6e6e73" };
-  const STACK_STYLE = { display: "grid", gap: "4px" };
   const KNOWN_LLM_HOSTS = [
     "api.anthropic.com",
     "api.openai.com",
@@ -18073,11 +18049,12 @@ u$2("span", { style: { color: "#4a8" }, children: r2.canonical })
     "api.groq.com"
   ];
   function isLocalHost(hostname) {
-    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") return true;
-    if (/^192\.168\./.test(hostname)) return true;
-    if (/^10\./.test(hostname)) return true;
-    if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname)) return true;
-    if (hostname.endsWith(".local")) return true;
+    const h2 = hostname.startsWith("[") && hostname.endsWith("]") ? hostname.slice(1, -1) : hostname;
+    if (h2 === "localhost" || h2 === "127.0.0.1" || h2 === "::1") return true;
+    if (/^192\.168\./.test(h2)) return true;
+    if (/^10\./.test(h2)) return true;
+    if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(h2)) return true;
+    if (h2.endsWith(".local")) return true;
     return false;
   }
   function isKnownLlmHost(hostname) {
@@ -18106,6 +18083,30 @@ u$2("span", { style: { color: "#4a8" }, children: r2.canonical })
     }
     return null;
   }
+  const PROVIDER_LABEL = {
+    anthropic: "Anthropic",
+    openai: "OpenAI",
+
+"openai-compat": "OpenAI 兼容"
+  };
+  const PROVIDER_TITLE = {
+    anthropic: "Anthropic（推荐 claude-haiku-4-5-20251001）",
+    openai: "OpenAI（推荐 gpt-4o-mini）",
+    "openai-compat": "OpenAI 兼容（DeepSeek / Moonshot / OpenRouter / Ollama / 小米 mimo）"
+  };
+  function maskKey(k2) {
+    const trimmed = k2.trim();
+    if (trimmed.length <= 8) return trimmed ? `${trimmed[0]}***${trimmed.at(-1)}` : "";
+    return `${trimmed.slice(0, 4)}…${trimmed.slice(-4)}`;
+  }
+  function modeButtonStyle$1(active) {
+    return {
+      fontWeight: active ? "bold" : void 0
+    };
+  }
+  const FIELD_LABEL_STYLE = { fontSize: "11px", fontWeight: 600, color: "#1d1d1f" };
+  const FIELD_HINT_STYLE = { fontSize: "11px", color: "#6e6e73" };
+  const STACK_STYLE = { display: "grid", gap: "4px" };
   function LlmApiConfigPanel({ showTestConnection = true }) {
     const testStatus = useSignal("idle");
     const testError = useSignal("");

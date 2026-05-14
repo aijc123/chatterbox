@@ -696,6 +696,299 @@ describe('routineTimerTick — periodic candidate picker', () => {
 })
 
 // ===========================================================================
+// Unknown errorCode counter (B09) — 3 consecutive unknowns → force dryRun
+// ===========================================================================
+
+describe('triggerSend — unknown errorCode counter (B09)', () => {
+  test('three consecutive unknown errorCodes force autoBlendDryRun → true', async () => {
+    // 88888 isn't in classifyByCode's known table and the error string
+    // doesn't hit isMutedError / isAccountRestrictedError / isRateLimitError.
+    // That makes it the "unknown" path that increments the counter.
+    enqueueResult = {
+      success: false,
+      message: '',
+      isEmoticon: false,
+      startedAt: 1,
+      cancelled: false,
+      error: '神秘错误信息',
+      errorCode: 88888,
+      errorData: null,
+    }
+    // Tight cooldown so three rounds fit inside the test timeout.
+    store.autoBlendCooldownSec.value = 1
+    store.autoBlendDryRun.value = false
+    ab.startAutoBlend()
+    try {
+      // Round 1: counter goes 0 → 1, no flip yet, dryRun stays false.
+      ab._recordDanmakuForTests('u1-a', 'a1', false)
+      ab._recordDanmakuForTests('u1-a', 'b1', false)
+      ab._recordDanmakuForTests('u1-a', 'c1', false)
+      await wait(300)
+      expect(store.autoBlendDryRun.value).toBe(false)
+
+      // Wait past cooldown so the next burst can fire.
+      await wait(1100)
+
+      // Round 2: counter 1 → 2, still no flip.
+      ab._recordDanmakuForTests('u2-b', 'a2', false)
+      ab._recordDanmakuForTests('u2-b', 'b2', false)
+      ab._recordDanmakuForTests('u2-b', 'c2', false)
+      await wait(300)
+      expect(store.autoBlendDryRun.value).toBe(false)
+
+      await wait(1100)
+
+      // Round 3: counter 2 → 3, hits threshold, flips dryRun ON.
+      ab._recordDanmakuForTests('u3-c', 'a3', false)
+      ab._recordDanmakuForTests('u3-c', 'b3', false)
+      ab._recordDanmakuForTests('u3-c', 'c3', false)
+      await wait(300)
+
+      expect(store.autoBlendDryRun.value).toBe(true)
+      // The warn log should mention the threshold + errorCode for user repro.
+      expect(
+        logAutoBlendCalls.some(c => c.level === 'warning' && c.message.match(/连续 3 次/) && c.message.match(/88888/))
+      ).toBe(true)
+    } finally {
+      ab.stopAutoBlend()
+    }
+  }, 10_000)
+
+  test('a recognized error (rate-limit) interleaved resets the unknown counter', async () => {
+    // 1 unknown + 1 rate-limit + 2 unknown → only 2 consecutive unknown at
+    // the end, so dryRun should NOT flip.
+    store.autoBlendCooldownSec.value = 1
+    store.autoBlendDryRun.value = false
+    // Avoid the moderation-stop bar (default 3 hits) so rate-limit alone
+    // doesn't stop auto-blend before the 4th round.
+    store.autoBlendRateLimitStopThreshold.value = 5
+    ab.startAutoBlend()
+    try {
+      // Round 1: unknown.
+      enqueueResult = {
+        success: false,
+        message: '',
+        isEmoticon: false,
+        startedAt: 1,
+        cancelled: false,
+        error: '神秘错误',
+        errorCode: 88888,
+        errorData: null,
+      }
+      ab._recordDanmakuForTests('r1', 'a', false)
+      ab._recordDanmakuForTests('r1', 'b', false)
+      ab._recordDanmakuForTests('r1', 'c', false)
+      await wait(300)
+      await wait(1100)
+
+      // Round 2: rate-limit (Chinese phrase recognized by isRateLimitError).
+      // 切到 rate-limit 会 reset 未知计数器,所以后两次未知 = 2 < 3,不应翻
+      // dryRun。
+      enqueueResult = { ...enqueueResult, error: '发送频率过快' }
+      ab._recordDanmakuForTests('r2', 'a', false)
+      ab._recordDanmakuForTests('r2', 'b', false)
+      ab._recordDanmakuForTests('r2', 'c', false)
+      await wait(300)
+      // rate-limit engages its own cooldown (RATE_LIMIT_BACKOFF, ~2 min).
+      // Force it back to short via the state reset hook so the next bursts
+      // can fire — but keep the counter intact (reset clears counter too,
+      // which would defeat the test). Direct mutation of cooldownUntil
+      // via the test seam.
+      ab._setCooldownUntilForTests(0)
+
+      // Two more unknowns: counter went 1 → 0 (after rate-limit) → 1 → 2.
+      enqueueResult = { ...enqueueResult, error: '又神秘了' }
+      ab._recordDanmakuForTests('r3', 'a', false)
+      ab._recordDanmakuForTests('r3', 'b', false)
+      ab._recordDanmakuForTests('r3', 'c', false)
+      await wait(300)
+      ab._setCooldownUntilForTests(0)
+
+      ab._recordDanmakuForTests('r4', 'a', false)
+      ab._recordDanmakuForTests('r4', 'b', false)
+      ab._recordDanmakuForTests('r4', 'c', false)
+      await wait(300)
+
+      expect(store.autoBlendDryRun.value).toBe(false)
+    } finally {
+      ab.stopAutoBlend()
+    }
+  }, 10_000)
+
+  test('unknown errors accumulate ACROSS successful sends — they only reset on recognized failures', async () => {
+    // 文档当前行为：success 不会重置 consecutiveUnknownErrors,只有被分类为
+    // muted/account/rate-limit 的"识别失败"才重置。
+    //
+    // 设计意图：如果 B 站交替返回成功 + 未知错误,那个未知错误仍然是真信号
+    // (脚本的错误分类表跟不上了);用成功的存在掩盖未知错误的累积反而会
+    // 隐藏部分降级状态。这条测试把这个不变量钉死,避免"加 success 重置"
+    // 这种看似合理但其实有害的回归。
+    store.autoBlendCooldownSec.value = 1
+    store.autoBlendDryRun.value = false
+    ab.startAutoBlend()
+    try {
+      // Round 1: unknown errorCode → counter 0 → 1.
+      enqueueResult = {
+        success: false,
+        message: '',
+        isEmoticon: false,
+        startedAt: 1,
+        cancelled: false,
+        error: '怪错 1',
+        errorCode: 88888,
+        errorData: null,
+      }
+      ab._recordDanmakuForTests('s1', 'a', false)
+      ab._recordDanmakuForTests('s1', 'b', false)
+      ab._recordDanmakuForTests('s1', 'c', false)
+      await wait(300)
+      ab._setCooldownUntilForTests(0)
+
+      // Round 2: success — counter should STAY at 1, NOT reset to 0.
+      enqueueResult = {
+        success: true,
+        message: '',
+        isEmoticon: false,
+        startedAt: 1,
+        cancelled: false,
+        error: '',
+        errorCode: 0,
+        errorData: null,
+      }
+      ab._recordDanmakuForTests('s2', 'a', false)
+      ab._recordDanmakuForTests('s2', 'b', false)
+      ab._recordDanmakuForTests('s2', 'c', false)
+      await wait(300)
+      ab._setCooldownUntilForTests(0)
+
+      // Round 3: unknown again → counter 1 → 2 (still no flip).
+      enqueueResult = {
+        success: false,
+        message: '',
+        isEmoticon: false,
+        startedAt: 1,
+        cancelled: false,
+        error: '怪错 2',
+        errorCode: 88888,
+        errorData: null,
+      }
+      ab._recordDanmakuForTests('s3', 'a', false)
+      ab._recordDanmakuForTests('s3', 'b', false)
+      ab._recordDanmakuForTests('s3', 'c', false)
+      await wait(300)
+      expect(store.autoBlendDryRun.value).toBe(false)
+      ab._setCooldownUntilForTests(0)
+
+      // Round 4: unknown again → counter 2 → 3, flips.
+      ab._recordDanmakuForTests('s4', 'a', false)
+      ab._recordDanmakuForTests('s4', 'b', false)
+      ab._recordDanmakuForTests('s4', 'c', false)
+      await wait(300)
+      expect(store.autoBlendDryRun.value).toBe(true)
+    } finally {
+      ab.stopAutoBlend()
+    }
+  }, 10_000)
+})
+
+// ===========================================================================
+// Filtered-wave cooldown (B07) — every target skipped → short 5s cooldown
+// ===========================================================================
+
+describe('triggerSend — filtered-wave cooldown (B07)', () => {
+  test('YOLO gap on every target → 5s short cooldown still engages', async () => {
+    // YOLO is on but LLM is not configured → every target `continue`s past
+    // engageCooldownOnce. Without the B07 fix the wave would consume zero
+    // cooldown and the same trendMap entry would re-trigger on the next
+    // matching danmaku. With the fix, a 5s short cooldown engages and the
+    // trendMap entry is dropped.
+    store.autoBlendYolo.value = true
+    polishOutcome = 'gap'
+    ab.startAutoBlend()
+    try {
+      ab._recordDanmakuForTests('🚲', 'a', false)
+      ab._recordDanmakuForTests('🚲', 'b', false)
+      ab._recordDanmakuForTests('🚲', 'c', false)
+      await wait(300)
+
+      // No send happened (B07 fix's prerequisite).
+      expect(enqueueCalls.length).toBe(0)
+
+      // Cooldown engaged. Production constant is 5000ms; we accept anything
+      // in (now+1000, now+10000] to avoid flakiness.
+      const cooldownDelta = ab._getCooldownUntilForTests() - Date.now()
+      expect(cooldownDelta).toBeGreaterThan(1000)
+      expect(cooldownDelta).toBeLessThan(10_000)
+
+      // Trend entry was dropped — re-recording the same text shouldn't
+      // instantly re-trigger because trendMap is empty for it.
+      expect(ab._getTrendMapSizeForTests()).toBe(0)
+    } finally {
+      ab.stopAutoBlend()
+    }
+  })
+
+  test('YOLO empty result on every target → 5s short cooldown engages', async () => {
+    store.autoBlendYolo.value = true
+    polishOutcome = 'empty'
+    ab.startAutoBlend()
+    try {
+      ab._recordDanmakuForTests('haha', 'a', false)
+      ab._recordDanmakuForTests('haha', 'b', false)
+      ab._recordDanmakuForTests('haha', 'c', false)
+      await wait(300)
+
+      expect(enqueueCalls.length).toBe(0)
+      const cooldownDelta = ab._getCooldownUntilForTests() - Date.now()
+      expect(cooldownDelta).toBeGreaterThan(1000)
+      expect(cooldownDelta).toBeLessThan(10_000)
+    } finally {
+      ab.stopAutoBlend()
+    }
+  })
+
+  test('YOLO throw on every target → 5s short cooldown engages', async () => {
+    store.autoBlendYolo.value = true
+    polishOutcome = 'throw'
+    ab.startAutoBlend()
+    try {
+      ab._recordDanmakuForTests('boom', 'a', false)
+      ab._recordDanmakuForTests('boom', 'b', false)
+      ab._recordDanmakuForTests('boom', 'c', false)
+      await wait(300)
+
+      expect(enqueueCalls.length).toBe(0)
+      const cooldownDelta = ab._getCooldownUntilForTests() - Date.now()
+      expect(cooldownDelta).toBeGreaterThan(1000)
+      expect(cooldownDelta).toBeLessThan(10_000)
+    } finally {
+      ab.stopAutoBlend()
+    }
+  })
+
+  test('happy-path send → full cooldown is engaged (not the short 5s variant)', async () => {
+    // Sanity: when a target actually fires, the engageCooldownOnce path runs
+    // first and the finally-block short-cooldown is skipped. Cooldown should
+    // be much larger than 5s (we set autoBlendCooldownSec=60 in beforeEach).
+    ab.startAutoBlend()
+    try {
+      ab._recordDanmakuForTests('上车', 'a', false)
+      ab._recordDanmakuForTests('上车', 'b', false)
+      ab._recordDanmakuForTests('上车', 'c', false)
+      await wait(300)
+
+      expect(enqueueCalls.length).toBe(1)
+      const cooldownDelta = ab._getCooldownUntilForTests() - Date.now()
+      // Full cooldown from the test fixture (60s). Allow >10s as the
+      // distinguishing bar — the short 5s path would be <10s.
+      expect(cooldownDelta).toBeGreaterThan(10_000)
+    } finally {
+      ab.stopAutoBlend()
+    }
+  })
+})
+
+// ===========================================================================
 // _resetAutoBlendStateForTests round-trip
 // ===========================================================================
 

@@ -224,6 +224,17 @@ export function _getCooldownUntilForTests(): number {
   return cooldownUntil
 }
 
+/**
+ * Test-only: force-set the cooldown deadline. Used to drive multi-round
+ * scenarios (e.g. "3 consecutive unknown errorCodes flip dryRun") without
+ * waiting full cooldowns between rounds, while keeping the unknown-error
+ * counter / rate-limit counter intact (which `_resetAutoBlendStateForTests`
+ * would clear).
+ */
+export function _setCooldownUntilForTests(value: number): void {
+  cooldownUntil = value
+}
+
 /** Test-only: read lastAutoSentText (avoidRepeat ground truth). */
 export function _getLastAutoSentTextForTests(): string | null {
   return lastAutoSentText
