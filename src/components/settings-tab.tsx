@@ -92,7 +92,7 @@ export function SettingsTab() {
         </details>
       )}
 
-      <GroupHeading query={query}>智能归一</GroupHeading>
+      <GroupHeading query={query}>智能识别</GroupHeading>
       <ChatfilterSection query={query} />
 
       <GroupHeading query={query}>替换规则</GroupHeading>
