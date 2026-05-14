@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.13.9
+// @version      2.13.10
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -60,7 +60,7 @@
 
   const d$3=new Set;const r$3 = async e=>{d$3.has(e)||(d$3.add(e),(t=>{typeof GM_addStyle=="function"?GM_addStyle(t):(document.head||document.documentElement).appendChild(document.createElement("style")).append(t);})(e));};
 
-  r$3(' @property --lc-text-opacity{syntax:"<percentage>";inherits:false;initial-value:100%;}@property --lc-leading{syntax:"*";inherits:false;}@property --lc-border-opacity{syntax:"<percentage>";inherits:false;initial-value:100%;}@property --lc-bg-opacity{syntax:"<percentage>";inherits:false;initial-value:100%;}@property --lc-blur{syntax:"*";inherits:false;}@property --lc-brightness{syntax:"*";inherits:false;}@property --lc-contrast{syntax:"*";inherits:false;}@property --lc-drop-shadow{syntax:"*";inherits:false;}@property --lc-grayscale{syntax:"*";inherits:false;}@property --lc-hue-rotate{syntax:"*";inherits:false;}@property --lc-invert{syntax:"*";inherits:false;}@property --lc-saturate{syntax:"*";inherits:false;}@property --lc-sepia{syntax:"*";inherits:false;}:root,:host{--spacing: .25rem;--radius-DEFAULT: .25rem;--default-transition-timingFunction: cubic-bezier(.4, 0, .2, 1);--default-transition-duration: .15s;--leading-none: 1;--colors-brand: #007aff;--colors-white: #fff;--colors-danger: #ff3b30}#laplace-chatterbox-toggle,#laplace-chatterbox-dialog{box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,SF Pro Text,Segoe UI,sans-serif;font-size:12px;letter-spacing:0}.lc-text-danger{color:color-mix(in srgb,var(--colors-danger) var(--lc-text-opacity),transparent)}.lc-text-white{color:color-mix(in srgb,var(--colors-white) var(--lc-text-opacity),transparent)}.lc-text-inherit{color:inherit}.lc-leading-\\[1\\.2\\]{--lc-leading:1.2;line-height:1.2}.lc-leading-\\[1\\.4\\]{--lc-leading:1.4;line-height:1.4}.lc-leading-none{--lc-leading:var(--leading-none);line-height:var(--leading-none)}.lc-mb-2{margin-bottom:calc(var(--spacing) * 2)}.lc-p-0{padding:calc(var(--spacing) * 0)}.lc-px-\\[10px\\]{padding-inline:10px}.lc-px-1{padding-inline:calc(var(--spacing) * 1)}.lc-px-1\\.5{padding-inline:calc(var(--spacing) * 1.5)}.lc-px-2\\.5{padding-inline:calc(var(--spacing) * 2.5)}.lc-px-3\\.5{padding-inline:calc(var(--spacing) * 3.5)}.lc-py-0\\.5{padding-block:calc(var(--spacing) * .5)}.lc-py-1{padding-block:calc(var(--spacing) * 1)}.lc-py-1\\.5{padding-block:calc(var(--spacing) * 1.5)}.lc-py-px{padding-block:1px}.lc-pb-\\[10px\\]{padding-bottom:10px}.lc-pl-0\\.5{padding-left:calc(var(--spacing) * .5)}.lc-pr-1{padding-right:calc(var(--spacing) * 1)}.lc-outline-none{--lc-outline-style:none;outline-style:none}.lc-border{border-width:1px}.lc-border-brand{border-color:color-mix(in srgb,var(--colors-brand) var(--lc-border-opacity),transparent)}.lc-border-danger{border-color:color-mix(in srgb,var(--colors-danger) var(--lc-border-opacity),transparent)}.lc-border-ga4{border-color:color-mix(in srgb,var(--Ga4, #999) var(--lc-border-opacity),transparent)}.lc-border-transparent{border-color:transparent}.focus\\:lc-border-brand:focus{border-color:color-mix(in srgb,var(--colors-brand) var(--lc-border-opacity),transparent)}.lc-rounded{border-radius:var(--radius-DEFAULT)}.lc-border-solid{--lc-border-style:solid;border-style:solid}.lc-bg-bg1{background-color:color-mix(in srgb,var(--bg1, #fff) var(--lc-bg-opacity),transparent)}.lc-bg-brand{background-color:color-mix(in srgb,var(--colors-brand) var(--lc-bg-opacity),transparent)}.lc-bg-ga1s{background-color:color-mix(in srgb,var(--Ga1_s, rgba(0,0,0,.04)) var(--lc-bg-opacity),transparent)}.lc-bg-transparent{background-color:transparent}.disabled\\:lc-opacity-50:disabled{opacity:50%}.disabled\\:lc-opacity-60:disabled{opacity:60%}.lc-underline{text-decoration-line:underline}.lc-underline-offset-2{text-underline-offset:2px}.lc-flex{display:flex}.lc-inline-flex{display:inline-flex}.lc-flex-1{flex:1 1 0%}.lc-flex-wrap{flex-wrap:wrap}.lc-gap-1{gap:calc(var(--spacing) * 1)}.lc-h-\\[100px\\]{height:100px}.lc-h-6{height:calc(var(--spacing) * 6)}.lc-max-h-\\[50vh\\]{max-height:50vh}.lc-max-w-\\[180px\\]{max-width:180px}.lc-max-w-\\[calc\\(100vw_-_16px\\)\\]{max-width:calc(100vw - 16px)}.lc-min-h-\\[18px\\]{min-height:18px}.lc-min-h-\\[auto\\]{min-height:auto}.lc-min-h-10{min-height:calc(var(--spacing) * 10)}.lc-min-h-5{min-height:calc(var(--spacing) * 5)}.lc-min-h-6{min-height:calc(var(--spacing) * 6)}.lc-min-h-7{min-height:calc(var(--spacing) * 7)}.lc-min-w-\\[120px\\]{min-width:120px}.lc-min-w-\\[160px\\]{min-width:160px}.lc-min-w-0{min-width:calc(var(--spacing) * 0)}.lc-w-\\[320px\\]{width:320px}.lc-w-6{width:calc(var(--spacing) * 6)}.lc-w-full{width:100%}.lc-block{display:block}.lc-hidden{display:none}.lc-cursor-pointer{cursor:pointer}.lc-cursor-text{cursor:text}.disabled\\:lc-cursor-not-allowed:disabled{cursor:not-allowed}.lc-resize-y{resize:vertical}.lc-select-none{-webkit-user-select:none;user-select:none}.lc-whitespace-nowrap{white-space:nowrap}.lc-truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.lc-transition{transition-property:color,background-color,border-color,text-decoration-color,fill,stroke,--un-gradient-from,--un-gradient-via,--un-gradient-to,opacity,box-shadow,transform,translate,scale,rotate,filter,-webkit-backdrop-filter,backdrop-filter;transition-timing-function:var(--lc-ease, var(--default-transition-timingFunction));transition-duration:var(--lc-duration, var(--default-transition-duration))}.lc-items-center{align-items:center}.lc-box-border{box-sizing:border-box}.lc-bottom-\\[46px\\]{bottom:46px}.lc-right-2{right:calc(var(--spacing) * 2)}.lc-justify-center{justify-content:center}.lc-fixed{position:fixed}.lc-z-\\[2147483647\\]{z-index:2147483647}.lc-overflow-y-auto{overflow-y:auto}.\\[\\&\\:not\\(\\:disabled\\)\\:active\\]\\:lc-brightness-\\[\\.9\\]:not(:disabled):active{--lc-brightness:brightness(.9);filter:var(--lc-blur,) var(--lc-brightness,) var(--lc-contrast,) var(--lc-grayscale,) var(--lc-hue-rotate,) var(--lc-invert,) var(--lc-saturate,) var(--lc-sepia,) var(--lc-drop-shadow,)}.\\[\\&\\:not\\(\\:disabled\\)\\:hover\\]\\:lc-brightness-\\[\\.96\\]:not(:disabled):hover{--lc-brightness:brightness(.96);filter:var(--lc-blur,) var(--lc-brightness,) var(--lc-contrast,) var(--lc-grayscale,) var(--lc-hue-rotate,) var(--lc-invert,) var(--lc-saturate,) var(--lc-sepia,) var(--lc-drop-shadow,)}@supports (color: color-mix(in lab,red,red)){.lc-text-danger{color:color-mix(in oklab,var(--colors-danger) var(--lc-text-opacity),transparent)}.lc-text-white{color:color-mix(in oklab,var(--colors-white) var(--lc-text-opacity),transparent)}.lc-border-brand{border-color:color-mix(in oklab,var(--colors-brand) var(--lc-border-opacity),transparent)}.lc-border-danger{border-color:color-mix(in oklab,var(--colors-danger) var(--lc-border-opacity),transparent)}.focus\\:lc-border-brand:focus{border-color:color-mix(in oklab,var(--colors-brand) var(--lc-border-opacity),transparent)}.lc-bg-brand{background-color:color-mix(in oklab,var(--colors-brand) var(--lc-bg-opacity),transparent)}} ');
+  r$3(' @property --lc-text-opacity{syntax:"<percentage>";inherits:false;initial-value:100%;}@property --lc-leading{syntax:"*";inherits:false;}@property --lc-border-opacity{syntax:"<percentage>";inherits:false;initial-value:100%;}@property --lc-bg-opacity{syntax:"<percentage>";inherits:false;initial-value:100%;}@property --lc-blur{syntax:"*";inherits:false;}@property --lc-brightness{syntax:"*";inherits:false;}@property --lc-contrast{syntax:"*";inherits:false;}@property --lc-drop-shadow{syntax:"*";inherits:false;}@property --lc-grayscale{syntax:"*";inherits:false;}@property --lc-hue-rotate{syntax:"*";inherits:false;}@property --lc-invert{syntax:"*";inherits:false;}@property --lc-saturate{syntax:"*";inherits:false;}@property --lc-sepia{syntax:"*";inherits:false;}:root,:host{--spacing: .25rem;--radius-DEFAULT: .25rem;--leading-none: 1;--default-transition-timingFunction: cubic-bezier(.4, 0, .2, 1);--default-transition-duration: .15s;--colors-brand: #007aff;--colors-white: #fff;--colors-danger: #ff3b30}#laplace-chatterbox-toggle,#laplace-chatterbox-dialog{box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,SF Pro Text,Segoe UI,sans-serif;font-size:12px;letter-spacing:0}.lc-text-danger{color:color-mix(in srgb,var(--colors-danger) var(--lc-text-opacity),transparent)}.lc-text-white{color:color-mix(in srgb,var(--colors-white) var(--lc-text-opacity),transparent)}.lc-text-inherit{color:inherit}.lc-leading-\\[1\\.2\\]{--lc-leading:1.2;line-height:1.2}.lc-leading-\\[1\\.4\\]{--lc-leading:1.4;line-height:1.4}.lc-leading-none{--lc-leading:var(--leading-none);line-height:var(--leading-none)}.lc-mb-2{margin-bottom:calc(var(--spacing) * 2)}.lc-p-0{padding:calc(var(--spacing) * 0)}.lc-px-\\[10px\\]{padding-inline:10px}.lc-px-1{padding-inline:calc(var(--spacing) * 1)}.lc-px-1\\.5{padding-inline:calc(var(--spacing) * 1.5)}.lc-px-2\\.5{padding-inline:calc(var(--spacing) * 2.5)}.lc-px-3\\.5{padding-inline:calc(var(--spacing) * 3.5)}.lc-py-0\\.5{padding-block:calc(var(--spacing) * .5)}.lc-py-1{padding-block:calc(var(--spacing) * 1)}.lc-py-1\\.5{padding-block:calc(var(--spacing) * 1.5)}.lc-py-px{padding-block:1px}.lc-pb-\\[10px\\]{padding-bottom:10px}.lc-pl-0\\.5{padding-left:calc(var(--spacing) * .5)}.lc-pr-1{padding-right:calc(var(--spacing) * 1)}.lc-outline-none{--lc-outline-style:none;outline-style:none}.lc-border{border-width:1px}.lc-border-brand{border-color:color-mix(in srgb,var(--colors-brand) var(--lc-border-opacity),transparent)}.lc-border-danger{border-color:color-mix(in srgb,var(--colors-danger) var(--lc-border-opacity),transparent)}.lc-border-ga4{border-color:color-mix(in srgb,var(--Ga4, #999) var(--lc-border-opacity),transparent)}.lc-border-transparent{border-color:transparent}.focus\\:lc-border-brand:focus{border-color:color-mix(in srgb,var(--colors-brand) var(--lc-border-opacity),transparent)}.lc-rounded{border-radius:var(--radius-DEFAULT)}.lc-border-solid{--lc-border-style:solid;border-style:solid}.lc-bg-bg1{background-color:color-mix(in srgb,var(--bg1, #fff) var(--lc-bg-opacity),transparent)}.lc-bg-brand{background-color:color-mix(in srgb,var(--colors-brand) var(--lc-bg-opacity),transparent)}.lc-bg-ga1s{background-color:color-mix(in srgb,var(--Ga1_s, rgba(0,0,0,.04)) var(--lc-bg-opacity),transparent)}.lc-bg-transparent{background-color:transparent}.disabled\\:lc-opacity-50:disabled{opacity:50%}.disabled\\:lc-opacity-60:disabled{opacity:60%}.lc-underline{text-decoration-line:underline}.lc-underline-offset-2{text-underline-offset:2px}.lc-flex{display:flex}.lc-inline-flex{display:inline-flex}.lc-flex-1{flex:1 1 0%}.lc-flex-wrap{flex-wrap:wrap}.lc-gap-1{gap:calc(var(--spacing) * 1)}.lc-h-\\[100px\\]{height:100px}.lc-h-6{height:calc(var(--spacing) * 6)}.lc-max-h-\\[50vh\\]{max-height:50vh}.lc-max-w-\\[180px\\]{max-width:180px}.lc-max-w-\\[calc\\(100vw_-_16px\\)\\]{max-width:calc(100vw - 16px)}.lc-min-h-\\[18px\\]{min-height:18px}.lc-min-h-\\[auto\\]{min-height:auto}.lc-min-h-10{min-height:calc(var(--spacing) * 10)}.lc-min-h-5{min-height:calc(var(--spacing) * 5)}.lc-min-h-6{min-height:calc(var(--spacing) * 6)}.lc-min-h-7{min-height:calc(var(--spacing) * 7)}.lc-min-w-\\[120px\\]{min-width:120px}.lc-min-w-\\[160px\\]{min-width:160px}.lc-min-w-0{min-width:calc(var(--spacing) * 0)}.lc-w-\\[320px\\]{width:320px}.lc-w-6{width:calc(var(--spacing) * 6)}.lc-w-full{width:100%}.lc-block{display:block}.lc-hidden{display:none}.lc-cursor-pointer{cursor:pointer}.lc-cursor-text{cursor:text}.disabled\\:lc-cursor-not-allowed:disabled{cursor:not-allowed}.lc-resize-y{resize:vertical}.lc-select-none{-webkit-user-select:none;user-select:none}.lc-whitespace-nowrap{white-space:nowrap}.lc-truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.lc-transition{transition-property:color,background-color,border-color,text-decoration-color,fill,stroke,--un-gradient-from,--un-gradient-via,--un-gradient-to,opacity,box-shadow,transform,translate,scale,rotate,filter,-webkit-backdrop-filter,backdrop-filter;transition-timing-function:var(--lc-ease, var(--default-transition-timingFunction));transition-duration:var(--lc-duration, var(--default-transition-duration))}.lc-items-center{align-items:center}.lc-box-border{box-sizing:border-box}.lc-bottom-\\[46px\\]{bottom:46px}.lc-right-2{right:calc(var(--spacing) * 2)}.lc-justify-center{justify-content:center}.lc-fixed{position:fixed}.lc-z-\\[2147483647\\]{z-index:2147483647}.lc-overflow-y-auto{overflow-y:auto}.\\[\\&\\:not\\(\\:disabled\\)\\:active\\]\\:lc-brightness-\\[\\.9\\]:not(:disabled):active{--lc-brightness:brightness(.9);filter:var(--lc-blur,) var(--lc-brightness,) var(--lc-contrast,) var(--lc-grayscale,) var(--lc-hue-rotate,) var(--lc-invert,) var(--lc-saturate,) var(--lc-sepia,) var(--lc-drop-shadow,)}.\\[\\&\\:not\\(\\:disabled\\)\\:hover\\]\\:lc-brightness-\\[\\.96\\]:not(:disabled):hover{--lc-brightness:brightness(.96);filter:var(--lc-blur,) var(--lc-brightness,) var(--lc-contrast,) var(--lc-grayscale,) var(--lc-hue-rotate,) var(--lc-invert,) var(--lc-saturate,) var(--lc-sepia,) var(--lc-drop-shadow,)}@supports (color: color-mix(in lab,red,red)){.lc-text-danger{color:color-mix(in oklab,var(--colors-danger) var(--lc-text-opacity),transparent)}.lc-text-white{color:color-mix(in oklab,var(--colors-white) var(--lc-text-opacity),transparent)}.lc-border-brand{border-color:color-mix(in oklab,var(--colors-brand) var(--lc-border-opacity),transparent)}.lc-border-danger{border-color:color-mix(in oklab,var(--colors-danger) var(--lc-border-opacity),transparent)}.focus\\:lc-border-brand:focus{border-color:color-mix(in oklab,var(--colors-brand) var(--lc-border-opacity),transparent)}.lc-bg-brand{background-color:color-mix(in oklab,var(--colors-brand) var(--lc-bg-opacity),transparent)}} ');
 
   var n$1, l$3, u$3, t$2, i$2, r$2, o$2, e$2, f$2, c$2, s$2, a$2, h$2, p$3, v$2, d$2 = {}, w$3 = [], _$3 = /acit|ex(?:s|g|n|p|$)|rph|grid|ows|mnc|ntw|ine[ch]|zoo|^ord|itera/i, g$3 = Array.isArray;
   function m$2(n2, l2) {
@@ -8337,7 +8337,7 @@ _clearForTests() {
       candidates
     };
   }
-  const VARIANTS_VERSION = "2026-05-12";
+  const VARIANTS_VERSION = "2026-05-14";
   const ALIAS_PATTERNS = [
     [
       "红红火火恍恍惚惚",
@@ -21001,18 +21001,16 @@ u$2("span", { style: { fontSize: "0.85em" }, children: [
       ] })
     ] });
   }
-  const SECTION_KEYWORDS$2 = "chatfilter 弹幕归一化 同义 canonical 趋势 聚类 cluster normalize 拼音 simhash trend 牛逼 niubi yyds 哈哈哈 别名 alias variants";
+  const SECTION_KEYWORDS$2 = "智能识别同义弹幕 同义 折叠 重复 牛逼 niubi yyds 哈哈哈 chatfilter debug 调试";
   function ChatfilterSection({ query = "" }) {
     if (!matchesSearchQuery(SECTION_KEYWORDS$2, query)) return null;
+    const q2 = query.toLowerCase();
+    const isDebug = q2.includes("debug") || q2.includes("调试");
     const disabled = !chatfilterEnabled.value;
     return u$2("details", { className: "cb-settings-accordion", children: [
-u$2("summary", { children: u$2("span", { className: "cb-accordion-title", children: "Chatfilter 弹幕归一化" }) }),
+u$2("summary", { children: u$2("span", { className: "cb-accordion-title", children: "智能识别同义弹幕" }) }),
 u$2("div", { className: "cb-section cb-stack", style: { margin: ".5em 0", paddingBottom: "1em" }, children: [
-u$2("div", { className: "cb-note", style: { color: "#666", fontSize: "0.85em", marginBottom: ".5em" }, children: [
-          '把 "niubi"/"NB"/"牛批" 这类同义弹幕合并为同一条 canonical（"牛逼"），让自动跟车的相似计数更准。 源字典 v',
-          VARIANTS_VERSION,
-          "。"
-        ] }),
+u$2("div", { className: "cb-note", style: { color: "#666", fontSize: "0.85em", marginBottom: ".5em" }, children: '把"niubi"/"NB"/"牛批"/"牛逼"这类同义弹幕当成一条，让自动跟车判断更准。' }),
 u$2("label", { className: "cb-row", style: { display: "flex", gap: ".5em", alignItems: "center" }, children: [
 u$2(
             "input",
@@ -21024,19 +21022,33 @@ u$2(
               }
             }
           ),
-u$2("span", { children: "启用 Chatfilter（总开关）" })
+u$2("span", { children: "启用" })
         ] }),
+u$2("label", { className: "cb-row", style: { display: "flex", gap: ".5em", alignItems: "center" }, children: [
 u$2(
+            "input",
+            {
+              type: "checkbox",
+              checked: chatfilterAffectCustomChatFold.value,
+              disabled,
+              onChange: (e2) => {
+                chatfilterAffectCustomChatFold.value = e2.currentTarget.checked;
+              }
+            }
+          ),
+u$2("span", { title: 'Chatterbox Chat（右侧聊天面板）相邻的同义弹幕合并成一条，显示"牛逼 ×3"。', children: "在右侧聊天面板把重复弹幕折叠显示" })
+        ] }),
+        isDebug && u$2(
           "fieldset",
           {
             style: {
               border: "1px solid var(--Ga2, #eee)",
               padding: ".5em",
-              margin: ".5em 0 0",
+              margin: ".75em 0 0",
               opacity: disabled ? 0.5 : 1
             },
             children: [
-u$2("legend", { style: { fontSize: "0.85em", color: "#666", padding: "0 .25em" }, children: "场景开关" }),
+u$2("legend", { style: { fontSize: "0.85em", color: "#888", padding: "0 .25em" }, children: '开发者选项（搜索 "chatfilter debug" 可见）' }),
 u$2("label", { className: "cb-row", style: { display: "flex", gap: ".5em", alignItems: "center" }, children: [
 u$2(
                   "input",
@@ -21049,21 +21061,7 @@ u$2(
                     }
                   }
                 ),
-u$2("span", { title: "同义弹幕合并为一条趋势，threshold 命中更准。建议开启。", children: "A · 自动跟车趋势用 canonical" })
-              ] }),
-u$2("label", { className: "cb-row", style: { display: "flex", gap: ".5em", alignItems: "center" }, children: [
-u$2(
-                  "input",
-                  {
-                    type: "checkbox",
-                    checked: chatfilterAffectCustomChatFold.value,
-                    disabled,
-                    onChange: (e2) => {
-                      chatfilterAffectCustomChatFold.value = e2.currentTarget.checked;
-                    }
-                  }
-                ),
-u$2("span", { title: 'Chatterbox Chat 把相邻同 canonical 的弹幕折叠为一张卡，"niubi"/"NB"/"牛批" 计同一条。', children: "B · Custom Chat 同义折叠" })
+u$2("span", { title: "关掉后自动跟车回到字面匹配。默认开。", children: "自动跟车趋势使用 canonical" })
               ] }),
 u$2("label", { className: "cb-row", style: { display: "flex", gap: ".5em", alignItems: "center" }, children: [
 u$2(
@@ -21077,7 +21075,7 @@ u$2(
                     }
                   }
                 ),
-u$2("span", { title: "同房间内同一 variant→canonical 命中 ≥10 次 → 出现在观察日志面板的候选规则区，点「采纳」才写入当前房间的替换规则。", children: "C · 喂替换规则学习候选" })
+u$2("span", { title: "高频归一化映射（命中 ≥10 次）出现在观察日志面板的候选区，点采纳才写入房间替换规则。", children: "喂替换规则学习候选" })
               ] }),
 u$2("label", { className: "cb-row", style: { display: "flex", gap: ".5em", alignItems: "center" }, children: [
 u$2(
@@ -21091,87 +21089,33 @@ u$2(
                     }
                   }
                 ),
-u$2("span", { title: "在「发送」tab 底部显示一个 200 行环形缓冲，实时打印每条弹幕的归一化过程。", children: "D · 观察日志面板" })
-              ] })
-            ]
-          }
-        ),
-u$2(
-          "div",
-          {
-            className: "cb-row",
-            style: {
-              display: "flex",
-              gap: ".5em",
-              alignItems: "center",
-              marginTop: ".5em",
-              opacity: disabled ? 0.5 : 1
-            },
-            children: [
+u$2("span", { title: "在「发送」tab 底部显示 200 行环形缓冲，实时打印每条弹幕的归一化过程。", children: "观察日志面板" })
+              ] }),
+u$2("div", { className: "cb-row", style: { display: "flex", gap: ".5em", alignItems: "center", marginTop: ".5em" }, children: [
 u$2("label", { htmlFor: "chatfilterAggr", style: { color: "#666" }, children: "算法档位：" }),
 u$2(
-                "select",
-                {
-                  id: "chatfilterAggr",
-                  value: chatfilterAggressiveness.value,
-                  disabled,
-                  onChange: (e2) => {
-                    const v2 = e2.currentTarget.value;
-                    if (v2 === "safe" || v2 === "normal" || v2 === "aggressive") {
-                      chatfilterAggressiveness.value = v2;
-                    }
-                  },
-                  children: [
+                  "select",
+                  {
+                    id: "chatfilterAggr",
+                    value: chatfilterAggressiveness.value,
+                    disabled,
+                    onChange: (e2) => {
+                      const v2 = e2.currentTarget.value;
+                      if (v2 === "safe" || v2 === "normal" || v2 === "aggressive") {
+                        chatfilterAggressiveness.value = v2;
+                      }
+                    },
+                    children: [
 u$2("option", { value: "safe", children: "safe（仅清洗 + 去重 + 循环压缩）" }),
 u$2("option", { value: "normal", children: "normal（+ 字典别名 + 谐音）" }),
 u$2("option", { value: "aggressive", children: "aggressive（+ SimHash 自动合并，有误合并风险）" })
-                  ]
-                }
-              )
-            ]
-          }
-        ),
-u$2(
-          "fieldset",
-          {
-            style: {
-              border: "1px solid var(--Ga2, #eee)",
-              padding: ".5em",
-              margin: ".5em 0 0",
-              opacity: disabled ? 0.5 : 1
-            },
-            children: [
-u$2("legend", { style: { fontSize: "0.85em", color: "#666", padding: "0 .25em" }, children: "远程语义聚类（可选）" }),
-u$2("div", { className: "cb-note", style: { color: "#666", fontSize: "0.85em", marginBottom: ".4em" }, children: '前端归一化已经覆盖 80% 的变体；如果要 BGE-small-zh 级别的语义聚类（"难听" ↔ "南亭" 跨字面合并）， 需要自己部署 Chatfilter Python 服务（VPS / Fly.io / Render），把 endpoint 填到这里。' }),
-u$2("label", { className: "cb-row", style: { display: "flex", gap: ".5em", alignItems: "center", flexWrap: "wrap" }, children: [
-u$2("span", { children: "Endpoint：" }),
-u$2(
-                  "input",
-                  {
-                    type: "url",
-                    placeholder: "http://localhost:8766",
-                    value: chatfilterRemoteEndpoint.value,
-                    disabled,
-                    style: { flex: "1 1 220px" },
-                    onInput: (e2) => {
-                      chatfilterRemoteEndpoint.value = e2.currentTarget.value;
-                    }
+                    ]
                   }
                 )
               ] }),
-u$2("label", { className: "cb-row", style: { display: "flex", gap: ".5em", alignItems: "center", marginTop: ".4em" }, children: [
-u$2(
-                  "input",
-                  {
-                    type: "checkbox",
-                    checked: chatfilterRemoteEnabled.value,
-                    disabled: disabled || !chatfilterRemoteEndpoint.value.trim(),
-                    onChange: (e2) => {
-                      chatfilterRemoteEnabled.value = e2.currentTarget.checked;
-                    }
-                  }
-                ),
-u$2("span", { children: "启用远程聚类（勾选后自动 ingest + SSE 订阅）" })
+u$2("div", { style: { fontSize: "0.8em", color: "#888", marginTop: ".5em" }, children: [
+                "字典版本 v",
+                VARIANTS_VERSION
               ] })
             ]
           }
@@ -23539,7 +23483,7 @@ u$2("div", { style: { maxHeight: "200px", overflowY: "auto" }, children: u$2(Emo
           }
         )
       ] }),
-u$2(GroupHeading, { query, children: "智能归一" }),
+u$2(GroupHeading, { query, children: "智能识别" }),
 u$2(ChatfilterSection, { query }),
 u$2(GroupHeading, { query, children: "替换规则" }),
 u$2(CloudReplacementSection, { query }),
