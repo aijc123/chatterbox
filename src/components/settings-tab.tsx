@@ -11,6 +11,7 @@ import {
   llmPromptsGlobal,
   llmPromptsNormalSend,
 } from '../lib/store-llm'
+import { settingsAdvancedVisible } from '../lib/store-ui'
 import { EmoteIds } from './emote-ids'
 import { LlmApiConfigPanel } from './llm-api-config'
 import { PromptManager } from './prompt-manager'
@@ -49,9 +50,22 @@ function GroupHeading({ children, query }: { children: string; query: string }) 
   )
 }
 
+/**
+ * 设置 Tab。
+ *
+ * 设计：默认只露 5 个**常用** section（Chatterbox Chat / +1 直接动作 / 布局 /
+ * 表情 / 备份），其余 11+ 个 section 折在"显示高级设置"开关后面。这把 151+ 个
+ * 持久化项的首屏认知量从"压垮"降到"可消化"。
+ *
+ * **重要例外**：搜索框有关键词时，所有 section 都参与匹配，无视高级开关 ——
+ * 否则用户搜索"粉丝牌"会因为"工具"组被高级开关隐藏而搜不到东西，违反搜索
+ * 的直觉。
+ */
 export function SettingsTab() {
   const settingsSearch = useSignal('')
   const query = settingsSearch.value.trim().toLowerCase()
+  // 搜索激活时，所有 section 都参与匹配（无视高级开关）。
+  const showAdvanced = settingsAdvancedVisible.value || query.length > 0
 
   return (
     <>
@@ -91,77 +105,128 @@ export function SettingsTab() {
           </div>
         </details>
       )}
-
-      <GroupHeading query={query}>智能识别</GroupHeading>
-      <ChatfilterSection query={query} />
-
-      <GroupHeading query={query}>替换规则</GroupHeading>
-      <CloudReplacementSection query={query} />
-      <LocalGlobalReplacementSection query={query} />
-      <LocalRoomReplacementSection query={query} />
-      <ShadowObservationSection query={query} />
-
-      <GroupHeading query={query}>LLM（智驾选梗 + YOLO 润色共用）·「YOLO」= LLM 在你发出去之前先重写一遍</GroupHeading>
-      <LlmApiSection query={query} />
-      <LlmPromptsSection query={query} />
-
-      {/* 工具组：把粉丝牌巡检放在最前面（最常用），其它按使用频率次序。 */}
-      <GroupHeading query={query}>工具</GroupHeading>
-      <MedalCheckSection query={query} />
-      <CbBackendSection query={query} />
-      <RadarSection query={query} />
-
-      <GroupHeading query={query}>系统</GroupHeading>
-      {/* 备份/恢复在用户心智里属于"系统"，不属于"工具"。 */}
       <BackupSection query={query} />
-      {matchesSearchQuery('日志设置 日志 行数 调试 debug log lines', query) && (
-        <details className='cb-settings-accordion'>
-          <summary>日志设置</summary>
-          <div className='cb-section cb-stack' style={{ margin: '.5em 0', paddingBottom: '1em' }}>
-            <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.5em' }}>
-              日志设置
-            </div>
-            <div className='cb-row' style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap' }}>
-              <label htmlFor='maxLogLines' style={{ color: '#666' }}>
-                最大日志行数:
-              </label>
-              <input
-                id='maxLogLines'
-                type='number'
-                min='1'
-                max='1000'
-                style={{ width: '80px' }}
-                value={maxLogLines.value}
-                onChange={e => {
-                  let v = Number.parseInt(e.currentTarget.value, 10)
-                  if (Number.isNaN(v) || v < 1) v = 1
-                  else if (v > 1000) v = 1000
-                  maxLogLines.value = v
-                }}
-              />
-              <span style={{ color: '#999', fontSize: '0.9em' }}>(1-1000)</span>
-            </div>
-            <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.4em' }}>
-              <input
-                id='debugLogVisible'
-                type='checkbox'
-                checked={debugLogVisible.value}
-                onInput={e => {
-                  debugLogVisible.value = e.currentTarget.checked
-                }}
-              />
-              <label
-                htmlFor='debugLogVisible'
-                title='打开后内部诊断日志会带上 🔍 前缀，便于打包成完整日志反馈给维护者。正常使用不需要打开。'
-              >
-                调试模式（在日志中标注内部诊断行）
-              </label>
-            </span>
-            <div className='cb-note' style={{ color: '#666' }}>
-              收到「请发完整日志」类的反馈请求时打开此开关，再复制日志面板内容提交。
-            </div>
+
+      {/*
+       * 高级设置：默认折叠。命名上叫"高级"是因为这些 section 用户少则一辈子
+       * 不动，多则上线初期调一次。把它们藏起来不影响日常使用。
+       *
+       * 这两个 toggle 按钮特意做成低视觉权重——它们是导航元素而不是主操作，
+       * 不该和"开车 / 停车"那种主 CTA 平级。borderless、淡灰、左对齐，文本
+       * 链接的观感。
+       */}
+      {!showAdvanced && (
+        <div style={{ margin: '1.25em 0 .5em' }}>
+          <button
+            type='button'
+            className='cb-disclosure-link'
+            onClick={() => {
+              settingsAdvancedVisible.value = true
+            }}
+            aria-expanded={false}
+            aria-controls='cb-advanced-settings'
+          >
+            ▸ 显示高级设置（替换规则 / LLM / 粉丝牌巡检 / 雷达 / 日志…）
+          </button>
+          <div className='cb-note' style={{ color: '#999', fontSize: '0.8em', marginTop: '.25em' }}>
+            常用 5 项已展开；剩下 10+ 项大多数用户不需要碰。
           </div>
-        </details>
+        </div>
+      )}
+
+      {showAdvanced && (
+        <div id='cb-advanced-settings'>
+          {!query && (
+            <div style={{ margin: '1.25em 0 .5em' }}>
+              <button
+                type='button'
+                className='cb-disclosure-link'
+                onClick={() => {
+                  settingsAdvancedVisible.value = false
+                }}
+                aria-expanded={true}
+                aria-controls='cb-advanced-settings'
+              >
+                ▾ 收起高级设置
+              </button>
+            </div>
+          )}
+
+          <GroupHeading query={query}>智能识别</GroupHeading>
+          <ChatfilterSection query={query} />
+
+          <GroupHeading query={query}>替换规则</GroupHeading>
+          <CloudReplacementSection query={query} />
+          <LocalGlobalReplacementSection query={query} />
+          <LocalRoomReplacementSection query={query} />
+          <ShadowObservationSection query={query} />
+
+          <GroupHeading query={query}>
+            LLM（智驾选梗 + YOLO 润色共用）·「YOLO」= LLM 在你发出去之前先重写一遍
+          </GroupHeading>
+          <LlmApiSection query={query} />
+          <LlmPromptsSection query={query} />
+
+          {/* 工具组：把粉丝牌巡检放在最前面（最常用），其它按使用频率次序。 */}
+          <GroupHeading query={query}>工具</GroupHeading>
+          <MedalCheckSection query={query} />
+          <CbBackendSection query={query} />
+          <RadarSection query={query} />
+
+          <GroupHeading query={query}>系统 · 日志</GroupHeading>
+          {matchesSearchQuery('日志设置 日志 行数 调试 debug log lines', query) && (
+            <details className='cb-settings-accordion'>
+              <summary>日志设置</summary>
+              <div className='cb-section cb-stack' style={{ margin: '.5em 0', paddingBottom: '1em' }}>
+                <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.5em' }}>
+                  日志设置
+                </div>
+                <div
+                  className='cb-row'
+                  style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap' }}
+                >
+                  <label htmlFor='maxLogLines' style={{ color: '#666' }}>
+                    最大日志行数:
+                  </label>
+                  <input
+                    id='maxLogLines'
+                    type='number'
+                    min='1'
+                    max='1000'
+                    style={{ width: '80px' }}
+                    value={maxLogLines.value}
+                    onChange={e => {
+                      let v = Number.parseInt(e.currentTarget.value, 10)
+                      if (Number.isNaN(v) || v < 1) v = 1
+                      else if (v > 1000) v = 1000
+                      maxLogLines.value = v
+                    }}
+                  />
+                  <span style={{ color: '#999', fontSize: '0.9em' }}>(1-1000)</span>
+                </div>
+                <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.4em' }}>
+                  <input
+                    id='debugLogVisible'
+                    type='checkbox'
+                    checked={debugLogVisible.value}
+                    onInput={e => {
+                      debugLogVisible.value = e.currentTarget.checked
+                    }}
+                  />
+                  <label
+                    htmlFor='debugLogVisible'
+                    title='打开后内部诊断日志会带上 🔍 前缀，便于打包成完整日志反馈给维护者。正常使用不需要打开。'
+                  >
+                    调试模式（在日志中标注内部诊断行）
+                  </label>
+                </span>
+                <div className='cb-note' style={{ color: '#666' }}>
+                  收到「请发完整日志」类的反馈请求时打开此开关，再复制日志面板内容提交。
+                </div>
+              </div>
+            </details>
+          )}
+        </div>
       )}
     </>
   )

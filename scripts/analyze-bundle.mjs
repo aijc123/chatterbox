@@ -10,10 +10,15 @@ const bundlePath = new URL('../dist/bilibili-live-wheel-auto-follow.user.js', im
 // landed — raw 1057.52 KB / gzip 278.02 KB after M0-M3. 60 KB headroom for
 // M4-M6 (远程聚类客户端 + 同义折叠 + replacement 学习喂数据)；任何超出再走 PR。
 //
+// Bumped 1120 → 1200 KB when v2.14.0 panel restructure landed —
+// raw 1150.75 KB / gzip 303.03 KB. New PanelHeader, multi-source warning,
+// onboarding flow, settings drawer animation, ::details-content slide
+// transitions all add up. 49 KB headroom for follow-up polish.
+//
 // 安全:之前用 `process.env.BUNDLE_BUDGET_KB ?? '1024'` 允许用环境变量覆盖,
 // 等于 CI 里随便 export 一下就能让"超预算"的构建静默通过——预算就失去意义了。
 // 现在写死;调整预算 = 改这一行 = 走 PR review。
-const BUDGET_KB = 1120
+const BUDGET_KB = 1200
 const bundle = readFileSync(bundlePath)
 
 const rawKb = bundle.byteLength / 1024

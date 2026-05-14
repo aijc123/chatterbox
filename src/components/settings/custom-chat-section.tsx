@@ -205,7 +205,7 @@ export function CustomChatSection({ query = '' }: { query?: string }) {
                     role='status'
                     aria-live='polite'
                     className='cb-note'
-                    style={{ fontSize: '0.8em', color: '#a15c00' }}
+                    style={{ fontSize: '0.8em', color: 'var(--cb-warning-text)' }}
                   >
                     ⚠️ 注入前会自动处理：{issues.join('；')}
                   </span>

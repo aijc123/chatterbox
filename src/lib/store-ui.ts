@@ -29,3 +29,13 @@ export const hasConfirmedAutoBlendRealFire = gmSignal('hasConfirmedAutoBlendReal
  */
 export const lastAutoBlendRealFireConfirmAt = gmSignal('lastAutoBlendRealFireConfirmAt', 0)
 export const lastSeenVersion = gmSignal('lastSeenVersion', '')
+
+/**
+ * 设置 Tab 的"显示高级设置"开关。默认 `false` —— 新用户只看到 4-5 个常用 section
+ * （Chatterbox Chat / +1 直接动作 / 布局 / 表情 / 备份）。打开后才显示替换规则 /
+ * 影子屏蔽 / LLM / 粉丝牌巡检 / chatterbox-cloud 后端 / 雷达 / 日志设置等高级项。
+ *
+ * 关键例外：当用户在搜索框输入了关键词，所有 section 都会参与匹配，无论这个开关
+ * 是否开启 —— 否则"搜索"会因为开关关着而搜不到东西，违反搜索的直觉。
+ */
+export const settingsAdvancedVisible = gmSignal('settingsAdvancedVisible', false)

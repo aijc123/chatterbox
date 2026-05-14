@@ -1,3 +1,4 @@
+import { Fragment } from 'preact'
 import { useEffect, useRef } from 'preact/hooks'
 
 import { VERSION } from '../lib/const'
@@ -159,7 +160,7 @@ function statusBadgeStyle(status: ServiceStatus): { background: string; color: s
     case 'on':
       return {
         background: 'rgba(48, 209, 88, .18)',
-        color: '#168a45',
+        color: 'var(--cb-success-text)',
         label: '已启用',
         title: '当前开关已打开，会按"触发条件"调用此服务',
       }
@@ -172,6 +173,29 @@ function statusBadgeStyle(status: ServiceStatus): { background: string; color: s
       }
   }
 }
+
+/**
+ * 术语表：用 Greasy Fork 搜索 "Bilibili Live" 进来的非水友圈新用户，看到
+ * "独轮车 / 跟车 / 智驾 / 烂梗库 / 影子屏蔽" 等会一头雾水。这张表把每个术语
+ * 翻译成"一句话能 hold 住的事"，让用户看完就知道"哦原来是这个意思"。
+ *
+ * 内容遵守的原则：
+ *  - 不超过一行——超过一行就不是术语表了，是文档。
+ *  - 用普通话不用社群黑话（"循环刷"而不是"压麦"）。
+ *  - 对应 UI 用同样的词（不要在术语表里写"独轮车"在 UI 里写"自动发送"）。
+ */
+const GLOSSARY_ITEMS: ReadonlyArray<readonly [string, string]> = [
+  ['独轮车', '循环重复发送同一条/同一组自定义弹幕（最经典的"压"）'],
+  ['自动跟车', '检测到公屏多人在刷同一句话时，自动跟一条'],
+  ['智驾 / 智能辅助驾驶', '后台按节奏从烂梗库自动挑梗发送（启发式或 LLM 选）'],
+  ['烂梗库', '梗模板库——聚合 LAPLACE + SBHZM + 自建后端 + 房间专属源'],
+  ['影子屏蔽', 'B 站不告诉你弹幕被隐身屏蔽了；脚本发完会校验回显'],
+  ['同传', '麦克风语音实时识别成文字推到发送框（Soniox）'],
+  ['保安室', '自部署的同步后端，可选；同步巡检摘要、影子规则、心跳'],
+  ['雷达', '跨直播间热梗探测（默认关；开启后向 chatterbox-cloud 上报）'],
+  ['试运行 / dryRun', '只演练不真发——所有自动功能首次启用建议先试运行'],
+  ['YOLO', '发送前用 LLM 临时润色一遍再发（会消耗 token）'],
+]
 
 const LOCAL_DATA_ITEMS: string[] = [
   '弹幕模板、发送设置和自动跟车 / 智能辅助驾驶配置。',
@@ -206,7 +230,7 @@ export function AboutTab() {
                   padding: '1px 6px',
                   borderRadius: '999px',
                   background: '#ffe7c2',
-                  color: '#a15c00',
+                  color: 'var(--cb-warning-text)',
                   fontSize: '0.8em',
                 }}
                 title={`从 v${initialSeenRef.current} 更新到 v${VERSION}`}
@@ -248,6 +272,32 @@ export function AboutTab() {
             </button>
           </span>
         </div>
+      </div>
+
+      <div className='cb-section cb-stack' style={SECTION_STYLE}>
+        <div className='cb-heading' style={HEADING_STYLE}>
+          术语表
+        </div>
+        <div className='cb-note' style={{ color: '#666', marginBottom: '.5em' }}>
+          脚本里用到的弹幕圈黑话。一句话解释。
+        </div>
+        <dl
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'max-content 1fr',
+            columnGap: '.75em',
+            rowGap: '.4em',
+            margin: 0,
+            fontSize: '.9em',
+          }}
+        >
+          {GLOSSARY_ITEMS.map(([term, def]) => (
+            <Fragment key={term}>
+              <dt style={{ fontWeight: 'bold', color: '#1d1d1f', whiteSpace: 'nowrap' }}>{term}</dt>
+              <dd style={{ margin: 0, color: '#555' }}>{def}</dd>
+            </Fragment>
+          ))}
+        </dl>
       </div>
 
       <div className='cb-section cb-stack' style={{ ...SECTION_STYLE, borderBottom: 'none' }}>
@@ -321,7 +371,7 @@ export function AboutTab() {
                   {service.host}
                 </div>
                 <div style={{ fontSize: '.9em', marginBottom: '.25em' }}>
-                  <span style={{ color: '#36a185' }}>触发条件:</span> {service.trigger}
+                  <span style={{ color: 'var(--cb-success-text)' }}>触发条件:</span> {service.trigger}
                 </div>
                 <div style={{ fontSize: '.9em', color: '#555' }}>{service.description}</div>
               </div>
@@ -329,7 +379,7 @@ export function AboutTab() {
           })}
         </div>
 
-        <div className='cb-note' style={{ color: '#a15c00', marginTop: '.75em', fontSize: '.85em' }}>
+        <div className='cb-note' style={{ color: 'var(--cb-warning-text)', marginTop: '.75em', fontSize: '.85em' }}>
           反馈问题或截图时，请不要公开 cookie、csrf token、账号密钥、localStorage dump、私人房间规则或私有同步地址。
         </div>
       </div>

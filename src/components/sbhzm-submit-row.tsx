@@ -98,7 +98,7 @@ export function SbhzmSubmitRow({
       {loadingTags.value ? (
         <div style={{ color: '#666' }}>正在拉取标签字典…</div>
       ) : !tags.value || tags.value.length === 0 ? (
-        <div style={{ color: '#a00' }}>
+        <div style={{ color: 'var(--cb-danger-text)' }}>
           没拉到标签字典{error.value ? `（${error.value}）` : ''}。可以无标签上传，站长会后台补 tag。
         </div>
       ) : (
@@ -131,7 +131,7 @@ export function SbhzmSubmitRow({
       )}
 
       {error.value && !loadingTags.value && tags.value && tags.value.length > 0 && (
-        <div style={{ color: '#a00', marginBottom: '.3em' }}>{error.value}</div>
+        <div style={{ color: 'var(--cb-danger-text)', marginBottom: '.3em' }}>{error.value}</div>
       )}
 
       <div style={{ display: 'flex', gap: '.4em', alignItems: 'center' }}>

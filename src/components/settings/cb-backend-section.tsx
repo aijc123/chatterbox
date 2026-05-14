@@ -27,7 +27,7 @@ function statusDotColor(state: typeof cbBackendHealthState.value): string {
     case 'ok':
       return '#34c759'
     case 'fail':
-      return '#ff3b30'
+      return 'var(--cb-danger)'
     case 'probing':
       return '#ff9500'
     default:
@@ -128,7 +128,7 @@ export function CbBackendSection({ query = '' }: { query?: string }) {
             const warn = validateBackendUrl(v)
             if (!warn) return null
             return (
-              <span role='status' aria-live='polite' style={{ color: '#a15c00', fontSize: '0.8em' }}>
+              <span role='status' aria-live='polite' style={{ color: 'var(--cb-warning-text)', fontSize: '0.8em' }}>
                 ⚠️ {warn}
               </span>
             )

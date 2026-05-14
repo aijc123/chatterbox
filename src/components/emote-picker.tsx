@@ -35,20 +35,6 @@ function ensureEmoticonsLoaded(): Promise<void> {
   return emoticonFetchInFlight
 }
 
-// Solid colors — when the picker is portaled to <body>, CSS vars like
-// `var(--bg1, #fff)` resolve against Bilibili's page-level dark theme instead
-// of the chatterbox dialog scope, which made the picker render with a black
-// background. Pin every color so the picker stays visually consistent
-// regardless of which container the user is in.
-const PICKER_BG = '#ffffff'
-const PICKER_BORDER = '#dddddd'
-const PICKER_TEXT = '#333333'
-const PICKER_MUTED = '#999999'
-const TAB_INACTIVE_BG = '#f5f5f5'
-const TAB_ACTIVE_BG = '#36a185'
-const TAB_ACTIVE_TEXT = '#ffffff'
-const EMOTE_TILE_BG = '#f5f5f5'
-
 interface EmotePickerProps {
   open: Signal<boolean>
   anchorRef: RefObject<HTMLElement>
@@ -56,8 +42,27 @@ interface EmotePickerProps {
   onClose: () => void
 }
 
+/**
+ * Find the panel that contains `anchor`. We treat both the floating助手 dialog
+ * AND the custom-chat composer as "flank-able" panels — clicking an emoji
+ * trigger inside either should push the picker out to the side, not overlap.
+ *
+ * Returns the panel's bounding rect, or null when the anchor is free-floating
+ * (e.g. in a future detached composer) — fall back to centered positioning.
+ */
+function findFlankPanelRect(anchor: HTMLElement | null): DOMRect | null {
+  if (!anchor) return null
+  const panel = anchor.closest('#laplace-chatterbox-dialog, .lc-chat-composer') as HTMLElement | null
+  return panel ? panel.getBoundingClientRect() : null
+}
+
 function computePosFor(anchor: HTMLElement | null): PickerPos {
-  return computePos(anchor ? anchor.getBoundingClientRect() : null, window.innerWidth, window.innerHeight)
+  return computePos(
+    anchor ? anchor.getBoundingClientRect() : null,
+    window.innerWidth,
+    window.innerHeight,
+    findFlankPanelRect(anchor)
+  )
 }
 
 export function EmotePicker({ open, anchorRef, onSend, onClose }: EmotePickerProps) {
@@ -125,6 +130,17 @@ export function EmotePicker({ open, anchorRef, onSend, onClose }: EmotePickerPro
 
   if (!isOpen) return null
 
+  // Portal to document.body. Both candidate hosts (`#laplace-chatterbox-
+  // dialog` for the normal send tab and `.lc-chat-composer` for the custom
+  // chat composer) set `backdrop-filter`, which makes them the containing
+  // block for `position: fixed` descendants AND lets ancestor `overflow:
+  // hidden` clip them. Rendering at <body> escapes both traps.
+  //
+  // Styling lives in `cb-emote-picker*` classes (see app-lifecycle.ts) so
+  // light/dark mode parity matches the rest of the panel — earlier versions
+  // hardcoded white surfaces here because CSS vars couldn't reach the portal,
+  // but a CSS class + prefers-color-scheme media query works fine.
+
   if (packages.length === 0) {
     // Distinguish four states so the empty UI doesn't hang on "加载中…":
     //   - no room id yet → fetch can't run
@@ -139,46 +155,26 @@ export function EmotePicker({ open, anchorRef, onSend, onClose }: EmotePickerPro
     else if (fetchError) message = `表情数据加载失败：${fetchError}`
     else if (fetching) message = '表情数据加载中…'
     else message = '此房间暂无可用表情包'
-    // Portal to document.body. Both candidate hosts (`#laplace-chatterbox-
-    // dialog` for the normal send tab and `.lc-chat-composer` for the custom
-    // chat composer) set `backdrop-filter`, which makes them the containing
-    // block for `position: fixed` descendants AND lets ancestor `overflow:
-    // hidden` clip them. Rendering at <body> escapes both traps.
     return createPortal(
       <div
         ref={rootRef}
         role='status'
         aria-live='polite'
+        className={`cb-emote-picker cb-emote-picker--empty${fetchError ? ' cb-emote-picker--error' : ''}`}
         style={{
-          position: 'fixed',
           ...pos.value,
           width: `${PICKER_W}px`,
-          minHeight: '64px',
-          zIndex: 2147483646,
-          background: PICKER_BG,
-          border: `1px solid ${PICKER_BORDER}`,
-          borderRadius: '6px',
-          boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
-          padding: '12px',
-          color: fetchError ? '#a15c00' : PICKER_MUTED,
-          fontSize: '12px',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '6px',
-          textAlign: 'center',
         }}
       >
         <span>{message}</span>
         {fetchError && inRoom && (
           <button
             type='button'
+            className='cb-emote-picker-retry'
             onClick={() => {
               emoticonFetchError.value = null
               void ensureEmoticonsLoaded()
             }}
-            style={{ fontSize: '11px', padding: '2px 8px', cursor: 'pointer' }}
           >
             重试
           </button>
@@ -195,32 +191,14 @@ export function EmotePicker({ open, anchorRef, onSend, onClose }: EmotePickerPro
       ref={rootRef}
       role='dialog'
       aria-label='表情选择器'
+      className='cb-emote-picker'
       style={{
-        position: 'fixed',
         ...pos.value,
         width: `${PICKER_W}px`,
         height: `${PICKER_H}px`,
-        zIndex: 2147483646,
-        background: PICKER_BG,
-        border: `1px solid ${PICKER_BORDER}`,
-        borderRadius: '6px',
-        boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
-        color: PICKER_TEXT,
       }}
     >
-      <div
-        style={{
-          display: 'flex',
-          gap: '4px',
-          padding: '6px 8px',
-          borderBottom: `1px solid ${PICKER_BORDER}`,
-          overflowX: 'auto',
-          flex: '0 0 auto',
-        }}
-      >
+      <div className='cb-emote-picker-tabs'>
         {packages.map(pkg => {
           const active = pkg.pkg_id === (activePkg?.pkg_id ?? -1)
           return (
@@ -228,20 +206,9 @@ export function EmotePicker({ open, anchorRef, onSend, onClose }: EmotePickerPro
               type='button'
               key={pkg.pkg_id}
               title={pkg.pkg_name}
+              className={`cb-emote-picker-tab${active ? ' cb-emote-picker-tab--active' : ''}`}
               onClick={() => {
                 activePkgId.value = pkg.pkg_id
-              }}
-              style={{
-                padding: '3px 8px',
-                fontSize: '11px',
-                lineHeight: 1.4,
-                border: `1px solid ${PICKER_BORDER}`,
-                borderRadius: '3px',
-                background: active ? TAB_ACTIVE_BG : TAB_INACTIVE_BG,
-                color: active ? TAB_ACTIVE_TEXT : '#555555',
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-                flex: '0 0 auto',
               }}
             >
               {pkg.pkg_name}
@@ -249,17 +216,7 @@ export function EmotePicker({ open, anchorRef, onSend, onClose }: EmotePickerPro
           )
         })}
       </div>
-      <div
-        style={{
-          flex: '1 1 auto',
-          overflowY: 'auto',
-          padding: '8px',
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: '4px',
-          alignContent: 'flex-start',
-        }}
-      >
+      <div className='cb-emote-picker-grid'>
         {activePkg?.emoticons.map(emo => {
           const meta = getEmoticonLockMeta(emo)
           const titleParts: string[] = [emo.emoji]
@@ -269,6 +226,7 @@ export function EmotePicker({ open, anchorRef, onSend, onClose }: EmotePickerPro
               type='button'
               key={emo.emoticon_id}
               title={titleParts.join('\n')}
+              className='cb-emote-picker-tile'
               onClick={() => {
                 if (meta.isLocked) {
                   // Same reason text as formatLockedEmoticonReject so the
@@ -278,19 +236,6 @@ export function EmotePicker({ open, anchorRef, onSend, onClose }: EmotePickerPro
                 }
                 onSend(emo.emoticon_unique)
                 onClose()
-              }}
-              style={{
-                position: 'relative',
-                width: '52px',
-                height: '52px',
-                padding: '2px',
-                border: `1px solid ${PICKER_BORDER}`,
-                borderRadius: '4px',
-                background: EMOTE_TILE_BG,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
               }}
             >
               <img
@@ -303,29 +248,10 @@ export function EmotePicker({ open, anchorRef, onSend, onClose }: EmotePickerPro
                 loading='eager'
                 decoding='async'
                 referrerpolicy='no-referrer'
-                style={{
-                  maxWidth: '44px',
-                  maxHeight: '44px',
-                  objectFit: 'contain',
-                  opacity: meta.isLocked ? 0.5 : 1,
-                }}
+                style={{ opacity: meta.isLocked ? 0.5 : 1 }}
               />
               {meta.isLocked && (
-                <span
-                  style={{
-                    position: 'absolute',
-                    top: 1,
-                    right: 1,
-                    padding: '0 4px',
-                    fontSize: '9px',
-                    lineHeight: '12px',
-                    color: '#fff',
-                    borderRadius: '2px',
-                    background: meta.badgeColor,
-                    pointerEvents: 'none',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
+                <span className='cb-emote-picker-lock-badge' style={{ background: meta.badgeColor }}>
                   {meta.badgeLabel}
                 </span>
               )}

@@ -635,6 +635,32 @@ export function stopLiveWsSource(): void {
 }
 
 /**
+ * 用户从面板手动触发的立即重连。把当前 backoff timer 撕掉、重置 attempt 计数、
+ * 撞一下 connectionSerial 让任何 in-flight 的 connect() 失效，然后立刻发起新连接。
+ *
+ * 跟 visibilitychange 兜底重连同样的流程，但**不走 shouldForceImmediateReconnect
+ * 闸门**——那个闸门只允许"页面刚返回前台 + WS 之前 healthy"的场景跳过 backoff；
+ * 用户点"立即重连"按钮表达的是"我现在就想重连，别管 backoff"，应该无条件执行。
+ *
+ * 若 WS 从未启动（`started=false`，例如所有消费者都取消订阅了），这里只 return
+ * false——调用方据此提示用户。
+ *
+ * @returns true if a reconnect was kicked off; false if WS isn't started.
+ */
+export function reconnectLiveWsNow(): boolean {
+  if (!started) return false
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+  reconnectAttempt = 0
+  connectionSerial += 1
+  emitCustomChatWsStatus('connecting')
+  void connect()
+  return true
+}
+
+/**
  * 测试用：把模块级状态完全清掉。`startLiveWsSource` / `stopLiveWsSource` 走的是
  * 引用计数协议，无法在测试 setup 中确定性归零（先前 test 的 stop 可能没把
  * `consumerCount` 减到 0）。这个 hook 把 connection / counters / 计时器

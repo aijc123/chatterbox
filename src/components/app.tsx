@@ -127,14 +127,20 @@ export function App() {
     return () => stopCustomChat()
   }, [customChatEnabled.value])
 
+  // Live WS 是所有自动功能的规范事件源（跟车 / 智驾 / 影子屏蔽校验 /
+  // Chatterbox Chat）。原本只在 customChatEnabled && customChatUseWs 时才
+  // startLiveWsSource()——这是设计 bug：用户没启用 Chatterbox Chat 的话
+  // WS 就永远不启动，header 会显示「WS 未启用」，但用户不知道这词跟自己
+  // 用的功能有什么关系。同时 auto-blend / send-verification 自己也会
+  // startLiveWsSource()，但那要等用户实际触发功能。
+  //
+  // 现在的设计：直播页加载就自动 ref-count 起来一份 WS，依赖通过
+  // live-ws-source 的引用计数协议跟其它消费者协作。`customChatUseWs=false`
+  // 是 power-user 的强制 DOM-only 模式，保留这个 opt-out。
   useEffect(() => {
-    if (customChatEnabled.value && customChatUseWs.value) {
-      startLiveWsSource()
-    } else {
-      stopLiveWsSource()
-    }
-    return () => stopLiveWsSource()
-  }, [customChatEnabled.value, customChatUseWs.value])
+    if (!customChatUseWs.value) return
+    return startLiveWsSource()
+  }, [customChatUseWs.value])
 
   useEffect(() => installOptimizedLayoutStyle(), [optimizeLayout.value])
 

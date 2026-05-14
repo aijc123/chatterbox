@@ -148,10 +148,10 @@ function medalStatusTitle(status: MedalRestrictionCheck['status']): string {
 }
 
 function medalStatusColor(status: MedalRestrictionCheck['status']): string {
-  if (status === 'restricted') return '#a15c00'
+  if (status === 'restricted') return 'var(--cb-warning-text)'
   if (status === 'unknown') return '#666'
   if (status === 'deactivated') return '#8e8e93'
-  return '#0a7f55'
+  return 'var(--cb-success-text)'
 }
 
 function getFilteredMedalResults(results: MedalRestrictionCheck[], filter: MedalCheckFilter): MedalRestrictionCheck[] {
@@ -458,7 +458,7 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
             padding: '.35em .55em',
             borderRadius: '4px',
             background: currentUid.value ? 'rgba(10, 127, 85, .08)' : 'rgba(161, 92, 0, .08)',
-            color: currentUid.value ? '#0a7f55' : '#a15c00',
+            color: currentUid.value ? 'var(--cb-success-text)' : 'var(--cb-warning-text)',
           }}
         >
           {currentUid.value
@@ -492,7 +492,7 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
             const warn = validateGuardRoomEndpoint(v)
             if (!warn) return null
             return (
-              <span role='status' aria-live='polite' style={{ color: '#a15c00', fontSize: '0.8em' }}>
+              <span role='status' aria-live='polite' style={{ color: 'var(--cb-warning-text)', fontSize: '0.8em' }}>
                 ⚠️ {warn}
               </span>
             )
@@ -548,7 +548,7 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
               role='status'
               aria-live='polite'
               style={{
-                color: '#b00020',
+                color: 'var(--cb-danger-text)',
                 background: 'rgba(176,0,32,.08)',
                 border: '1px solid rgba(176,0,32,.25)',
                 padding: '6px 8px',
@@ -676,7 +676,7 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
           <span
             role='status'
             aria-live='polite'
-            style={{ color: medalCheckStatus.value.includes('发现限制') ? '#a15c00' : '#666' }}
+            style={{ color: medalCheckStatus.value.includes('发现限制') ? 'var(--cb-warning-text)' : '#666' }}
           >
             {medalCheckStatus.value}
           </span>
@@ -710,7 +710,7 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
                       type='button'
                       aria-pressed={filter === 'issues'}
                       onClick={() => writeFilter('issues')}
-                      style={filterButtonStyle(filter === 'issues', '#a15c00')}
+                      style={filterButtonStyle(filter === 'issues', 'var(--cb-warning-text)')}
                     >
                       异常 {counts.restricted + counts.unknown + counts.deactivated}
                     </button>
@@ -726,7 +726,7 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
                       type='button'
                       aria-pressed={filter === 'restricted'}
                       onClick={() => writeFilter('restricted')}
-                      style={filterButtonStyle(filter === 'restricted', '#a15c00')}
+                      style={filterButtonStyle(filter === 'restricted', 'var(--cb-warning-text)')}
                     >
                       限制 {counts.restricted}
                     </button>
@@ -750,7 +750,7 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
                       type='button'
                       aria-pressed={filter === 'ok'}
                       onClick={() => writeFilter('ok')}
-                      style={filterButtonStyle(filter === 'ok', '#0a7f55')}
+                      style={filterButtonStyle(filter === 'ok', 'var(--cb-success-text)')}
                     >
                       正常 {counts.ok}
                     </button>

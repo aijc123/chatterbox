@@ -68,7 +68,7 @@ export function EmoteIds() {
                     gap: '2px',
                     border: '1px solid var(--Ga2, #ddd)',
                     borderRadius: '3px',
-                    background: isCopied ? '#36a185' : 'var(--bg2, #f5f5f5)',
+                    background: isCopied ? '#34c759' : 'var(--bg2, #f5f5f5)',
                     color: isCopied ? '#fff' : '#555',
                     cursor: 'pointer',
                     fontSize: '10px',

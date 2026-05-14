@@ -77,6 +77,17 @@ let activeSource: MemeSource | null = null
 let memesProvider: (() => LaplaceMemeWithSource[]) | null = null
 /** 最近一次成功发送（含 dryRun 候选）的时间戳。喂给 formatHzmDriveStatus。 */
 let lastActionAt: number | null = null
+/**
+ * LLM 连续失败计数。每次 `pickWithLLM` catch 增 1；任何一次成功（含 abstain）
+ * 都重置为 0。配合 `lastLlmFailureToastAt` 做去抖，避免 LLM 持续故障时连续
+ * 撸 toast。原计划文档 P0-4：用户填了错的 key 时不能让脚本"看起来在跑"。
+ */
+let consecutiveLlmFailures = 0
+let lastLlmFailureToastAt = 0
+/** LLM 连续失败 toast 之间最少间隔 5 分钟，避免长期故障刷屏。 */
+const LLM_FAILURE_TOAST_COOLDOWN_MS = 5 * 60_000
+/** 触发 toast 的连续失败阈值——3 次表示"真有问题"（偶发抖动通常 1-2 次）。 */
+const LLM_FAILURE_TOAST_THRESHOLD = 3
 
 /** 重置全部运行时状态（停车时调用）。 */
 function resetRuntime(): void {
@@ -88,6 +99,8 @@ function resetRuntime(): void {
   activeSource = null
   memesProvider = null
   lastActionAt = null
+  consecutiveLlmFailures = 0
+  lastLlmFailureToastAt = 0
 }
 
 function updateHzmStatusText(): void {
@@ -354,11 +367,33 @@ export async function pickByLLM(
       recentChat: opts?.recentChat ?? getRecentDanmuTexts().slice(-30),
       candidates: pool.map(m => ({ id: String(m.id), content: m.content, tags: m.tags.map(t => t.name) })),
     })
-    if (!chosenContent) return { kind: 'abstain' }
+    if (!chosenContent) {
+      // abstain 也算"LLM 通了"——重置失败计数。
+      consecutiveLlmFailures = 0
+      return { kind: 'abstain' }
+    }
     const meme = pool.find(m => m.content === chosenContent)
+    if (meme) consecutiveLlmFailures = 0
     return meme ? { kind: 'pick', meme } : { kind: 'abstain' }
   } catch (err) {
     appendLog(`⚠️ 智驾 LLM 调用失败，回退启发式：${err instanceof Error ? err.message : String(err)}`)
+    consecutiveLlmFailures++
+    // 连续 N 次 + 5 分钟 cooldown 才弹一次 toast。这样：
+    //  - 偶发 1-2 次失败（网络抖动）只进日志，不打扰用户。
+    //  - 持续失败（错 key / 无效 model）会被显式提示，不再"看起来在跑实际在裸退化"。
+    //  - cooldown 防长期故障刷屏。
+    const now = Date.now()
+    if (
+      consecutiveLlmFailures >= LLM_FAILURE_TOAST_THRESHOLD &&
+      now - lastLlmFailureToastAt >= LLM_FAILURE_TOAST_COOLDOWN_MS
+    ) {
+      lastLlmFailureToastAt = now
+      notifyUser(
+        'warning',
+        `智驾 LLM 已连续失败 ${consecutiveLlmFailures} 次，已回退到启发式选梗`,
+        '请检查 API key / model / base URL，或在「设置 → LLM」点「测试连接」定位问题。'
+      )
+    }
     return { kind: 'error' }
   }
 }

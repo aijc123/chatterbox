@@ -1,3 +1,5 @@
+import { useEffect, useRef } from 'preact/hooks'
+
 import { appendLog } from '../lib/log'
 import { activeTab, autoBlendDryRun, autoBlendPreset, dialogOpen, hasSeenWelcome } from '../lib/store'
 
@@ -17,7 +19,17 @@ const ONBOARDING_STEPS: { title: string; detail: string }[] = [
 ]
 
 export function Onboarding() {
-  if (hasSeenWelcome.value || !dialogOpen.value) return null
+  const firstBtnRef = useRef<HTMLButtonElement>(null)
+  const willShow = !hasSeenWelcome.value && dialogOpen.value
+
+  // 首次挂载时把焦点跳到「使用建议配置」按钮（推荐路径）。键盘用户可以直接
+  // Enter 接受，或 Tab 浏览其它按钮。useEffect 在条件返回 null 之前调用,
+  // hooks 顺序稳定。
+  useEffect(() => {
+    if (willShow) firstBtnRef.current?.focus()
+  }, [willShow])
+
+  if (!willShow) return null
 
   const finish = (message: string) => {
     hasSeenWelcome.value = true
@@ -39,7 +51,9 @@ export function Onboarding() {
   return (
     <div
       role='dialog'
-      aria-label='弹幕助手首次引导'
+      aria-modal='true'
+      aria-labelledby='cb-onboarding-title'
+      aria-describedby='cb-onboarding-intro'
       className='cb-floating-surface'
       style={{
         position: 'fixed',
@@ -52,8 +66,10 @@ export function Onboarding() {
         lineHeight: 1.5,
       }}
     >
-      <div style={{ fontWeight: 700, marginBottom: '6px' }}>第一次使用弹幕助手</div>
-      <div className='cb-floating-soft' style={{ marginBottom: '8px', fontSize: '12px' }}>
+      <div id='cb-onboarding-title' style={{ fontWeight: 700, marginBottom: '6px' }}>
+        第一次使用弹幕助手
+      </div>
+      <div id='cb-onboarding-intro' className='cb-floating-soft' style={{ marginBottom: '8px', fontSize: '12px' }}>
         弹幕助手可以循环发送弹幕、按热度自动跟车、接管聊天区，并查询粉丝牌房间状态。
       </div>
       <ol style={{ margin: '0 0 10px 18px', padding: 0 }}>
@@ -70,7 +86,7 @@ export function Onboarding() {
         部分功能（AI 规避、保安室同步、同传）会和外部服务通信，详见「关于 → 隐私说明」。
       </div>
       <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-        <button type='button' className='cb-btn' onClick={useRecommended}>
+        <button ref={firstBtnRef} type='button' className='cb-btn cb-primary' onClick={useRecommended}>
           使用建议配置
         </button>
         <button type='button' className='cb-btn' onClick={openAbout}>

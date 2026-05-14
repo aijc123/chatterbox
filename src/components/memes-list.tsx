@@ -1,5 +1,5 @@
 import { useSignal } from '@preact/signals'
-import { useEffect, useLayoutEffect, useRef } from 'preact/hooks'
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 
 import type { LaplaceMemeWithSource } from '../lib/sbhzm-client'
 
@@ -356,7 +356,7 @@ export function MemesList() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       status.value = `加载失败: ${msg}`
-      statusColor.value = '#f44'
+      statusColor.value = 'var(--cb-danger-text)'
     } finally {
       if (!silent) loading.value = false
     }
@@ -417,6 +417,31 @@ export function MemesList() {
     return () => clearInterval(timer)
   }, [sortBy.value, memesPanelOpen.value, memeSource])
 
+  // Keep heavy content mounted during the close animation.
+  //
+  // The outer <details> wrapper (configurator.tsx 📚) collapses via a 200ms
+  // ::details-content block-size transition. If we unmount content the
+  // instant memesPanelOpen flips false, the browser captures the "from"
+  // height as 0 (empty pseudo) and the transition is a no-op snap.
+  //
+  // Defer unmount by 280ms (close duration 200ms + buffer) so the close
+  // transition has a real "from" height to animate from. Open is immediate
+  // — content shows up the moment memesPanelOpen flips true, then the
+  // outer ::details-content transitions from 0 → measured height.
+  //
+  // Without this defer, only the OPEN animation worked; CLOSE snapped.
+  // It's the same pattern React-Spring / Framer-Motion use under the hood:
+  // animating an unmount requires the DOM to outlive the unmount intent.
+  const [contentMounted, setContentMounted] = useState(memesPanelOpen.value)
+  useEffect(() => {
+    if (memesPanelOpen.value) {
+      setContentMounted(true)
+      return undefined
+    }
+    const t = setTimeout(() => setContentMounted(false), 280)
+    return () => clearTimeout(t)
+  }, [memesPanelOpen.value])
+
   // SBHZM 保鲜探测:每次 memes-list mount 时,30 分钟节流地拉一次 SBHZM 首页 +
   // mirror 推到后端。Phase D.1 起这是 SBHZM 数据保鲜的主要机制(后端 cron 只
   // 在用户长期离线时兜底)。详见 src/lib/sbhzm-freshness-probe.ts。
@@ -424,17 +449,25 @@ export function MemesList() {
     void maybeProbeSbhzmFreshness(memeSource)
   }, [memeSource])
 
+  // Inner <details>/<summary>烂梗库</summary></details> removed:
+  //   - The summary's label ("烂梗库") just duplicated the outer wrapper's
+  //     "📚 从烂梗库挑模板" — two chevrons stacked for the same control.
+  //   - The inner <details> had ONLY the summary inside; the actual content
+  //     was rendered as siblings outside the <details>, so the inner toggle
+  //     had no ::details-content to animate (chevron rotated but content
+  //     just snapped). Removing it makes the outer toggle the single
+  //     animatable surface.
+  //
+  // The outer 📚 wrapper in configurator.tsx now binds to `memesPanelOpen`
+  // (preserves the persisted GM state). The gate below uses `contentMounted`
+  // (defined above via useState + delayed unmount) — NOT `memesPanelOpen`
+  // directly — so the heavy meme tree stays in DOM during the close
+  // animation. See the comment on the `contentMounted` useEffect for why
+  // unmounting on the immediate signal write would break the close
+  // transition (it would).
   return (
     <>
-      <details
-        open={memesPanelOpen.value}
-        onToggle={e => {
-          memesPanelOpen.value = e.currentTarget.open
-        }}
-      >
-        <summary style={{ cursor: 'pointer', userSelect: 'none', fontWeight: 'bold' }}>烂梗库</summary>
-      </details>
-      {memesPanelOpen.value && (
+      {contentMounted && (
         <>
           <div style={{ display: 'flex', alignItems: 'center', gap: '.5em', marginTop: '.5em', marginBottom: '.5em' }}>
             <select

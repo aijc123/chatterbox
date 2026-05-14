@@ -49,7 +49,50 @@ const PANEL_STYLE = `
         outline-offset: 2px !important;
       }
 
+      /*
+       * Canonical design tokens — the product's chromatic constitution.
+       *
+       * Two-color semantic system:
+       *  - --cb-accent (iOS blue) — product brand identity. Used for
+       *    primary buttons, links, focus rings, toggle ON state, active
+       *    chips. This is "what action will happen" / "what is the product".
+       *  - --cb-success (iOS green) — system feedback for healthy state.
+       *    Used for success toasts and "已配置/运行中" badges. Distinct
+       *    from accent so it doesn't compete; this is "this is working".
+       *
+       * The pre-tokens codebase shipped 60+ inline hex codes across 4 blues
+       * (#0a84ff / #007aff / #3b82f6 / #1677ff), 6 greens (#34c759 /
+       * #30d158 / #0a7f55 / #10b981 / #36a185 / #168a45), 4 reds, and 3
+       * oranges — subliminal chromatic chaos that signals "amateur" to
+       * anyone with a designer's eye. Components now read these tokens
+       * instead of hardcoding values, so dark mode flips automatically.
+       *
+       * Each token has a -text variant where needed: WCAG AA contrast on
+       * white needs darker greens / reds than the fill colors. E.g. #34c759
+       * passes for fills but fails as text on white; #0a7f55 passes for
+       * text but reads muddy as a fill.
+       *
+       * Scoped to the dialog so they don't leak into Bilibili's page CSS.
+       * The portaled emoji picker (rendered to body, outside this scope)
+       * uses hardcoded mirrors of these values — keep them in sync.
+       */
       #laplace-chatterbox-dialog {
+        --cb-accent: #007aff;
+        --cb-accent-soft: rgba(0, 122, 255, .12);
+        --cb-success: #34c759;
+        --cb-success-text: #0a7f55;
+        --cb-warning: #ff9500;
+        --cb-warning-text: #a15c00;
+        --cb-danger: #ff3b30;
+        --cb-danger-text: #b00020;
+        --cb-text: #1d1d1f;
+        --cb-text-2: #6e6e73;
+        --cb-text-3: #98989d;
+        --cb-border: rgba(0, 0, 0, .08);
+        --cb-border-soft: rgba(0, 0, 0, .06);
+        --cb-surface: rgba(255, 255, 255, .9);
+        --cb-surface-soft: rgba(252, 252, 253, .78);
+
         color: #1d1d1f !important;
         background: rgba(248, 248, 250, .86) !important;
         border: 1px solid rgba(0, 0, 0, .08) !important;
@@ -72,6 +115,76 @@ const PANEL_STYLE = `
         background: rgba(252, 252, 253, .78) !important;
         box-shadow: 0 1px 0 rgba(255, 255, 255, .7) inset !important;
         overflow: hidden;
+      }
+
+      /*
+       * Details expand/collapse animation — Apple-iOS-disclosure tier.
+       *
+       * The right way to animate details: target the ::details-content
+       * pseudo-element (Chrome 131+, Nov 2024). This pseudo is the layout
+       * container the UA stylesheet uses to hide non-summary children when
+       * [open] is removed.
+       *
+       * Previous attempt (details > :not(summary)) only animated the FIRST
+       * open — close failed because the UA stylesheet sets content-visibility:
+       * hidden on ::details-content IMMEDIATELY when [open] flips off,
+       * yanking inner children out of layout before any child-level height
+       * transition could play. Targeting the pseudo itself is the only way
+       * to coordinate with the UA's hide mechanism.
+       *
+       * Enablers:
+       *   1. ::details-content pseudo (Chrome 131+) — the actual animatable
+       *      container.
+       *   2. interpolate-size: allow-keywords (Chrome 129+) — enables
+       *      transitioning numeric values to intrinsic keywords like auto.
+       *   3. transition-behavior: allow-discrete — lets content-visibility
+       *      participate in the transition so the native hide waits for our
+       *      block-size transition to finish before flipping.
+       *
+       * Design choices (Jobs-style critique already applied — 240/200ms,
+       * height-only, no opacity, chevron synced at 240ms above):
+       *
+       *   - 240ms open / 200ms close (close-faster-than-open convention)
+       *   - block-size (logical height) for vertical-writing-mode correctness
+       *   - overflow: clip not hidden — clip is stricter, can't scroll,
+       *     better fit for animated containers
+       *
+       * @supports double-check: requires BOTH selector(::details-content)
+       * AND interpolate-size. Older browsers fall through to native instant-
+       * snap (chevron still rotates, content snaps — not worse than today).
+       * Honors prefers-reduced-motion.
+       */
+      @supports selector(::details-content) and (interpolate-size: allow-keywords) {
+        #laplace-chatterbox-dialog {
+          interpolate-size: allow-keywords;
+        }
+
+        #laplace-chatterbox-dialog details::details-content {
+          block-size: 0;
+          overflow: clip;
+          transition:
+            block-size 240ms cubic-bezier(.32, .72, 0, 1),
+            content-visibility 240ms allow-discrete;
+          transition-behavior: allow-discrete;
+        }
+
+        #laplace-chatterbox-dialog details[open]::details-content {
+          block-size: auto;
+        }
+
+        #laplace-chatterbox-dialog details:not([open])::details-content {
+          /* Close faster than open — Apple convention. */
+          transition-duration: 200ms;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        #laplace-chatterbox-dialog details::details-content {
+          transition: none !important;
+        }
+        #laplace-chatterbox-dialog summary::after {
+          transition: none !important;
+        }
       }
 
       #laplace-chatterbox-dialog details[open] {
@@ -129,20 +242,61 @@ const PANEL_STYLE = `
         display: none;
       }
 
+      /*
+       * Disclosure chevron — Apple-iOS-Settings tier.
+       *
+       * History of the visibility bug: an earlier pass shipped 7x7 with 1.8px
+       * stroke in #c7c7cc (iOS *tertiary* text). On the panel's light-glass
+       * surface (rgba(252,252,253,.78)), that color has ~1.4:1 contrast — well
+       * below the "I can see it" threshold, so the chevron read as blank space
+       * and the rotation animation was technically running but invisible.
+       *
+       * Current spec — picks Apple's *secondary* gray (#8e8e93, ~3.5:1 on the
+       * panel surface) and bumps size to 9x9 with 2px stroke so the rotation
+       * arc has enough pixel area to be perceived. Hover darkens further to
+       * #1d1d1f for click-affordance. Animation: 280ms on Apple's signature
+       * cubic-bezier(.32,.72,0,1) — closed = 45deg (points right ">"), open =
+       * 135deg (points down "v"). The 90deg rotation is now visibly tracked
+       * by the eye rather than instant-jumping past perception.
+       *
+       * Built from top+right borders rotated 45deg — no translate needed if
+       * sized square; center anchoring keeps it aligned with the title baseline.
+       *
+       * will-change: transform hints the compositor to promote this to its own
+       * GPU layer so the rotation doesn't paint-jank when the details element
+       * simultaneously reflows its children on open/close.
+       */
       #laplace-chatterbox-dialog summary::after {
         content: "";
         margin-left: auto;
-        width: 10px;
-        height: 10px;
-        border-right: 2.5px solid #8e8e93;
-        border-bottom: 2.5px solid #8e8e93;
-        transform: rotate(-45deg);
-        transition: transform .18s ease;
+        width: 9px;
+        height: 9px;
+        border-top: 2px solid #8e8e93;
+        border-right: 2px solid #8e8e93;
+        transform: rotate(45deg);
+        transform-origin: center;
+        /* 240ms: synchronized with details content height transition below.
+         * Apple disclosure rotations are fully synced — not offset by 40ms
+         * like Material stagger. The whole row moves as one motion. */
+        transition: transform 240ms cubic-bezier(.32, .72, 0, 1),
+                    border-color 160ms ease;
+        will-change: transform;
         flex-shrink: 0;
       }
 
       #laplace-chatterbox-dialog details[open] > summary::after {
         transform: rotate(135deg);
+      }
+
+      #laplace-chatterbox-dialog summary:hover::after {
+        border-top-color: #1d1d1f;
+        border-right-color: #1d1d1f;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        #laplace-chatterbox-dialog summary::after {
+          transition: none;
+        }
       }
 
       #laplace-chatterbox-dialog button,
@@ -209,23 +363,43 @@ const PANEL_STYLE = `
       #laplace-chatterbox-dialog input:focus,
       #laplace-chatterbox-dialog select:focus,
       #laplace-chatterbox-dialog textarea:focus {
-        border-color: #007aff !important;
-        box-shadow: 0 0 0 3px rgba(0, 122, 255, .16), inset 0 1px 2px rgba(0, 0, 0, .03) !important;
+        border-color: var(--cb-accent) !important;
+        box-shadow: 0 0 0 3px var(--cb-accent-soft), inset 0 1px 2px rgba(0, 0, 0, .03) !important;
       }
 
+      /*
+       * iOS-style pill toggle. Calibrated against Apple's UISwitch (51x31pt
+       * thumb 27pt) scaled to ~78% so it fits the panel's compact density
+       * without looking like a cheap clone. Previous spec was 30x18 — too
+       * tight, thumb felt cramped against the track edges and the single-
+       * stop shadow read flat. Improvements:
+       *   - 40x24 track (was 30x18) gives breathing room
+       *   - 20x20 thumb with 2px inset = 16px travel (matches translateX)
+       *   - Off track: #e9e9eb (Apple's actual off color) — was #d1d1d6,
+       *     too dark, fought with surrounding gray text
+       *   - Two-stop thumb shadow (tight inner ambient + wider drop) gives
+       *     a real "floating physical knob" feel
+       *   - Apple's signature cubic-bezier(.32, .72, 0, 1) 240ms — snappier
+       *     start, gentler settle than the default ease
+       *   - Hover lifts background slightly (off) for clickable affordance
+       */
       #laplace-chatterbox-dialog input[type="checkbox"] {
         appearance: none !important;
-        width: 30px !important;
-        height: 18px !important;
-        flex: 0 0 30px;
+        width: 40px !important;
+        height: 24px !important;
+        flex: 0 0 40px;
         border: none !important;
         border-radius: 999px !important;
-        background: #d1d1d6 !important;
+        background: #e9e9eb !important;
         padding: 0 !important;
         position: relative;
         cursor: pointer;
         box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .04) !important;
-        transition: background .18s ease;
+        transition: background 280ms cubic-bezier(.32, .72, 0, 1);
+      }
+
+      #laplace-chatterbox-dialog input[type="checkbox"]:hover:not(:checked):not(:disabled) {
+        background: #dcdce0 !important;
       }
 
       #laplace-chatterbox-dialog input[type="checkbox"]::after {
@@ -233,77 +407,527 @@ const PANEL_STYLE = `
         position: absolute;
         top: 2px;
         left: 2px;
-        width: 14px;
-        height: 14px;
+        width: 20px;
+        height: 20px;
         border-radius: 50%;
         background: #fff;
-        box-shadow: 0 1px 2px rgba(0,0,0,.24);
-        transition: transform .18s ease;
+        box-shadow:
+          0 3px 1px rgba(0, 0, 0, .04),
+          0 3px 8px rgba(0, 0, 0, .14),
+          0 0 0 .5px rgba(0, 0, 0, .04);
+        /*
+         * Animate BOTH transform (slide) AND width (press-squish) on the same
+         * Apple curve. Old version only transitioned transform — the :active
+         * width:24px hop was instant and never read as a press response.
+         * 200ms for the press is slightly shorter than the 240ms slide so the
+         * squish feels snappier than the travel (matches iOS).
+         */
+        transition: transform 300ms cubic-bezier(.32, .72, 0, 1),
+                    width 180ms cubic-bezier(.32, .72, 0, 1);
       }
 
+      #laplace-chatterbox-dialog input[type="checkbox"]:active::after {
+        /* Apple-style press: thumb stretches slightly toward the travel direction. */
+        width: 24px;
+      }
+
+      #laplace-chatterbox-dialog input[type="checkbox"]:disabled {
+        opacity: .45;
+        cursor: not-allowed;
+      }
+
+      /*
+       * Toggle ON-state uses the product brand color (--cb-accent), NOT iOS
+       * system green.
+       *
+       * Why this matters: iOS uses green for system switches because the OS
+       * has no single brand color — green is the universal "on" affordance.
+       * Single-product UIs (Stripe, Linear, Vercel) use their accent for
+       * switches instead, so the toggle reads as a piece of THE PRODUCT,
+       * not as a borrowed Apple component. Our pre-token state had a blue
+       * primary button + green toggle + 3 different greens for "active"
+       * status text — chromatic chaos that telegraphed "I don't have a
+       * brand." This commit picks one: iOS blue is everywhere a user takes
+       * action or sees an active state.
+       *
+       * Green is preserved (--cb-success / --cb-success-text) for *system
+       * feedback* — success toasts, "已配置/运行中" badges. Clear semantic
+       * split: blue = "I am the product / this is an action"; green = "this
+       * is healthy / this succeeded".
+       */
       #laplace-chatterbox-dialog input[type="checkbox"]:checked {
-        background: #34c759 !important;
+        background: var(--cb-accent) !important;
       }
 
       #laplace-chatterbox-dialog input[type="checkbox"]:checked::after {
+        /* Travel = trackWidth - thumbWidth - 2 * inset = 40 - 20 - 4 = 16px. */
+        transform: translateX(16px);
+      }
+
+      #laplace-chatterbox-dialog input[type="checkbox"]:checked:active::after {
+        /* When pressed in on-state, stretch leftward (toward travel-back direction). */
         transform: translateX(12px);
+        width: 24px;
       }
 
       #laplace-chatterbox-dialog a {
-        color: #007aff !important;
+        color: var(--cb-accent) !important;
         text-decoration: none !important;
       }
 
-      #laplace-chatterbox-dialog .cb-tabs {
+      /*
+       * Panel header — the sticky top strip that replaces the old 4-Tab bar.
+       * Holds room ID + WS dot + activity chips + ⚙ ⓘ icon buttons.
+       * On settings/about sub-views the same surface holds a "← 返回" button.
+       *
+       * Sticks to the top of the scrolling dialog so status stays visible
+       * regardless of scroll position. backdrop-filter mirrors the dialog's
+       * own blur so it blends rather than introducing a hard surface seam.
+       */
+      #laplace-chatterbox-dialog .cb-panel-header {
         position: sticky;
         top: 0;
         z-index: 2;
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 4px;
-        padding: 7px;
-        background: rgba(248, 248, 250, .9);
+        padding: 8px 10px;
+        background: rgba(248, 248, 250, .92);
         backdrop-filter: blur(18px) saturate(1.4);
         -webkit-backdrop-filter: blur(18px) saturate(1.4);
         border-bottom: 1px solid rgba(0, 0, 0, .06);
       }
 
-      #laplace-chatterbox-dialog .cb-tab {
-        min-height: 28px !important;
-        padding: 4px 0 !important;
-        border: none !important;
-        box-shadow: none !important;
+      #laplace-chatterbox-dialog .cb-panel-header--sub {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      #laplace-chatterbox-dialog .cb-panel-header-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      #laplace-chatterbox-dialog .cb-panel-header-status {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        min-width: 0;
+      }
+
+      #laplace-chatterbox-dialog .cb-panel-header-title {
+        font-size: 13px;
+        font-weight: 700;
+        color: #1d1d1f;
+      }
+
+      #laplace-chatterbox-dialog .cb-panel-header-roomid {
+        color: #6e6e73;
+        font-size: 12px;
+      }
+
+      #laplace-chatterbox-dialog .cb-panel-header-ws {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        font-size: 11px;
+      }
+
+      #laplace-chatterbox-dialog .cb-panel-header-ws-dot {
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+      }
+
+      #laplace-chatterbox-dialog .cb-panel-header-ws--ok { color: var(--cb-success-text); }
+      #laplace-chatterbox-dialog .cb-panel-header-ws--ok .cb-panel-header-ws-dot { background: var(--cb-success-text); }
+      #laplace-chatterbox-dialog .cb-panel-header-ws--bad { color: var(--cb-danger); }
+      #laplace-chatterbox-dialog .cb-panel-header-ws--bad .cb-panel-header-ws-dot { background: var(--cb-danger); }
+      #laplace-chatterbox-dialog .cb-panel-header-ws--idle { color: var(--cb-text-3); }
+      #laplace-chatterbox-dialog .cb-panel-header-ws--idle .cb-panel-header-ws-dot { background: var(--cb-text-3); }
+      /*
+       * Connecting state: warning-orange dot that softly pulses so the user
+       * sees "actively working, hold on". Pulse animates opacity (cheap,
+       * GPU-friendly) — no layout cost. Respects prefers-reduced-motion via
+       * the dialog-level @media block below by short-circuiting the keyframe.
+       */
+      #laplace-chatterbox-dialog .cb-panel-header-ws--connecting { color: var(--cb-warning-text); }
+      #laplace-chatterbox-dialog .cb-panel-header-ws--connecting .cb-panel-header-ws-dot {
+        background: var(--cb-warning);
+        animation: cb-ws-dot-pulse 1.2s ease-in-out infinite;
+      }
+      @keyframes cb-ws-dot-pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: .35; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #laplace-chatterbox-dialog .cb-panel-header-ws--connecting .cb-panel-header-ws-dot {
+          animation: none;
+        }
+      }
+
+      /*
+       * Inline reconnect button shown next to "WS 断开". Status without an
+       * action is sterile — Jobs's rule is: if you tell the user something
+       * is wrong, give them the next click. Styled subtler than primary
+       * buttons (transparent bg, brand-blue text) so it doesn't compete with
+       * the section CTAs further down, but obvious enough to be clickable.
+       */
+      #laplace-chatterbox-dialog .cb-panel-header-reconnect {
+        appearance: none;
         background: transparent !important;
+        border: 1px solid var(--cb-accent) !important;
+        color: var(--cb-accent) !important;
+        font-size: 11px !important;
+        padding: 1px 8px !important;
+        min-height: 20px !important;
+        border-radius: 999px !important;
+        cursor: pointer;
+        font-weight: 600;
+        transition: background 160ms ease, color 160ms ease;
+      }
+
+      #laplace-chatterbox-dialog .cb-panel-header-reconnect:hover {
+        background: var(--cb-accent-soft) !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-panel-header-reconnect:active {
+        background: var(--cb-accent) !important;
+        color: #fff !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-panel-header-actions {
+        display: flex;
+        gap: 4px;
+        flex-shrink: 0;
+      }
+
+      #laplace-chatterbox-dialog .cb-panel-header-icon {
+        padding: 2px 8px !important;
+        font-size: 14px !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-panel-header-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-top: 6px;
+      }
+
+      #laplace-chatterbox-dialog .cb-panel-header-chip {
+        font-size: 10px;
+        padding: 1px 6px;
+        border-radius: 8px;
+        color: #fff;
+        line-height: 1.5;
+      }
+
+      #laplace-chatterbox-dialog .cb-panel-header-chip--on { background: #0a7f55; }
+      #laplace-chatterbox-dialog .cb-panel-header-chip--dry { background: #a15c00; }
+      #laplace-chatterbox-dialog .cb-panel-header-chip--dry-emphasis {
+        background: #a15c00;
+        font-weight: 600;
+      }
+
+      #laplace-chatterbox-dialog .cb-panel-header .cb-ws-degraded-banner {
+        margin-top: 6px;
+        padding: 4px 6px;
+        border-radius: 4px;
+        background: rgba(255, 59, 48, .08);
+        color: #a15c00;
+        font-size: 11px;
+        line-height: 1.4;
+      }
+
+      /*
+       * Core feature group: a section that holds one core primitive card
+       * (e.g. AutoSendControls) plus its visually-subordinate supporting
+       * widget (e.g. MemesList as "pick template"). Tiny gap between siblings
+       * inside the group communicates "they belong together".
+       */
+      #laplace-chatterbox-dialog .cb-core-group {
+        margin: 0;
+        padding: 0;
+      }
+
+      #laplace-chatterbox-dialog .cb-core-group + .cb-core-group {
+        margin-top: 4px;
+      }
+
+      /*
+       * Supporting feature: a <details>/<summary> below a core card, indented
+       * to look hierarchically subordinate. Smaller font, dimmer surface so
+       * it doesn't compete with the main card visually.
+       */
+      #laplace-chatterbox-dialog .cb-supporting-feature {
+        margin: -3px 12px 8px !important;
+        background: rgba(118, 118, 128, .06) !important;
+        border: 1px solid rgba(0, 0, 0, .04) !important;
+        border-top: 0 !important;
+        border-radius: 0 0 8px 8px !important;
+        box-shadow: none !important;
+        font-size: 12px;
+      }
+
+      #laplace-chatterbox-dialog .cb-supporting-feature[open] {
+        background: rgba(248, 248, 250, .85) !important;
+      }
+
+      #laplace-chatterbox-dialog .cb-supporting-feature > summary {
+        min-height: 24px !important;
+        padding: 4px 8px !important;
+        font-size: 11px !important;
+        font-weight: 500 !important;
         color: #6e6e73 !important;
+        gap: 4px;
       }
 
-      #laplace-chatterbox-dialog .cb-tab[data-active="true"] {
-        background: #fff !important;
+      #laplace-chatterbox-dialog .cb-supporting-feature > summary:hover {
         color: #1d1d1f !important;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .08) !important;
       }
 
+      #laplace-chatterbox-dialog .cb-supporting-feature-icon {
+        font-size: 11px;
+        line-height: 1;
+      }
+
+      /* When opened, content padding inherits from details rules above. */
+
+      /*
+       * View transition animation. When the user clicks ⚙ / ⓘ to enter
+       * settings/about (or ← to leave), the active view runs this entrance
+       * keyframe. No exit animation — tab switches are fast enough that the
+       * outgoing view disappearing instantly while the incoming one slides in
+       * reads as a single smooth motion.
+       *
+       * Honor prefers-reduced-motion: users who set OS-level reduce-motion get
+       * an instant cut.
+       */
+      #laplace-chatterbox-dialog .cb-view {
+        animation: cb-view-enter 180ms cubic-bezier(0.2, 0.7, 0.2, 1);
+      }
+
+      @keyframes cb-view-enter {
+        from {
+          opacity: 0;
+          transform: translateX(6px);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        #laplace-chatterbox-dialog .cb-view {
+          animation: none;
+        }
+      }
+
+      /*
+       * Disclosure-style link button. Used for "show advanced settings" toggle
+       * and similar in-flow navigation elements that should NOT compete with
+       * primary CTAs (开车 / 停车 / 发送 / 启用…) visually. Borderless, soft
+       * gray, hover darkens.
+       */
+      #laplace-chatterbox-dialog button.cb-disclosure-link {
+        appearance: none !important;
+        background: transparent !important;
+        border: 0 !important;
+        box-shadow: none !important;
+        padding: 4px 0 !important;
+        min-height: 22px !important;
+        font-size: 12px !important;
+        font-weight: 500 !important;
+        color: #6e6e73 !important;
+        cursor: pointer;
+        text-align: left;
+      }
+
+      #laplace-chatterbox-dialog button.cb-disclosure-link:hover {
+        color: #1d1d1f !important;
+        background: transparent !important;
+      }
+
+      #laplace-chatterbox-dialog button.cb-disclosure-link:active {
+        transform: none;
+      }
+
+      /*
+       * Emote picker popup (portaled to document.body — selectors are NOT
+       * scoped under #laplace-chatterbox-dialog because the picker lives
+       * outside the dialog's DOM subtree).
+       *
+       * Surface mirrors the dialog's iOS-style frosted look: white-ish bg in
+       * light mode, dark gray in dark mode, soft border + shadow. z-index is
+       * pinned to the same max int as the dialog so DOM order decides
+       * stacking — picker is mounted AFTER the dialog so it wins. Combined
+       * with the new flank-panel positioning, the picker never overlaps the
+       * dialog visually in the first place; the z-index is just a safety net
+       * for narrow viewports where flanking can't fit.
+       */
+      .cb-emote-picker {
+        position: fixed;
+        z-index: 2147483647;
+        background: rgba(248, 248, 250, .96);
+        border: 1px solid rgba(0, 0, 0, .08);
+        border-radius: 8px;
+        box-shadow: 0 22px 60px rgba(0, 0, 0, .24), 0 1px 0 rgba(255, 255, 255, .72) inset;
+        backdrop-filter: blur(26px) saturate(1.5);
+        -webkit-backdrop-filter: blur(26px) saturate(1.5);
+        color: #1d1d1f;
+        font-size: 12px;
+        line-height: 1.4;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        animation: cb-view-enter 160ms cubic-bezier(0.2, 0.7, 0.2, 1);
+      }
+
+      .cb-emote-picker--empty {
+        min-height: 64px;
+        padding: 12px;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        text-align: center;
+        color: #6e6e73;
+      }
+
+      .cb-emote-picker--error {
+        color: #a15c00;
+      }
+
+      .cb-emote-picker-retry {
+        font-size: 11px;
+        padding: 2px 8px;
+        cursor: pointer;
+        background: rgba(118, 118, 128, .12);
+        border: 1px solid rgba(0, 0, 0, .1);
+        border-radius: 6px;
+        color: inherit;
+      }
+
+      .cb-emote-picker-retry:hover {
+        background: rgba(118, 118, 128, .2);
+      }
+
+      .cb-emote-picker-tabs {
+        display: flex;
+        gap: 4px;
+        padding: 6px 8px;
+        border-bottom: 1px solid rgba(0, 0, 0, .06);
+        overflow-x: auto;
+        flex: 0 0 auto;
+      }
+
+      .cb-emote-picker-tab {
+        padding: 3px 8px;
+        font-size: 11px;
+        line-height: 1.4;
+        border: 1px solid rgba(0, 0, 0, .08);
+        border-radius: 4px;
+        background: rgba(118, 118, 128, .08);
+        color: #555;
+        cursor: pointer;
+        white-space: nowrap;
+        flex: 0 0 auto;
+      }
+
+      .cb-emote-picker-tab:hover {
+        background: rgba(118, 118, 128, .16);
+      }
+
+      .cb-emote-picker-tab--active {
+        background: #34c759;
+        color: #fff;
+        border-color: #2e8c73;
+      }
+
+      .cb-emote-picker-tab--active:hover {
+        background: #34c759;
+      }
+
+      .cb-emote-picker-grid {
+        flex: 1 1 auto;
+        overflow-y: auto;
+        padding: 8px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        align-content: flex-start;
+      }
+
+      .cb-emote-picker-tile {
+        position: relative;
+        width: 52px;
+        height: 52px;
+        padding: 2px;
+        border: 1px solid rgba(0, 0, 0, .06);
+        border-radius: 6px;
+        background: rgba(118, 118, 128, .06);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background 120ms ease-out, transform 80ms ease-out;
+      }
+
+      .cb-emote-picker-tile:hover {
+        background: rgba(118, 118, 128, .16);
+      }
+
+      .cb-emote-picker-tile:active {
+        transform: scale(0.96);
+      }
+
+      .cb-emote-picker-tile img {
+        max-width: 44px;
+        max-height: 44px;
+        object-fit: contain;
+      }
+
+      .cb-emote-picker-lock-badge {
+        position: absolute;
+        top: 1px;
+        right: 1px;
+        padding: 0 4px;
+        font-size: 9px;
+        line-height: 12px;
+        color: #fff;
+        border-radius: 2px;
+        pointer-events: none;
+        white-space: nowrap;
+      }
+
+      /*
+       * Focus ring uses --cb-accent so it auto-flips between #007aff (light)
+       * and #0a84ff (dark) — pre-token state hardcoded #0a84ff for both,
+       * which read as too pale on light backgrounds and slightly violated
+       * the contrast standard.
+       */
       #laplace-chatterbox-dialog button:focus-visible,
-      #laplace-chatterbox-dialog input[type="checkbox"]:focus-visible,
-      #laplace-chatterbox-dialog .cb-tab:focus-visible {
-        outline: 2px solid #0a84ff !important;
+      #laplace-chatterbox-dialog input[type="checkbox"]:focus-visible {
+        outline: 2px solid var(--cb-accent) !important;
         outline-offset: 2px !important;
       }
 
       #laplace-chatterbox-dialog .cb-primary {
-        background: #007aff !important;
+        background: var(--cb-accent) !important;
         color: #fff !important;
-        border-color: #007aff !important;
+        border-color: var(--cb-accent) !important;
       }
 
       #laplace-chatterbox-dialog .cb-danger {
-        background: #ff3b30 !important;
+        background: var(--cb-danger) !important;
         color: #fff !important;
-        border-color: #ff3b30 !important;
+        border-color: var(--cb-danger) !important;
       }
 
       #laplace-chatterbox-dialog .cb-soft {
-        color: #6e6e73 !important;
+        color: var(--cb-text-2) !important;
       }
 
       #laplace-chatterbox-dialog .cb-row {
@@ -648,6 +1272,20 @@ const PANEL_STYLE = `
         }
 
         #laplace-chatterbox-dialog {
+          /* Dark-mode design token overrides — same semantic names as the
+             light defaults, switched to iOS dark palette values. */
+          --cb-accent: #0a84ff;
+          --cb-success: #30d158;
+          --cb-warning: #ff9f0a;
+          --cb-danger: #ff453a;
+          --cb-text: #f5f5f7;
+          --cb-text-2: #98989d;
+          --cb-text-3: #6e6e73;
+          --cb-border: rgba(255, 255, 255, .12);
+          --cb-border-soft: rgba(255, 255, 255, .08);
+          --cb-surface: rgba(46, 46, 50, .82);
+          --cb-surface-soft: rgba(40, 40, 44, .68);
+
           color: #f5f5f7 !important;
           background: rgba(28, 28, 30, .9) !important;
           border-color: rgba(255, 255, 255, .12) !important;
@@ -668,9 +1306,20 @@ const PANEL_STYLE = `
           color: #f5f5f7 !important;
         }
 
+        /*
+         * Dark mode: panel surface is rgba(28,28,30,.9). #98989d on that
+         * yields ~3.8:1 — readable. Hover bumps to #f5f5f7 for click cue.
+         * (Light-mode default #8e8e93 reads too dark here and disappears
+         * into the dark glass; we need a *lighter* gray on dark.)
+         */
         #laplace-chatterbox-dialog summary::after {
+          border-top-color: #98989d;
           border-right-color: #98989d;
-          border-bottom-color: #98989d;
+        }
+
+        #laplace-chatterbox-dialog summary:hover::after {
+          border-top-color: #f5f5f7;
+          border-right-color: #f5f5f7;
         }
 
         #laplace-chatterbox-dialog button {
@@ -709,36 +1358,146 @@ const PANEL_STYLE = `
           box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .06) !important;
         }
 
-        #laplace-chatterbox-dialog input[type="checkbox"]:checked {
-          background: #30d158 !important;
+        #laplace-chatterbox-dialog input[type="checkbox"]:hover:not(:checked):not(:disabled) {
+          background: #5a5a5e !important;
         }
 
-        #laplace-chatterbox-dialog .cb-tabs {
+        /*
+         * Checked state inherits var(--cb-accent) from the dark-mode token
+         * override above (#0a84ff). Same rationale as light mode: brand
+         * accent rather than iOS system green so toggles read as part of
+         * THIS product. No explicit override needed here.
+         */
+
+        #laplace-chatterbox-dialog .cb-panel-header {
           background: rgba(28, 28, 30, .92) !important;
           border-bottom-color: rgba(255, 255, 255, .08) !important;
         }
 
-        #laplace-chatterbox-dialog .cb-tab {
+        #laplace-chatterbox-dialog .cb-panel-header-title {
+          color: #f5f5f7 !important;
+        }
+
+        #laplace-chatterbox-dialog .cb-panel-header-roomid {
           color: #98989d !important;
         }
 
-        #laplace-chatterbox-dialog .cb-tab[data-active="true"] {
-          background: rgba(72, 72, 76, .9) !important;
+        #laplace-chatterbox-dialog .cb-panel-header-ws--ok { color: #30d158 !important; }
+        #laplace-chatterbox-dialog .cb-panel-header-ws--ok .cb-panel-header-ws-dot { background: #30d158 !important; }
+        #laplace-chatterbox-dialog .cb-panel-header-ws--bad { color: #ff453a !important; }
+        #laplace-chatterbox-dialog .cb-panel-header-ws--bad .cb-panel-header-ws-dot { background: #ff453a !important; }
+        #laplace-chatterbox-dialog .cb-panel-header-ws--idle { color: #98989d !important; }
+        #laplace-chatterbox-dialog .cb-panel-header-ws--idle .cb-panel-header-ws-dot { background: #98989d !important; }
+
+        #laplace-chatterbox-dialog .cb-panel-header-chip--on { background: #30d158 !important; color: #1d1d1f !important; }
+        #laplace-chatterbox-dialog .cb-panel-header-chip--dry { background: #ff9f0a !important; color: #1d1d1f !important; }
+        #laplace-chatterbox-dialog .cb-panel-header-chip--dry-emphasis {
+          background: #ff9f0a !important;
+          color: #1d1d1f !important;
+        }
+
+        #laplace-chatterbox-dialog .cb-panel-header .cb-ws-degraded-banner {
+          background: rgba(255, 69, 58, .14) !important;
+          color: #ff9f0a !important;
+        }
+
+        #laplace-chatterbox-dialog .cb-supporting-feature {
+          background: rgba(60, 60, 64, .35) !important;
+          border-color: rgba(255, 255, 255, .04) !important;
+        }
+
+        #laplace-chatterbox-dialog .cb-supporting-feature[open] {
+          background: rgba(46, 46, 50, .82) !important;
+        }
+
+        #laplace-chatterbox-dialog .cb-supporting-feature > summary {
+          color: #98989d !important;
+        }
+
+        #laplace-chatterbox-dialog .cb-supporting-feature > summary:hover {
           color: #f5f5f7 !important;
-          box-shadow: 0 1px 4px rgba(0, 0, 0, .35) !important;
         }
 
-        #laplace-chatterbox-dialog .cb-primary {
-          background: #0a84ff !important;
-          color: #fff !important;
-          border-color: #0a84ff !important;
+        #laplace-chatterbox-dialog button.cb-disclosure-link {
+          color: #98989d !important;
         }
 
-        #laplace-chatterbox-dialog .cb-danger {
-          background: #ff453a !important;
-          color: #fff !important;
-          border-color: #ff453a !important;
+        #laplace-chatterbox-dialog button.cb-disclosure-link:hover {
+          color: #f5f5f7 !important;
         }
+
+        /*
+         * Dark mode for the emote picker. Mirrors the dialog's dark palette
+         * so the whole插件 reads as one product whether the user has light or
+         * dark OS theme. Selectors are top-level (not scoped under
+         * #laplace-chatterbox-dialog) because the picker is portaled to body.
+         */
+        .cb-emote-picker {
+          background: rgba(28, 28, 30, .92) !important;
+          border-color: rgba(255, 255, 255, .12) !important;
+          color: #f5f5f7 !important;
+          box-shadow: 0 22px 60px rgba(0, 0, 0, .72), 0 1px 0 rgba(255, 255, 255, .08) inset !important;
+        }
+
+        .cb-emote-picker--empty {
+          color: #98989d !important;
+        }
+
+        .cb-emote-picker--error {
+          color: #ff9f0a !important;
+        }
+
+        .cb-emote-picker-retry {
+          background: rgba(72, 72, 76, .9) !important;
+          border-color: rgba(255, 255, 255, .12) !important;
+          color: #f5f5f7 !important;
+        }
+
+        .cb-emote-picker-retry:hover {
+          background: rgba(90, 90, 94, .95) !important;
+        }
+
+        .cb-emote-picker-tabs {
+          border-bottom-color: rgba(255, 255, 255, .08) !important;
+        }
+
+        .cb-emote-picker-tab {
+          background: rgba(72, 72, 76, .5) !important;
+          color: #98989d !important;
+          border-color: rgba(255, 255, 255, .08) !important;
+        }
+
+        .cb-emote-picker-tab:hover {
+          background: rgba(90, 90, 94, .7) !important;
+        }
+
+        .cb-emote-picker-tab--active {
+          background: #30d158 !important;
+          color: #1d1d1f !important;
+          border-color: #30d158 !important;
+        }
+
+        .cb-emote-picker-tab--active:hover {
+          background: #30d158 !important;
+        }
+
+        .cb-emote-picker-tile {
+          background: rgba(60, 60, 64, .5) !important;
+          border-color: rgba(255, 255, 255, .06) !important;
+        }
+
+        .cb-emote-picker-tile:hover {
+          background: rgba(80, 80, 84, .7) !important;
+        }
+
+        /*
+         * Dark mode .cb-primary / .cb-danger inherit from the light-mode
+         * rules, which already read --cb-accent and --cb-danger. The dark
+         * mode token block above redefines those values to #0a84ff /
+         * #ff453a, so no explicit override is needed. Removing them
+         * collapses the dark-mode branch to "tokens only" — fewer places
+         * to drift out of sync.
+         */
 
         #laplace-chatterbox-dialog .cb-soft,
         #laplace-chatterbox-dialog .cb-note,
@@ -919,12 +1678,58 @@ function currentLiveRoomSlug(): string | null {
     return null
   }
 }
+/**
+ * Inject PANEL_STYLE into the document.
+ *
+ * Idempotent: tags injected by this function carry `data-cb-panel-style`.
+ * On every call we remove any existing tags with that marker before adding
+ * a fresh one. Without this, Vite HMR reloads of `app-lifecycle.ts` re-run
+ * the module init, each call appends another `<style>`, and after a few
+ * edits the document has 4+ overlapping copies of PANEL_STYLE — CSS
+ * cascading then picks the "last matching rule" from a different copy
+ * than expected, breaking interactive states (e.g. `:checked::after`
+ * transform fights between old and new rules → toggle thumbs don't slide
+ * on click because the same translateX(16px) is applied in both states).
+ *
+ * Production (Tampermonkey via GM_addStyle): same idempotency — we wrap
+ * GM_addStyle so the marker convention applies to both paths. GM_addStyle
+ * returns a `<style>` element in most engines; we tag it after the fact.
+ */
+const PANEL_STYLE_MARKER = 'data-cb-panel-style'
 export function installPanelStyles(): () => void {
+  // Always remove existing marked tags first.
+  for (const existing of document.querySelectorAll(`style[${PANEL_STYLE_MARKER}]`)) {
+    existing.remove()
+  }
   if (typeof GM_addStyle === 'function') {
-    GM_addStyle(PANEL_STYLE)
-    return () => {}
+    // Snapshot pre-existing <style> tags so we can robustly identify the new
+    // one GM_addStyle just appended — even on engines whose GM_addStyle
+    // returns void (older GreaseMonkey) or where another module's <style>
+    // happened to be appended concurrently between this call and the next
+    // microtask. Previous "grab the last <style> in document" heuristic
+    // would mis-tag the wrong element on HMR + concurrent injections, so
+    // the marker would end up on Bilibili's or Vite's stylesheet and the
+    // *next* call's wipe loop would leave our stale copy stacked.
+    const before = new Set(document.querySelectorAll('style'))
+    const injected = GM_addStyle(PANEL_STYLE) as unknown
+    let styleEl: HTMLStyleElement | undefined
+    if (injected instanceof HTMLStyleElement) {
+      styleEl = injected
+    } else {
+      for (const candidate of document.querySelectorAll('style')) {
+        if (!before.has(candidate)) {
+          styleEl = candidate as HTMLStyleElement
+          break
+        }
+      }
+    }
+    if (styleEl) styleEl.setAttribute(PANEL_STYLE_MARKER, '')
+    return () => {
+      styleEl?.remove()
+    }
   }
   const style = document.createElement('style')
+  style.setAttribute(PANEL_STYLE_MARKER, '')
   style.textContent = PANEL_STYLE
   ;(document.head || document.documentElement).appendChild(style)
   return () => style.remove()

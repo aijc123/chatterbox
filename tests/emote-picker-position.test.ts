@@ -98,4 +98,77 @@ describe('emote picker positioning (computePos)', () => {
     expect(PICKER_GAP).toBeGreaterThan(0)
     expect(ANCHOR_OFFSET).toBeGreaterThan(0)
   })
+
+  describe('flank-panel mode', () => {
+    // Realistic chatterbox panel: 320px wide, glued to right edge with 8px gap.
+    const panel = (): PickerRect => ({
+      top: 100,
+      bottom: 660,
+      left: VW - 328,
+      right: VW - 8,
+    })
+    // Trigger button somewhere inside the panel (the 普通发送 smiley).
+    const triggerInPanel = (): PickerRect => rect(VW - 300, 600)
+
+    test('places picker to the LEFT of the panel when room allows', () => {
+      const pos = computePos(triggerInPanel(), VW, VH, panel())
+      // Right-anchored: picker.right = vw - panel.left + GAP = vw - (vw - 328) + 8 = 336
+      expect(pos.right).toBe(VW - panel().left + PICKER_GAP)
+      expect(pos.left).toBeUndefined()
+    })
+
+    test('aligns picker vertically with the trigger center, clamped to viewport', () => {
+      const pos = computePos(triggerInPanel(), VW, VH, panel())
+      // Anchor center = (600 + 628) / 2 = 614. Ideal top = 614 - 180 = 434.
+      // maxTop = VH - PICKER_H - PICKER_GAP = 1080 - 360 - 8 = 712. 434 < 712 so no clamp.
+      expect(pos.top).toBe(614 - PICKER_H / 2)
+      expect(pos.bottom).toBeUndefined()
+    })
+
+    test('clamps vertically to top of viewport when trigger sits near the top', () => {
+      const trigger = rect(VW - 300, 0) // anchor center at y=14
+      const pos = computePos(trigger, VW, VH, panel())
+      // Ideal top = 14 - 180 = -166. Clamped to PICKER_GAP (8).
+      expect(pos.top).toBe(PICKER_GAP)
+    })
+
+    test('clamps vertically to bottom of viewport when trigger sits near the bottom', () => {
+      const trigger = rect(VW - 300, VH - 14)
+      const pos = computePos(trigger, VW, VH, panel())
+      // maxTop = VH - PICKER_H - PICKER_GAP = 712.
+      expect(pos.top).toBe(VH - PICKER_H - PICKER_GAP)
+    })
+
+    test('falls back to centered-above mode when the panel leaves no left-side room', () => {
+      // Narrow viewport: panel takes most of the width, no room to flank.
+      const narrowVW = 380 // less than PICKER_W + 2*PICKER_GAP = 336
+      const narrowPanel: PickerRect = { top: 100, bottom: 660, left: 60, right: 380 }
+      const trigger = rect(80, 600)
+      const pos = computePos(trigger, narrowVW, VH, narrowPanel)
+      // Fall through to centered-above mode: should yield `left` (centered) and
+      // `top` or `bottom`, NOT `right` (which would mean flank mode).
+      expect(pos.right).toBeUndefined()
+      expect(pos.left).toBeDefined()
+    })
+
+    test('flankRect null/undefined behaves identically to omitting it', () => {
+      const trigger = triggerInPanel()
+      const withoutFlank = computePos(trigger, VW, VH)
+      const withNullFlank = computePos(trigger, VW, VH, null)
+      const withUndefinedFlank = computePos(trigger, VW, VH, undefined)
+      expect(withNullFlank).toEqual(withoutFlank)
+      expect(withUndefinedFlank).toEqual(withoutFlank)
+    })
+
+    test('flank-mode picker never overlaps the panel horizontally', () => {
+      const p = panel()
+      const trigger = triggerInPanel()
+      const pos = computePos(trigger, VW, VH, p)
+      // pos.right is distance from viewport right edge to picker's right edge.
+      // Picker's right edge in absolute coords = VW - pos.right
+      const pickerRight = VW - (pos.right ?? 0)
+      // Must be at or left of the panel's left edge (minus our gap).
+      expect(pickerRight).toBeLessThanOrEqual(p.left - PICKER_GAP + 1) // +1 = floating-point slop
+    })
+  })
 })

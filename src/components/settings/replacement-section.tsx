@@ -151,7 +151,7 @@ export function CloudReplacementSection({ query = '' }: { query?: string }) {
       minute: '2-digit',
     })
     syncStatus.value = `最后同步: ${timeStr}，当前房间共 ${globalCount + roomCount} 条规则（全局 ${globalCount} + 当前房间 ${roomCount}）`
-    syncStatusColor.value = '#36a185'
+    syncStatusColor.value = 'var(--cb-success-text)'
   }
 
   const syncRemote = async () => {
@@ -167,7 +167,7 @@ export function CloudReplacementSection({ query = '' }: { query?: string }) {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       syncStatus.value = `同步失败: ${msg}`
-      syncStatusColor.value = '#f44'
+      syncStatusColor.value = 'var(--cb-danger-text)'
       appendLog(`❌ 云端替换规则同步失败: ${msg}`)
     } finally {
       syncing.value = false

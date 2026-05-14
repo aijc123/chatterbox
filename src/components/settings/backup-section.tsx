@@ -100,7 +100,7 @@ export function BackupSection({ query = '' }: { query?: string }) {
         </div>
         {importOpen.value && (
           <div className='cb-stack' style={{ marginTop: '.5em', gap: '.5em' }}>
-            <div className='cb-note' style={{ color: '#a15c00', fontSize: '0.85em' }}>
+            <div className='cb-note' style={{ color: 'var(--cb-warning-text)', fontSize: '0.85em' }}>
               ⚠️ 导入会覆盖现有设置，包括同步密钥、Soniox API Key 和保安室地址。建议导入前先备份当前配置。
             </div>
             <details style={{ fontSize: '0.85em' }}>
@@ -173,16 +173,16 @@ export function BackupSection({ query = '' }: { query?: string }) {
                       <li key={c.key} style={{ marginBottom: '2px' }}>
                         <code style={{ fontFamily: 'monospace', fontSize: '0.95em' }}>{c.key}</code>
                         <div className='cb-note' style={{ fontSize: '0.9em' }}>
-                          <span style={{ color: '#a15c00' }}>当前 {c.before}</span>
+                          <span style={{ color: 'var(--cb-warning-text)' }}>当前 {c.before}</span>
                           <span style={{ margin: '0 .35em' }}>→</span>
-                          <span style={{ color: '#168a45' }}>导入后 {c.after}</span>
+                          <span style={{ color: 'var(--cb-success-text)' }}>导入后 {c.after}</span>
                         </div>
                       </li>
                     ))}
                   </ul>
                 )}
                 {preview.value.skipped.length > 0 && (
-                  <div className='cb-note' style={{ marginTop: '.25em', color: '#a15c00' }}>
+                  <div className='cb-note' style={{ marginTop: '.25em', color: 'var(--cb-warning-text)' }}>
                     跳过（格式不匹配）：{preview.value.skipped.join('、')}
                   </div>
                 )}

@@ -178,7 +178,7 @@ export function SttTab() {
       if (!apiKey) {
         appendLog('⚠️ 请先输入 Soniox API Key')
         statusText.value = '请输入 API Key'
-        statusColor.value = '#f44'
+        statusColor.value = 'var(--cb-danger-text)'
         return
       }
       finalText.value = ''
@@ -221,7 +221,7 @@ export function SttTab() {
             } else {
               statusText.value = '正在识别…'
             }
-            statusColor.value = '#36a185'
+            statusColor.value = 'var(--cb-success-text)'
             appendLog(translationEnabled ? `🎤 同传已启动（翻译模式：${translationTarget}）` : '🎤 同传已启动')
           },
           onPartialResult: result => {
@@ -276,7 +276,8 @@ export function SttTab() {
           },
           onError: (_status, message) => {
             appendLog(`🔴 Soniox 错误：${message}`)
-            if (state.value !== 'stopping' && state.value !== 'stopped') resetState(`错误: ${message}`, '#f44')
+            if (state.value !== 'stopping' && state.value !== 'stopped')
+              resetState(`错误: ${message}`, 'var(--cb-danger-text)')
           },
         }
         if (translationEnabled) {
@@ -301,13 +302,13 @@ export function SttTab() {
         const message = err instanceof Error ? err.message : String(err)
         if (err instanceof Error && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')) {
           appendLog('❌ 麦克风权限被拒绝，请在浏览器设置中允许使用麦克风')
-          resetState('麦克风权限被拒绝，请允许浏览器使用麦克风', '#f44')
+          resetState('麦克风权限被拒绝，请允许浏览器使用麦克风', 'var(--cb-danger-text)')
         } else if (err instanceof Error && err.name === 'NotFoundError') {
           appendLog('❌ 未找到麦克风设备')
-          resetState('未找到麦克风设备', '#f44')
+          resetState('未找到麦克风设备', 'var(--cb-danger-text)')
         } else {
           appendLog(`🔴 启动同传失败：${message}`)
-          resetState(`启动失败: ${message}`, '#f44')
+          resetState(`启动失败: ${message}`, 'var(--cb-danger-text)')
         }
       }
     } else if (state.value === 'running') {
@@ -428,7 +429,7 @@ export function SttTab() {
             role='status'
             aria-live='polite'
             style={{
-              color: '#b00020',
+              color: 'var(--cb-danger-text)',
               background: 'rgba(176,0,32,.08)',
               border: '1px solid rgba(176,0,32,.25)',
               padding: '6px 8px',

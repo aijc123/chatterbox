@@ -4,6 +4,7 @@ import type { MemeSource } from '../lib/meme-sources'
 
 import { startHzmAutoDrive, stopHzmAutoDrive } from '../lib/hzm-auto-drive'
 import { getMemeSourceForRoom } from '../lib/meme-sources'
+import { warnIfOtherSourcesActive } from '../lib/multi-source-warning'
 import {
   activeTab,
   cachedRoomId,
@@ -22,7 +23,6 @@ import {
   hzmDriveStatusText,
   hzmDryRun,
   hzmLlmRatio,
-  hzmPanelOpen,
   hzmPauseKeywordsOverride,
   hzmRateLimitPerMin,
   hzmStrictHeuristic,
@@ -117,10 +117,10 @@ function HzmDrivePanel({ source }: { source: MemeSource }) {
   const statusColor = !isOn
     ? '#777'
     : statusText.includes('试运行')
-      ? '#a15c00'
+      ? 'var(--cb-warning-text)'
       : statusText.includes('运行中')
-        ? '#1677ff'
-        : '#0a7f55'
+        ? 'var(--cb-accent)'
+        : 'var(--cb-success-text)'
 
   const toggleEnabled = async () => {
     if (isOn) {
@@ -165,6 +165,9 @@ function HzmDrivePanel({ source }: { source: MemeSource }) {
     }
     hzmDriveEnabled.value = true
     void startHzmAutoDrive({ source, getMemes: () => currentMemesList.value })
+    // 智驾 + 独轮车 已有显式 showConfirm 阻塞（Footgun #1）；这里再补一条 toast
+    // 兜底覆盖 智驾 + 自动跟车 / 智驾 + 任意其他组合的并发场景。
+    void warnIfOtherSourcesActive('hzm')
   }
 
   const toggleSelectedTag = (tag: string) => {
@@ -179,18 +182,22 @@ function HzmDrivePanel({ source }: { source: MemeSource }) {
 
   const pauseDefault = (source.pauseKeywords ?? []).join(' / ')
 
+  // Outer <details>/<summary>智能辅助驾驶（...）</summary>...</details>
+  // removed: the configurator.tsx 🤖 wrapper is now bound to `hzmPanelOpen`
+  // and owns the disclosure. Two nested toggles for the same panel was
+  // redundant; the inner summary's only unique info (source.name +
+  // running-state pill) is now rendered as a heading inside the panel
+  // content.
+  //
+  // hzmPanelOpen is still read by the configurator wrapper to preserve
+  // the GM-persisted open state across sessions, so the user's last view
+  // of this panel is restored on next page load.
   return (
-    <details
-      open={hzmPanelOpen.value}
-      onToggle={e => {
-        hzmPanelOpen.value = e.currentTarget.open
-      }}
-    >
-      <summary style={{ cursor: 'pointer', userSelect: 'none', fontWeight: 'bold' }}>
-        <span>智能辅助驾驶（{source.name}）</span>
+    <>
+      <div className='cb-heading' style={{ display: 'flex', alignItems: 'center', gap: '.5em' }}>
+        <span>{source.name}</span>
         {isOn && <span className='cb-soft'>运行中</span>}
-      </summary>
-
+      </div>
       <div className='cb-body cb-stack'>
         <div className='cb-note' style={{ marginBottom: '.25em' }}>
           条件满足时，会以你的账号自动从烂梗库挑选并发送弹幕。第一次开启建议先打开下方的「试运行」观察效果。
@@ -247,7 +254,10 @@ function HzmDrivePanel({ source }: { source: MemeSource }) {
             试运行（只观察，不发送）
           </label>
           {!hzmDryRun.value && (
-            <span style={{ color: '#a15c00', fontSize: '0.85em' }} title='当前关闭试运行，会真实发送弹幕。'>
+            <span
+              style={{ color: 'var(--cb-warning-text)', fontSize: '0.85em' }}
+              title='当前关闭试运行，会真实发送弹幕。'
+            >
               关闭后会真实发送
             </span>
           )}
@@ -269,12 +279,12 @@ function HzmDrivePanel({ source }: { source: MemeSource }) {
         </div>
 
         {sendMsg.value && (
-          <div role='alert' style={{ color: '#ff3b30', fontSize: '12px', fontWeight: 650, lineHeight: 1.5 }}>
+          <div role='alert' style={{ color: 'var(--cb-danger)', fontSize: '12px', fontWeight: 650, lineHeight: 1.5 }}>
             ⚠️ 文字独轮车正在运行 —— 与智驾叠加会同时往 B 站发，极易超出限速被风控。开车前会再次确认；建议先停一边。
           </div>
         )}
         {mode === 'llm' && llmApiKey.value.trim() === '' && (
-          <div role='alert' style={{ color: '#ff3b30', fontSize: '12px', fontWeight: 650, lineHeight: 1.5 }}>
+          <div role='alert' style={{ color: 'var(--cb-danger)', fontSize: '12px', fontWeight: 650, lineHeight: 1.5 }}>
             ⚠️ LLM 智驾未配置 API key。开车前请先到「设置 → LLM」填好 key，否则无法工作。
           </div>
         )}
@@ -434,7 +444,7 @@ function HzmDrivePanel({ source }: { source: MemeSource }) {
                     className='cb-tag'
                     onClick={() => toggleBlacklistTag(t)}
                     title={blacklist.includes(t) ? '已拉黑，点击取消' : '点击拉黑这个 tag'}
-                    style={{ '--cb-tag-bg': blacklist.includes(t) ? '#ff3b30' : undefined }}
+                    style={{ '--cb-tag-bg': blacklist.includes(t) ? 'var(--cb-danger)' : undefined }}
                   >
                     {t}
                   </button>
@@ -472,6 +482,6 @@ function HzmDrivePanel({ source }: { source: MemeSource }) {
           />
         </div>
       )}
-    </details>
+    </>
   )
 }

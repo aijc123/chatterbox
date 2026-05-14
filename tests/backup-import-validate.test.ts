@@ -159,6 +159,11 @@ describe('importSettings', () => {
   test('round-trips newly-allowlisted auto-blend gmSignal keys', () => {
     autoBlendUserBlacklist.value = { '12345': 'spammer', '67890': 'bot' }
     autoBlendCooldownAuto.value = true
+    // gm-signal skips writes when next value equals last-persisted value
+    // (avoiding noop GM writes). The test value here happens to equal the
+    // signal's runtime default, so toggle through the opposite first to
+    // guarantee a schedulePersist actually fires and the key lands in gmStore.
+    autoBlendAvoidRepeat.value = false
     autoBlendAvoidRepeat.value = true
     lastAppliedPresetBaseline.value = 'hot'
     // gmSignal writes are debounced 150ms; force-persist before exporting

@@ -55,7 +55,12 @@ export const autoBlendUseReplacements = gmSignal('autoBlendUseReplacements', tru
 // 不重复上次自动发送：开启后,与上一次自动跟车发出去的弹幕完全相同的新弹幕
 // 不再计入候选,避免冷却结束后被同一句话立刻再次刷上去。仅作用于一次
 // startAutoBlend 周期(stop 时清空)。从 upstream chatterbox 32b9b84 移植。
-export const autoBlendAvoidRepeat = gmSignal('autoBlendAvoidRepeat', false)
+//
+// 默认 **true**：跟车的语义是"跟着 community 走"。一次会话里同一句话被脚本
+// 跟两次=用户一个号在短时间里塞了同样两遍，既不像人，也加重被风控识别为
+// 重复刷屏的风险。默认避免重复 = 更分散、更自然。如果用户就是想反复跟同一
+// 句热门梗，可手动关掉这个开关。老用户持久值不变。
+export const autoBlendAvoidRepeat = gmSignal('autoBlendAvoidRepeat', true)
 export const autoBlendRequireDistinctUsers = gmSignal('autoBlendRequireDistinctUsers', true)
 export const autoBlendMinDistinctUsers = numericGmSignal('autoBlendMinDistinctUsers', 3, {
   min: 1,

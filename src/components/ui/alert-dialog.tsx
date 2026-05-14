@@ -105,9 +105,9 @@ export function AlertDialog() {
           type='button'
           onClick={() => close(true)}
           style={{
-            border: '1px solid #007aff',
+            border: '1px solid var(--cb-accent)',
             borderRadius: '8px',
-            background: '#007aff',
+            background: 'var(--cb-accent)',
             color: '#fff',
             padding: '5px 10px',
           }}

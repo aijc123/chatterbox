@@ -191,15 +191,24 @@ Modules are grouped by subsystem. When adding a new file, drop it next to its pe
 
 ### UI Notes
 
-- Main tabs are `发送`, `同传`, `设置`, and `关于`. The `发送` tab label decorates with `· 车` when the auto-send loop is running, `· 跟` when auto-follow is enabled, and `⚠️` when the live WS is closed/errored. The `同传` label adds `· 开` when STT is running.
-- The `发送` tab stacks: `AutoSendControls` (独轮车) → `AutoBlendControls` (自动跟车) → `HzmDrivePanelMount` (智能辅助驾驶) → `MemesList` (烂梗库) → `NormalSendTab` (普通发送 / +1 / 复制 / 影子屏蔽候选).
-- Settings tab sections (each takes the keyword search query and computes its own visibility): Custom Chat, +1 直接动作, 布局, 云端 / 本地全局 / 当前房间 替换规则, 影子屏蔽观察, 粉丝牌巡检, chatterbox-cloud 后端, 备份/恢复.
+The floating panel has **no top-level Tab bar**. It's a single-page waterfall with a sticky status header. Settings and About are sub-pages reached via icon buttons, not Tabs.
+
+- **Panel header** ([`src/components/panel-header.tsx`](src/components/panel-header.tsx)): sticky at top of the scrolling dialog. Shows "弹幕助手 · {roomId} · WS{dot}" + activity chips (独轮车/跟车/智驾/同传; dry-run variants in orange) + WS-degraded banner + ⚙ (settings) + ⓘ (about) icon buttons. On settings/about sub-pages it switches to a "← 返回" + page-title layout.
+- **Activity chips** replace the old per-tab decorations (`· 车 / · 跟 / · 智 / · 开 / ⚠️`). Tab Bar with these decorations no longer exists — `tabs.tsx` is deleted.
+- **Routing** still uses the `activeTab` signal for backward compatibility (callers like `onboarding.tsx`, `yolo-callout.tsx`, `hzm-drive-panel.tsx`, `danmaku-actions.ts` keep their `activeTab.value = 'settings' | 'about' | 'fasong'` calls). Valid values now: `'fasong'` (home waterfall), `'settings'` (drawer), `'about'` (drawer). Legacy `'tongchuan'` is auto-migrated to `'fasong'` on first render.
+- **Three core primitive cards on the home page**, each visually paired with its supporting widget through a `<section class="cb-core-group">` wrapper:
+  - `AutoSendControls` (独轮车) + `MemesList` as a `<details class="cb-supporting-feature">` summary "📚 从烂梗库挑模板"
+  - `AutoBlendControls` (自动跟车) + `HzmDrivePanelMount` (智驾) as "🤖 用 LLM 选梗"
+  - `NormalSendTab` (普通发送 / +1 / 复制 / 影子屏蔽候选) + `SttTab` (同传) as "🎤 语音输入弹幕"
+  Supporting features are visually subordinate (smaller, indented, dimmer background) — the design encodes "X serves Y" through layout, not through equal Tabs.
+- **Settings page** ([`src/components/settings-tab.tsx`](src/components/settings-tab.tsx)): default view shows only 5 essential sections (Chatterbox Chat, +1 直接动作, 布局, 表情, 备份/恢复). A "▸ 显示高级设置" button reveals 10+ advanced sections (智能识别 / 替换规则 / 影子屏蔽 / LLM / 粉丝牌巡检 / chatterbox-cloud 后端 / 雷达 / 日志). Search query overrides the toggle — typing in the search box always matches across all sections. State lives in `settingsAdvancedVisible` ([`store-ui.ts`](src/lib/store-ui.ts)).
+- **Esc key two-stage behavior** ([`src/components/toggle-button.tsx`](src/components/toggle-button.tsx)): on a sub-page (settings/about), Esc returns to home; on home, Esc closes the panel. Editable-field focus suppresses both (so Esc still clears inputs).
 - `Onboarding` shows on the first panel open and offers a one-click 新手配置.
 - `ShadowBypassChip` renders the candidate-rewrite chips next to the input in `NormalSendTab` when a shadow-ban is suspected — by default it suggests, never sends.
 - Chatterbox Chat themes are `iMessage Dark` (`laplace`), `iMessage Light` (`light`), and `Compact Bubble` (`compact`); plus the milk-green iMessage CSS preset in `src/lib/custom-chat-presets.ts` that the user can apply into the custom-CSS textarea. The connection-status dot is green when the WS is healthy, animated orange while connecting, solid orange on fallback / warning.
-- Dark mode: when the user's OS prefers dark, the panel, settings, tabs, and inputs flip to an iOS-style dark palette. Honor `prefers-color-scheme` instead of hard-coding light values when adding new visual surfaces.
-- Accessibility: tabs use `role="tablist"` / `aria-selected`; controls have `:focus-visible` rings; the panel closes on `Esc` (but lets default behavior through when an input is focused).
-- Keep the floating panel compact: it is meant to sit inside Bilibili Live's right-side area.
+- Dark mode: when the user's OS prefers dark, the panel, settings, panel-header, supporting-feature surfaces, and inputs flip to an iOS-style dark palette. Honor `prefers-color-scheme` instead of hard-coding light values when adding new visual surfaces. All dark overrides live in the `@media (prefers-color-scheme: dark)` block in [`src/lib/app-lifecycle.ts`](src/lib/app-lifecycle.ts).
+- Accessibility: panel-header sub-page mode uses a back button with `aria-label='返回主页'`; activity chips use `role='status' aria-live='polite'`; controls have `:focus-visible` rings; the panel two-stage-Escapes (sub-page → home → close) but lets default behavior through when an input is focused.
+- Keep the floating panel compact: it is meant to sit inside Bilibili Live's right-side area. Max height is 70vh (bumped from 50vh because the unified waterfall needs more vertical room than the old per-tab view).
 - Panel styling now uses a mix of legacy `cb-*` classes and UnoCSS `lc-*` utilities. UnoCSS is configured with a prefix and no global reset; never add unprefixed utility classes that could leak into Bilibili's page.
 
 ## State and Persistence

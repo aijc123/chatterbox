@@ -61,6 +61,15 @@ beforeAll(() => {
   Object.defineProperty(globalThis, 'document', { value: w.document, configurable: true })
   Object.defineProperty(globalThis, 'history', { value: w.history, configurable: true })
   Object.defineProperty(globalThis, 'location', { value: w.location, configurable: true })
+  // `installPanelStyles` does `injected instanceof HTMLStyleElement` — happy-dom
+  // exposes the class on the Window instance but does NOT promote it to
+  // globalThis. Without this line, `instanceof HTMLStyleElement` throws
+  // ReferenceError. Real browsers always have HTMLStyleElement as a global,
+  // so this is a test-environment-only shim.
+  Object.defineProperty(globalThis, 'HTMLStyleElement', {
+    value: (w as unknown as { HTMLStyleElement: unknown }).HTMLStyleElement,
+    configurable: true,
+  })
   // The lifecycle code calls `window.setTimeout(...)`, but also uses bare
   // setTimeout via `setTimeout(...)`. Bind the happy-dom timers to globals.
   globalThis.setTimeout = w.setTimeout as unknown as typeof setTimeout
@@ -172,6 +181,122 @@ describe('installPanelStyles', () => {
       expect(added.textContent).toContain('#laplace-chatterbox-dialog')
     }
     cleanup()
+  })
+
+  test('idempotency: 4 successive calls leave at most 1 style[data-cb-panel-style] in the document', () => {
+    // Regression for the HMR-bug that motivated the marker: when Vite reloads
+    // app-lifecycle.ts, the App `useEffect(() => installPanelStyles(), [])`
+    // re-runs, stacking 4+ identical PANEL_STYLE tags. CSS cascading then
+    // picked rule winners across stacked copies and toggle/chevron
+    // transitions stopped firing because the "before/after" CSS values were
+    // identical at the matched-rule level.
+    const cleanups: Array<() => void> = []
+    for (let i = 0; i < 4; i++) cleanups.push(lifecycle.installPanelStyles())
+    expect(document.querySelectorAll('style[data-cb-panel-style]').length).toBeLessThanOrEqual(1)
+    // Cleanup hands back stable disposers; calling them shouldn't throw and
+    // shouldn't leave the marker behind.
+    for (const c of cleanups) c()
+    expect(document.querySelectorAll('style[data-cb-panel-style]').length).toBe(0)
+  })
+
+  test('idempotency: the chevron transition CSS is present in exactly one tag', () => {
+    // The chevron transition (the user-visible up/down rotation on details
+    // toggle) lives in PANEL_STYLE. If HMR were to stack multiple copies,
+    // the rotate(45deg) → rotate(135deg) on the SAME pseudo-element would
+    // duplicate, and depending on insertion order the browser could land on
+    // a "no actual change" between rule winners — no transition fires. With
+    // the marker we never have >1 copy. This assertion locks that.
+    const c1 = lifecycle.installPanelStyles()
+    const c2 = lifecycle.installPanelStyles()
+    const tags = document.querySelectorAll<HTMLStyleElement>('style[data-cb-panel-style]')
+    expect(tags.length).toBeLessThanOrEqual(1)
+    if (tags.length === 1) {
+      const text = tags[0].textContent ?? ''
+      expect(text).toContain('summary::after')
+      expect(text).toContain('rotate(45deg)')
+      expect(text).toContain('rotate(135deg)')
+      // Transition must include `transform` so the open/close rotation animates.
+      expect(text).toMatch(/transition:\s*transform/)
+    }
+    c1()
+    c2()
+  })
+
+  test('details slide-down animation: ::details-content + interpolate-size CSS is present in PANEL_STYLE', async () => {
+    // The user-visible motion when clicking a <details>/<summary> to expand.
+    // Locks the Chrome 131+ approach: target ::details-content pseudo so
+    // BOTH open and close animate (not just first open).
+    //
+    // Previous attempt animated `details > :not(summary)` and only first open
+    // worked — close was instantly snapped because the UA stylesheet flips
+    // content-visibility: hidden on ::details-content the moment [open] is
+    // removed, yanking inner children out of layout. Targeting the pseudo
+    // is the only way to coordinate with the UA's hide mechanism.
+    //
+    // We read the SOURCE FILE directly because the test-env GM_addStyle is
+    // a no-op (`() => {}`), so installPanelStyles can't mount the <style>
+    // tag here. Reading the source catches regressions regardless.
+    const fs = await import('node:fs')
+    const path = await import('node:path')
+    const source = fs.readFileSync(path.resolve(import.meta.dir, '../src/lib/app-lifecycle.ts'), 'utf8')
+    const match = source.match(/const PANEL_STYLE = `([\s\S]*?)`\s*function/)
+    expect(match).not.toBeNull()
+    const text = match?.[1] ?? ''
+    expect(text).toContain('interpolate-size: allow-keywords')
+    expect(text).toContain('transition-behavior: allow-discrete')
+    // @supports must check BOTH the pseudo AND interpolate-size.
+    expect(text).toMatch(/@supports selector\(::details-content\) and \(interpolate-size:\s*allow-keywords\)/)
+    // Animation targets the pseudo, NOT the inner children.
+    expect(text).toMatch(/details::details-content\s*\{[\s\S]*?block-size:\s*0/)
+    expect(text).toMatch(/details\[open\]::details-content\s*\{[\s\S]*?block-size:\s*auto/)
+    // Reduced motion must short-circuit BOTH the content slide and chevron.
+    expect(text).toMatch(/prefers-reduced-motion: reduce[\s\S]*?details::details-content[\s\S]*?transition:\s*none/)
+  })
+
+  test('details animation: 240ms open / 200ms close (Apple "close faster than open" convention)', async () => {
+    // After the Jobs-critique pass: open should be 240ms (matching chevron),
+    // close should be 200ms (decisive cancel). If a future refactor blurs
+    // these into one duration this lock catches it.
+    const fs = await import('node:fs')
+    const path = await import('node:path')
+    const source = fs.readFileSync(path.resolve(import.meta.dir, '../src/lib/app-lifecycle.ts'), 'utf8')
+    const match = source.match(/const PANEL_STYLE = `([\s\S]*?)`\s*function/)
+    const text = match?.[1] ?? ''
+    // Open: 240ms on block-size transition.
+    expect(text).toMatch(/block-size\s+240ms\s+cubic-bezier/)
+    // Close: 200ms override on closed-state pseudo.
+    expect(text).toMatch(/details:not\(\[open\]\)::details-content\s*\{[\s\S]*?transition-duration:\s*200ms/)
+    // No opacity fade — block-size is the only motion.
+    const animBlock = text.match(/@supports selector\(::details-content\)[\s\S]*?\}\s*\}\s*\}/)?.[0] ?? ''
+    expect(animBlock).not.toContain('opacity:')
+  })
+
+  test('chevron + details animation are synchronized at 240ms (no Material-style stagger)', async () => {
+    const fs = await import('node:fs')
+    const path = await import('node:path')
+    const source = fs.readFileSync(path.resolve(import.meta.dir, '../src/lib/app-lifecycle.ts'), 'utf8')
+    const match = source.match(/const PANEL_STYLE = `([\s\S]*?)`\s*function/)
+    const text = match?.[1] ?? ''
+    // Chevron transform transition — 240ms cubic-bezier(.32, .72, 0, 1).
+    expect(text).toMatch(
+      /summary::after\s*\{[\s\S]*?transition:\s*transform\s+240ms\s+cubic-bezier\(\.32,\s*\.72,\s*0,\s*1\)/
+    )
+  })
+
+  test('idempotency: a pre-existing untagged <style> from Bilibili/Vite is NOT removed', () => {
+    // The marker only matches our own tag. Other modules' styles should
+    // survive — otherwise we'd be a vandal in someone else's document.
+    const foreign = document.createElement('style')
+    foreign.textContent = '/* bilibili foreign */ .bili-x { color: red; }'
+    document.head.appendChild(foreign)
+    const cleanup1 = lifecycle.installPanelStyles()
+    const cleanup2 = lifecycle.installPanelStyles()
+    // The foreign style must still be in the document.
+    expect(document.head.contains(foreign)).toBe(true)
+    cleanup1()
+    cleanup2()
+    expect(document.head.contains(foreign)).toBe(true)
+    foreign.remove()
   })
 })
 

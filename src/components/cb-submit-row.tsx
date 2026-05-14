@@ -103,7 +103,7 @@ export function CbSubmitRow({
         marginTop: '.3em',
         padding: '.4em',
         background: 'var(--bg2, #f0f7ff)',
-        border: '1px solid #3b82f6',
+        border: '1px solid #007aff',
         borderRadius: '4px',
         fontSize: '11px',
       }}
@@ -134,7 +134,7 @@ export function CbSubmitRow({
                   padding: '.1em .4em',
                   borderRadius: '999px',
                   border: '1px solid var(--Ga2, #ccc)',
-                  background: isOn ? '#3b82f6' : 'transparent',
+                  background: isOn ? 'var(--cb-accent)' : 'transparent',
                   color: isOn ? '#fff' : 'inherit',
                   fontSize: '11px',
                   fontFamily: 'inherit',
@@ -160,7 +160,9 @@ export function CbSubmitRow({
         />
       </div>
 
-      {error.value && !loading.value && <div style={{ color: '#a00', marginBottom: '.3em' }}>{error.value}</div>}
+      {error.value && !loading.value && (
+        <div style={{ color: 'var(--cb-danger-text)', marginBottom: '.3em' }}>{error.value}</div>
+      )}
 
       <div style={{ display: 'flex', gap: '.4em', alignItems: 'center' }}>
         <button
@@ -170,7 +172,7 @@ export function CbSubmitRow({
           style={{
             cursor: submitting.value ? 'wait' : 'pointer',
             padding: '.15em .8em',
-            background: '#3b82f6',
+            background: 'var(--cb-accent)',
             color: '#fff',
             border: 'none',
             borderRadius: '3px',

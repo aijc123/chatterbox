@@ -26,12 +26,12 @@ export function UserNotice() {
       {notices.map(notice => {
         const toneColor =
           notice.tone === 'error'
-            ? '#ff3b30'
+            ? 'var(--cb-danger)'
             : notice.tone === 'warning'
-              ? '#a15c00'
+              ? 'var(--cb-warning-text)'
               : notice.tone === 'success'
-                ? '#168a45'
-                : '#2563eb'
+                ? 'var(--cb-success-text)'
+                : 'var(--cb-accent)'
         const title =
           notice.tone === 'error'
             ? '操作失败'

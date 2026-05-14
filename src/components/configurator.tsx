@@ -1,26 +1,67 @@
 import { useRef } from 'preact/hooks'
 
 import { cn } from '../lib/cn'
-import { activeTab, chatfilterLogPanelEnabled, dialogOpen } from '../lib/store'
+import { activeTab, dialogOpen, hzmPanelOpen, memesPanelOpen } from '../lib/store'
 import { AboutTab } from './about-tab'
 import { AutoBlendControls } from './auto-blend-controls'
 import { AutoSendControls } from './auto-send-controls'
-import { ChatfilterLogPanel } from './chatfilter-log-panel'
 import { HzmDrivePanelMount } from './hzm-drive-panel'
 import { LogPanel } from './log-panel'
 import { MemesList } from './memes-list'
 import { NormalSendTab } from './normal-send-tab'
+import { PanelHeader } from './panel-header'
 import { SettingsTab } from './settings-tab'
 import { SttTab } from './stt-tab'
-import { Tabs } from './tabs'
+
+/**
+ * 面板容器。
+ *
+ * 设计理念（从用户视角，按 Jobs 式减法）：
+ *
+ * 这个产品本质上只做一件事——"在 B 站直播间替我说话"。三个核心原语对应三张主卡：
+ *   1. 独轮车（循环发送）
+ *   2. 自动跟车（跟热门）
+ *   3. 普通发送（手动一句）
+ *
+ * 其它功能都是"为某个核心原语服务的配件"，应该视觉上**归属**于它们各自服务的核心：
+ *   - 烂梗库 = 独轮车的"模板素材库"      → 折在独轮车卡下方
+ *   - 智驾   = 自动跟车的"LLM 加强版"     → 折在自动跟车卡下方
+ *   - 同传   = 普通发送的"语音输入法"     → 折在普通发送卡下方
+ *
+ * 历史：原本是 4 Tab（发送/同传/设置/关于）顶部切换；用户审计后认定 Tab 是错误隐喻
+ *（产品只有一个主上下文，把配件做成同等地位的 Tab 是把心智成本转嫁给用户）。改成
+ *「单页瀑布 + 抽屉式设置/关于」：
+ *
+ *  - 主页（activeTab='fasong'）= 顶部状态条 + 三张归属式主卡 + 日志。
+ *  - 设置（activeTab='settings'）= 满铺抽屉，由 PanelHeader 提供"← 返回"。
+ *  - 关于（activeTab='about'）= 同上。
+ *
+ * 仍复用 `activeTab` 信号以保持现有 set-callers 不变（onboarding、yolo-callout、
+ * hzm-drive-panel 内部跳转、danmaku-actions 等）。语义不变：'settings' 即"打开设置
+ * 视图"，'about' 即"打开关于视图"。
+ *
+ * 旧值 'tongchuan' 的持久化 activeTab 在这里强制迁移到 'fasong'——同传不再是独立
+ * 视图，归到普通发送下方。
+ */
+
+const VALID_TABS = new Set<string>(['fasong', 'settings', 'about'])
 
 export function Configurator() {
+  if (!VALID_TABS.has(activeTab.value)) {
+    activeTab.value = 'fasong'
+  }
+
   const tab = activeTab.value
   const visible = dialogOpen.value
-  // Mount each tab on first visit, then keep it in DOM (avoids remounting state)
+  // 首次访问 settings/about 时挂载，之后保留在 DOM 中以保住组件内部状态。
   const visited = useRef(new Set([tab]))
   visited.current.add(tab)
-  const panelClass = (active: boolean) => cn('cb-scroll', active ? 'lc-block' : 'lc-hidden')
+
+  // `cb-view` only on the active view — preact reuses the underlying DOM nodes
+  // between renders, so adding the animation class only when this view becomes
+  // active is what makes the entrance keyframe re-fire on tab switch (a fresh
+  // `animation` property on an existing element re-triggers the animation).
+  const panelClass = (active: boolean) => cn('cb-scroll', active ? 'lc-block cb-view' : 'lc-hidden')
 
   return (
     <section
@@ -30,32 +71,95 @@ export function Configurator() {
       className={cn(
         'lc-fixed lc-right-2 lc-bottom-[46px] lc-z-[2147483647]',
         'lc-w-[320px] lc-max-w-[calc(100vw_-_16px)]',
-        'lc-max-h-[50vh] lc-overflow-y-auto',
+        'lc-max-h-[70vh] lc-overflow-y-auto',
         !visible && 'lc-hidden'
       )}
     >
-      <Tabs />
+      <PanelHeader />
 
       <div className={panelClass(tab === 'fasong')}>
         {visited.current.has('fasong') && (
           <>
-            <AutoSendControls />
-            <div>
+            {/* 核心 1：独轮车（循环发送）+ 烂梗库（其素材来源）
+             *
+             * The outer <details> binds to `memesPanelOpen` rather than
+             * relying on browser default state — preserves the persisted
+             * "I had this open last session" preference. Previously the
+             * MemesList component had its own nested <details>烂梗库</details>
+             * for the same toggle, which was both redundant ("📚 从烂梗库
+             * 挑模板" already names the action) and animation-broken
+             * (content was rendered as sibling of the inner details, so
+             * its ::details-content had nothing to animate). Removing the
+             * inner toggle made this outer one the single source of truth.
+             */}
+            <section className='cb-core-group' aria-label='独轮车与烂梗库'>
+              <AutoSendControls />
+              <details
+                className='cb-supporting-feature'
+                open={memesPanelOpen.value}
+                onToggle={e => {
+                  memesPanelOpen.value = e.currentTarget.open
+                }}
+              >
+                <summary>
+                  <span className='cb-supporting-feature-icon' aria-hidden='true'>
+                    📚
+                  </span>
+                  从烂梗库挑模板
+                </summary>
+                <MemesList />
+              </details>
+            </section>
+
+            {/* 核心 2：自动跟车（被动跟热门）+ 智驾（LLM 加强版）
+             *
+             * Same pattern as 📚 above: outer wrapper now binds to
+             * `hzmPanelOpen` (the same signal the inner panel used) so
+             * the HzmDrive component can drop its own redundant <details>
+             * summary "智能辅助驾驶（{source.name}）".
+             */}
+            <section className='cb-core-group' aria-label='自动跟车与智驾'>
               <AutoBlendControls />
-            </div>
-            <div>
-              <HzmDrivePanelMount />
-            </div>
-            <div style={{ margin: '.25rem 0' }}>
-              <MemesList />
-            </div>
-            <NormalSendTab />
-            {chatfilterLogPanelEnabled.value && <ChatfilterLogPanel />}
+              <details
+                className='cb-supporting-feature'
+                open={hzmPanelOpen.value}
+                onToggle={e => {
+                  hzmPanelOpen.value = e.currentTarget.open
+                }}
+              >
+                <summary>
+                  <span className='cb-supporting-feature-icon' aria-hidden='true'>
+                    🤖
+                  </span>
+                  用 LLM 选梗（智驾，仅特定房间）
+                </summary>
+                <HzmDrivePanelMount />
+              </details>
+            </section>
+
+            {/* 核心 3：普通发送（主动一句）+ 同传（语音输入法变体） */}
+            <section className='cb-core-group' aria-label='普通发送与同传'>
+              <NormalSendTab />
+              <details className='cb-supporting-feature'>
+                <summary>
+                  <span className='cb-supporting-feature-icon' aria-hidden='true'>
+                    🎤
+                  </span>
+                  语音输入弹幕（同传，Soniox）
+                </summary>
+                <SttTab />
+              </details>
+            </section>
+
+            {/*
+             * 历史：早期把 Chatfilter 观察日志（开发者调试面板）直接挂在首页。
+             * 用户审计后判定：首页只放"开车 / 跟车 / 发弹幕"三件核心事，调试
+             * 工具属于设置。现在面板搬到了「设置 → 智能识别同义弹幕」开发者
+             * 选项下面，跟控制它的开关同处一节，逻辑闭合。
+             */}
           </>
         )}
       </div>
-
-      <div className={panelClass(tab === 'tongchuan')}>{visited.current.has('tongchuan') && <SttTab />}</div>
 
       <div className={panelClass(tab === 'settings')}>{visited.current.has('settings') && <SettingsTab />}</div>
 

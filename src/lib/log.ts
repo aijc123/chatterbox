@@ -35,6 +35,46 @@ export type NotifyLevel = UserNotice['tone']
 /** Queue of active user-facing notices surfaced outside the collapsed log panel. */
 export const userNotices = signal<UserNotice[]>([])
 
+/**
+ * Translate common English runtime / fetch / HTTP error messages into Chinese
+ * so they don't leak into otherwise-Chinese toast text. Applied at the
+ * `notifyUser` boundary (catches all `notifyUser(level, label, err.message)`
+ * call sites in one place) and at `appendLog(string)` (catches free-form
+ * `appendLog('⚠️ X 失败：${err.message}')` writes that also auto-surface to
+ * the toast via `maybeSurfaceLogMessage`).
+ *
+ * Conservative: only rewrites well-known English needles. Chinese text passes
+ * through untouched. Unrecognized English is left alone — better to show the
+ * raw string than to mangle it.
+ *
+ * Why this lives at the log layer instead of at each fetch wrapper: every
+ * call site currently does `err instanceof Error ? err.message : String(err)`
+ * and there are ~30 such sites. Centralizing here is one edit; ad-hoc
+ * normalization in every client wrapper drifts.
+ */
+export function normalizeErrorMessage(raw: string): string {
+  if (!raw) return raw
+  let s = raw
+  // Browser fetch failure (CORS / DNS / offline). Most visible "WTF" string
+  // that leaks into Chinese toast.
+  s = s.replace(/TypeError:\s*Failed to fetch/gi, '网络连接失败（无法访问目标站点）')
+  s = s.replace(/Failed to fetch/gi, '网络连接失败')
+  s = s.replace(/NetworkError when attempting to fetch resource\.?/gi, '网络错误（无法访问目标站点）')
+  s = s.replace(/Load failed/g, '资源加载失败')
+  // Aborted / timed-out requests
+  s = s.replace(/^AbortError:?\s*/i, '请求已取消：')
+  s = s.replace(/The operation was aborted\.?/gi, '请求已取消（可能超时或主动中断）')
+  s = s.replace(/signal is aborted without reason/gi, '请求已取消（超时）')
+  // Common HTTP status snippets
+  s = s.replace(/\bHTTP\s*401\b|\bUnauthorized\b/g, 'HTTP 401（未授权，请检查 API key）')
+  s = s.replace(/\bHTTP\s*403\b|\bForbidden\b/g, 'HTTP 403（被拒绝访问）')
+  s = s.replace(/\bHTTP\s*404\b|\bNot Found\b/g, 'HTTP 404（资源不存在）')
+  s = s.replace(/\bHTTP\s*429\b|\bToo Many Requests\b/g, 'HTTP 429（触发限速）')
+  // Cleanup: double colons left by chained replacements ("请求已取消：The operation...")
+  s = s.replace(/：\s*：/g, '：').replace(/：\s*$/g, '')
+  return s
+}
+
 function showUserNotice(message: string, tone: UserNotice['tone']): void {
   const id = Date.now()
   userNotices.value = [...userNotices.value, { id, tone, message }]
@@ -52,7 +92,8 @@ function maybeSurfaceLogMessage(message: string): void {
 }
 
 export function notifyUser(level: NotifyLevel, message: string, detail?: string): void {
-  const fullMessage = detail ? `${message}：${detail}` : message
+  const normalizedDetail = detail ? normalizeErrorMessage(detail) : detail
+  const fullMessage = normalizedDetail ? `${message}：${normalizedDetail}` : message
   const prefix = level === 'error' ? '❌' : level === 'warning' ? '⚠️' : level === 'success' ? '✅' : 'ℹ️'
   appendLog(`${prefix} ${fullMessage}`)
 }
@@ -86,9 +127,10 @@ export function appendLog(arg: string | SendDanmakuResult, label?: string, displ
         : '被手动发送中断'
       : ''
 
+  const normalizedString = typeof arg === 'string' ? normalizeErrorMessage(arg) : null
   const message =
     typeof arg === 'string'
-      ? `${ts} ${arg}`
+      ? `${ts} ${normalizedString}`
       : arg.cancelled
         ? `${ts} ⏭ ${label}: ${display}（${cancelledReason}）`
         : arg.success
@@ -98,7 +140,9 @@ export function appendLog(arg: string | SendDanmakuResult, label?: string, displ
   pushLine(message)
 
   if (typeof arg === 'string') {
-    maybeSurfaceLogMessage(arg)
+    // Use normalized form for the toast as well so 「Failed to fetch」/「AbortError」
+    // never appear inside an otherwise-Chinese surface message.
+    maybeSurfaceLogMessage(normalizedString ?? arg)
   } else if (!arg.success && !arg.cancelled) {
     showUserNotice(`${label}: ${display}，原因：${formatDanmakuError(arg.error)}`, 'error')
   }

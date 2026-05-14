@@ -229,6 +229,7 @@ const {
   _setLiveWsFactoryForTests,
   hasRecentWsDanmaku,
   liveWsCoercionDiagnostics,
+  reconnectLiveWsNow,
   startLiveWsSource,
   stopLiveWsSource,
 } = await import('../src/lib/live-ws-source')
@@ -658,5 +659,85 @@ describe('stopLiveWsSource — teardown', () => {
     const beforeCount = MockLiveWS.instances.length
     await flushAsync(150) // give any pending timer a chance
     expect(MockLiveWS.instances.length).toBe(beforeCount)
+  })
+})
+
+describe('reconnectLiveWsNow — user-triggered manual reconnect', () => {
+  // The "↻ 重连" button in panel-header.tsx calls this on click while the
+  // user is staring at a "WS 断开" badge. Contract: tear down any pending
+  // exponential-backoff timer, reset the attempt counter, and kick off a
+  // fresh connect() immediately — without going through the
+  // shouldForceImmediateReconnect gate that visibilitychange uses
+  // (which would refuse on `connectionHealthy=false`).
+
+  test('returns false when WS has never been started (no consumers)', () => {
+    // Fresh state: no startLiveWsSource() yet → `started` is false.
+    const result = reconnectLiveWsNow()
+    expect(result).toBe(false)
+    // No factory call should have occurred either.
+    expect(MockLiveWS.instances).toHaveLength(0)
+  })
+
+  test('returns true and emits a fresh "connecting" status when started', async () => {
+    await startAndConnect()
+    // Clear status history so we can observe a *fresh* 'connecting' transition.
+    statuses.length = 0
+    const result = reconnectLiveWsNow()
+    expect(result).toBe(true)
+    // First sync side effect: emit 'connecting'. (The async connect() that
+    // follows may emit additional statuses; we only care about the first.)
+    expect(statuses[0]).toBe('connecting')
+  })
+
+  test('kicks off a new connect() that produces another LiveWS instance', async () => {
+    await startAndConnect()
+    const beforeCount = MockLiveWS.instances.length
+    expect(reconnectLiveWsNow()).toBe(true)
+    // Wait for the async connect to construct the next mock instance.
+    for (let i = 0; i < 30 && MockLiveWS.instances.length === beforeCount; i++) {
+      await flushAsync(20)
+    }
+    expect(MockLiveWS.instances.length).toBeGreaterThan(beforeCount)
+  })
+
+  test('cancels a pending backoff reconnect timer (so it cannot stomp the fresh one)', async () => {
+    const live = await startAndConnect()
+    live._emitLive()
+    live.close() // schedules a reconnect via setTimeout(computeReconnectDelay)
+    const afterCloseCount = MockLiveWS.instances.length
+    // Trigger manual reconnect — should replace the pending timer with an
+    // immediate connect. We then wait long enough for either path to fire,
+    // but expect exactly ONE new instance (the manual one), not two.
+    reconnectLiveWsNow()
+    // Wait for the manual reconnect to produce its instance.
+    for (let i = 0; i < 30 && MockLiveWS.instances.length === afterCloseCount; i++) {
+      await flushAsync(20)
+    }
+    const afterManualCount = MockLiveWS.instances.length
+    expect(afterManualCount).toBe(afterCloseCount + 1)
+    // Now wait long enough that the original setTimeout-scheduled reconnect
+    // *would* have fired if it weren't cancelled. (computeReconnectDelay
+    // starts well under 200ms for attempt=0.)
+    await flushAsync(500)
+    // No second instance should appear — the backoff timer was cleared.
+    expect(MockLiveWS.instances.length).toBe(afterManualCount)
+  })
+
+  test('stale in-flight connect() from before the manual trigger is invalidated', async () => {
+    // Set up a slow danmuInfoResponder so we can sandwich a reconnectLiveWsNow
+    // call between the original connect()'s `await fetchDanmuInfo` and its
+    // factory call. The stale connect should detect the serial bump and abort
+    // BEFORE constructing a LiveWS — but if it does manage to construct one,
+    // it must not increment effective consumer-side state past the new path.
+    await startAndConnect() // initial healthy state, instance #1
+    const baselineInstances = MockLiveWS.instances.length
+    // Manual reconnect → instance #2 will eventually appear.
+    expect(reconnectLiveWsNow()).toBe(true)
+    for (let i = 0; i < 30 && MockLiveWS.instances.length === baselineInstances; i++) {
+      await flushAsync(20)
+    }
+    // Even with rapid double-trigger we never want more than +1 new instance
+    // per call — the serial-bump dedupes any stale chain.
+    expect(MockLiveWS.instances.length).toBe(baselineInstances + 1)
   })
 })

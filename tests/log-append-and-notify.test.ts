@@ -20,7 +20,8 @@ import { installGmStoreMock } from './_gm-store'
 
 const { reset: resetGmStore, store: gmStore } = installGmStoreMock()
 
-const { appendLog, debugLogVisible, logLines, maxLogLines, notifyUser, userNotices } = await import('../src/lib/log')
+const { appendLog, debugLogVisible, logLines, maxLogLines, normalizeErrorMessage, notifyUser, userNotices } =
+  await import('../src/lib/log')
 
 beforeEach(() => {
   resetGmStore()
@@ -218,6 +219,66 @@ describe('pushLine rolling cap (P2 #12)', () => {
     expect(maxLogLines.value).toBe(1000) // non-finite → defaultValue
     maxLogLines.value = 75.7
     expect(maxLogLines.value).toBe(76) // integer:true → rounded
+  })
+})
+
+describe('normalizeErrorMessage — English → Chinese fetch/HTTP error translation', () => {
+  test('"Failed to fetch" alone becomes 网络连接失败', () => {
+    expect(normalizeErrorMessage('Failed to fetch')).toBe('网络连接失败')
+  })
+
+  test('"TypeError: Failed to fetch" gets the more descriptive variant', () => {
+    expect(normalizeErrorMessage('TypeError: Failed to fetch')).toBe('网络连接失败（无法访问目标站点）')
+  })
+
+  test('Firefox "NetworkError when attempting to fetch resource" is translated', () => {
+    expect(normalizeErrorMessage('NetworkError when attempting to fetch resource.')).toBe(
+      '网络错误（无法访问目标站点）'
+    )
+  })
+
+  test('AbortError prefix becomes 请求已取消', () => {
+    expect(normalizeErrorMessage('AbortError: The operation was aborted')).toMatch(/请求已取消/)
+  })
+
+  test('"The operation was aborted" without leading AbortError still translates', () => {
+    expect(normalizeErrorMessage('The operation was aborted.')).toBe('请求已取消（可能超时或主动中断）')
+  })
+
+  test('HTTP 401 / Unauthorized → 中文 hint about API key', () => {
+    expect(normalizeErrorMessage('HTTP 401')).toContain('未授权')
+    expect(normalizeErrorMessage('Unauthorized')).toContain('未授权')
+  })
+
+  test('HTTP 429 / Too Many Requests → 触发限速', () => {
+    expect(normalizeErrorMessage('HTTP 429')).toContain('触发限速')
+    expect(normalizeErrorMessage('Too Many Requests')).toContain('触发限速')
+  })
+
+  test('Pure Chinese passes through untouched', () => {
+    expect(normalizeErrorMessage('云端规则同步失败：服务器忙')).toBe('云端规则同步失败：服务器忙')
+  })
+
+  test('Embedded "Failed to fetch" inside a Chinese template is normalized', () => {
+    expect(normalizeErrorMessage('云端规则同步失败：Failed to fetch')).toBe('云端规则同步失败：网络连接失败')
+  })
+
+  test('empty / null-ish input returns unchanged', () => {
+    expect(normalizeErrorMessage('')).toBe('')
+  })
+
+  test('notifyUser uses normalize on the detail param', () => {
+    notifyUser('error', '云端规则同步失败', 'Failed to fetch')
+    expect(logLines.value[0]).toContain('❌ 云端规则同步失败：网络连接失败')
+    expect(userNotices.value[0].message).toContain('网络连接失败')
+    expect(userNotices.value[0].message).not.toContain('Failed to fetch')
+  })
+
+  test('free-form appendLog also normalizes English needles for toast surfacing', () => {
+    appendLog('❌ 弹幕发送失败：TypeError: Failed to fetch')
+    expect(userNotices.value).toHaveLength(1)
+    expect(userNotices.value[0].message).toContain('网络连接失败（无法访问目标站点）')
+    expect(userNotices.value[0].message).not.toContain('Failed to fetch')
   })
 })
 

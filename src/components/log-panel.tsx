@@ -89,7 +89,11 @@ export function LogPanel() {
             清空
           </button>
           {copiedFlash.value && (
-            <span role='status' aria-live='polite' style={{ color: '#168a45', fontSize: '11px', fontWeight: 650 }}>
+            <span
+              role='status'
+              aria-live='polite'
+              style={{ color: 'var(--cb-success-text)', fontSize: '11px', fontWeight: 650 }}
+            >
               ✓ 已复制
             </span>
           )}

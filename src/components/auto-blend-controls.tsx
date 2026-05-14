@@ -6,6 +6,7 @@ import { AUTO_BLEND_PRESETS } from '../lib/auto-blend-preset-config'
 import { applyAutoBlendPreset } from '../lib/auto-blend-presets'
 import { decideAutoBlendToggle } from '../lib/auto-blend-toggle'
 import { appendLog } from '../lib/log'
+import { warnIfOtherSourcesActive } from '../lib/multi-source-warning'
 import {
   autoBlendAdvancedOpen,
   autoBlendAvoidRepeat,
@@ -486,10 +487,10 @@ export function AutoBlendControls() {
   const statusColor = !isOn
     ? '#777'
     : autoBlendStatusText.value.includes('冷却')
-      ? '#a15c00'
+      ? 'var(--cb-warning-text)'
       : autoBlendStatusText.value.includes('跟车')
-        ? '#1677ff'
-        : '#0a7f55'
+        ? 'var(--cb-accent)'
+        : 'var(--cb-success-text)'
 
   const toggleEnabled = async () => {
     // 第一步：纯函数判定要不要弹 confirm（保留可单元测试的决策点）。
@@ -545,7 +546,9 @@ export function AutoBlendControls() {
       hasConfirmedAutoBlendRealFire.value = true
       lastAutoBlendRealFireConfirmAt.value = Date.now()
     }
-    autoBlendEnabled.value = !autoBlendEnabled.value
+    const willBeOn = !autoBlendEnabled.value
+    autoBlendEnabled.value = willBeOn
+    if (willBeOn) void warnIfOtherSourcesActive('blend')
   }
 
   return (
@@ -557,7 +560,7 @@ export function AutoBlendControls() {
     >
       <summary style={{ cursor: 'pointer', userSelect: 'none', fontWeight: 'bold' }}>
         <span>自动跟车</span>
-        {isOn && <span className='cb-soft'>已开</span>}
+        {isOn && <span className='cb-soft'>运行中</span>}
       </summary>
 
       <div className='cb-body cb-stack'>
@@ -827,7 +830,10 @@ export function AutoBlendControls() {
               试运行（只观察，不发送）
             </label>
             {!autoBlendDryRun.value && (
-              <span style={{ color: '#a15c00', fontSize: '0.85em' }} title='当前关闭试运行，会真实发送弹幕。'>
+              <span
+                style={{ color: 'var(--cb-warning-text)', fontSize: '0.85em' }}
+                title='当前关闭试运行，会真实发送弹幕。'
+              >
                 关闭后会真实发送
               </span>
             )}
@@ -932,14 +938,17 @@ export function AutoBlendControls() {
             >
               多句一起跟
             </label>
-            <span style={{ color: '#a15c00' }} title='更激进：命中一波后会连发多条达标弹幕，更容易被风控。'>
+            <span
+              style={{ color: 'var(--cb-warning-text)' }}
+              title='更激进：命中一波后会连发多条达标弹幕，更容易被风控。'
+            >
               （更激进）
             </span>
           </span>
         </div>
 
         {autoBlendSendAllTrending.value && (
-          <div style={{ color: '#a15c00', fontSize: '12px', lineHeight: 1.5, marginBottom: '.25em' }}>
+          <div style={{ color: 'var(--cb-warning-text)', fontSize: '12px', lineHeight: 1.5, marginBottom: '.25em' }}>
             会把同一波里达标的几句话依次发出去；此时「每次发X遍」被覆盖为 1。
           </div>
         )}
@@ -947,7 +956,13 @@ export function AutoBlendControls() {
         {autoBlendSendCount.value * msgSendInterval.value > autoBlendCooldownSec.value && (
           <div
             role='alert'
-            style={{ color: '#ff3b30', fontSize: '12px', fontWeight: 650, lineHeight: 1.5, marginBottom: '.25em' }}
+            style={{
+              color: 'var(--cb-danger)',
+              fontSize: '12px',
+              fontWeight: 650,
+              lineHeight: 1.5,
+              marginBottom: '.25em',
+            }}
           >
             ⚠️ 当前要发 {autoBlendSendCount.value * msgSendInterval.value}s，超过冷却 {autoBlendCooldownSec.value}s
             ——开启时会再次确认；建议把「每次发X遍」调小或把冷却调大。

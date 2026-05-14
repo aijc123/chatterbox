@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'preact/hooks'
 
-import { dialogOpen, sendMsg } from '../lib/store'
+import { activeTab, dialogOpen, sendMsg } from '../lib/store'
 
 export function ToggleButton() {
   const btnRef = useRef<HTMLButtonElement>(null)
@@ -9,10 +9,13 @@ export function ToggleButton() {
     dialogOpen.value = !dialogOpen.value
   }, [])
 
-  // Esc closes the panel from anywhere on the page (capture phase so we run
-  // before Bilibili's own Esc handlers that close their popovers). Only acts
-  // when the panel is open AND focus is not currently inside an editable
-  // field, so users can still hit Esc to clear an input without dismissing.
+  // Esc 两阶段行为（capture phase，抢在 B 站自己的 Esc handler 之前）：
+  //   1) 当前在设置/关于子页 → Esc 先返回主页（不关面板）。这是抽屉式导航的标准
+  //      退路；用户通常想"退回上一层"，而不是"一键关掉整个面板"。
+  //   2) 在主页（或已经在主页）→ Esc 关掉面板。
+  //
+  // 焦点在 input/textarea/select 等可编辑控件时不响应——用户清输入框的 Esc
+  // 应该让默认行为通过。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
@@ -20,6 +23,13 @@ export function ToggleButton() {
       const target = e.target as HTMLElement | null
       const tag = target?.tagName?.toLowerCase()
       if (tag === 'input' || tag === 'textarea' || tag === 'select' || target?.isContentEditable) return
+      // 在子页面：第一次 Esc 返回主页。
+      if (activeTab.value === 'settings' || activeTab.value === 'about') {
+        e.stopPropagation()
+        activeTab.value = 'fasong'
+        return
+      }
+      // 在主页：Esc 关闭面板。
       e.stopPropagation()
       dialogOpen.value = false
       btnRef.current?.focus()

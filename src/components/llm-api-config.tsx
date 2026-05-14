@@ -225,7 +225,7 @@ export function LlmApiConfigPanel({ showTestConnection = true }: LlmApiConfigPan
                 role='status'
                 aria-live='polite'
                 style={{
-                  color: isError ? '#b00020' : '#a15c00',
+                  color: isError ? 'var(--cb-danger-text)' : 'var(--cb-warning-text)',
                   fontSize: '11px',
                   fontWeight: isError ? 600 : 500,
                   lineHeight: 1.4,
@@ -251,7 +251,7 @@ export function LlmApiConfigPanel({ showTestConnection = true }: LlmApiConfigPan
             {testStatus.value === 'testing' ? '测试中…' : '测试连接'}
           </button>
           {testStatus.value === 'ok' && (
-            <span className='cb-soft' style={{ color: '#0a7f55' }}>
+            <span className='cb-soft' style={{ color: 'var(--cb-success-text)' }}>
               连接成功
             </span>
           )}
@@ -271,7 +271,7 @@ export function LlmApiConfigPanel({ showTestConnection = true }: LlmApiConfigPan
           role='status'
           aria-live='polite'
           style={{
-            color: '#b00020',
+            color: 'var(--cb-danger-text)',
             background: 'rgba(176,0,32,.08)',
             border: '1px solid rgba(176,0,32,.25)',
             padding: '6px 8px',
@@ -285,13 +285,13 @@ export function LlmApiConfigPanel({ showTestConnection = true }: LlmApiConfigPan
           都能直接读到。担心泄漏：上面取消勾选「保存到 GM 存储」改为仅本会话。
         </div>
       ) : (
-        <div className='cb-note' style={{ color: '#a15c00' }}>
+        <div className='cb-note' style={{ color: 'var(--cb-warning-text)' }}>
           {llmApiKeyPersist.value
             ? '提示：填入 key 后会明文存进 GM 存储。关掉「保存到 GM 存储」可改为仅本会话。'
             : 'Key 仅留在内存，刷新页面后清空。'}
         </div>
       )}
-      <div className='cb-note' style={{ color: '#a15c00' }}>
+      <div className='cb-note' style={{ color: 'var(--cb-warning-text)' }}>
         openai-compat 自定义域首次调用时 Tampermonkey 会弹权限确认，需手动允许。
       </div>
     </div>
@@ -310,7 +310,7 @@ export function LlmApiConfigSummary({ onJumpToSettings }: { onJumpToSettings?: (
       <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'wrap' }}>
         <strong>LLM</strong>
         {apiKeyConfigured ? (
-          <span className='cb-soft' style={{ color: '#0a7f55' }}>
+          <span className='cb-soft' style={{ color: 'var(--cb-success-text)' }}>
             已配置
           </span>
         ) : (
@@ -324,7 +324,7 @@ export function LlmApiConfigSummary({ onJumpToSettings }: { onJumpToSettings?: (
               background: 'none',
               border: 'none',
               padding: 0,
-              color: '#1677ff',
+              color: 'var(--cb-accent)',
               cursor: 'pointer',
               fontSize: '11px',
             }}

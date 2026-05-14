@@ -95,7 +95,7 @@ export function NormalSendTab() {
             <span
               role='status'
               aria-live='polite'
-              style={{ color: '#168a45', fontWeight: 650, fontSize: '11px', marginLeft: 'auto' }}
+              style={{ color: 'var(--cb-success-text)', fontWeight: 650, fontSize: '11px', marginLeft: 'auto' }}
             >
               ✓ 已发送
             </span>

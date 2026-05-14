@@ -1,5 +1,6 @@
 import { appendLog } from '../lib/log'
 import { cancelLoop } from '../lib/loop'
+import { warnIfOtherSourcesActive } from '../lib/multi-source-warning'
 import {
   activeTemplateIndex,
   autoSendPanelOpen,
@@ -39,6 +40,7 @@ export function AutoSendControls() {
         return
       }
       sendMsg.value = true
+      void warnIfOtherSourcesActive('loop')
     } else {
       cancelLoop()
       sendMsg.value = false

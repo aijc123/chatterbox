@@ -7,6 +7,7 @@ import {
   chatfilterFeedReplacementLearn,
   chatfilterLogPanelEnabled,
 } from '../../lib/store-chatfilter'
+import { ChatfilterLogPanel } from '../chatfilter-log-panel'
 import { matchesSearchQuery } from './search'
 
 // "debug" / "调试" 关键字也算命中 —— 搜索 "chatfilter debug" 才会展开开发者选项区。
@@ -115,7 +116,9 @@ export function ChatfilterSection({ query = '' }: { query?: string }) {
                   chatfilterLogPanelEnabled.value = e.currentTarget.checked
                 }}
               />
-              <span title='在「发送」tab 底部显示 200 行环形缓冲，实时打印每条弹幕的归一化过程。'>观察日志面板</span>
+              <span title='200 行环形缓冲，实时打印每条弹幕的归一化过程；勾上后展开在本节下方。'>
+                展开观察日志（开发者）
+              </span>
             </label>
 
             <div className='cb-row' style={{ display: 'flex', gap: '.5em', alignItems: 'center', marginTop: '.5em' }}>
@@ -141,6 +144,18 @@ export function ChatfilterSection({ query = '' }: { query?: string }) {
 
             <div style={{ fontSize: '0.8em', color: '#888', marginTop: '.5em' }}>字典版本 v{VARIANTS_VERSION}</div>
           </fieldset>
+        )}
+
+        {/*
+         * 观察日志面板：开发者排查"为什么这两条弹幕被自动跟车合并"用的。
+         * 默认折在本节下面（仅在开发者勾了上面的开关后渲染），不再出现在
+         * 首页。原本在 configurator.tsx 主页底部硬挂——首页应该只放"开车
+         * /跟车/发弹幕"三件事，调试工具属于设置。
+         */}
+        {chatfilterLogPanelEnabled.value && (
+          <div style={{ marginTop: '.75em' }}>
+            <ChatfilterLogPanel />
+          </div>
         )}
       </div>
     </details>
