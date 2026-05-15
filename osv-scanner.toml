@@ -1,0 +1,55 @@
+# Build-only transitive vulnerabilities — none ship to the userscript bundle
+# or the chatterbox-cloud Worker runtime; they exist only on CI runners during
+# build/test. The triage policy is documented in
+# .github/workflows/osv-scanner.yml lines 59-63.
+#
+# Try-upgrade results (2026-05-14):
+#   - Bumped vite 7→8 + vite-plugin-monkey 7→8. This pulled postcss
+#     8.5.8 → 8.5.14, which fixes CVE-2026-41305 (no longer suppressed below).
+#     The vite 8 bundle is ~18% larger raw / ~31% larger gzip (rolldown is the
+#     default bundler now); .size-limit.json was widened to accommodate it.
+#   - picomatch 4.0.4 is the upstream-latest — no fix published yet for either
+#     CVE-2026-33671 or CVE-2026-33672.
+#   - minimatch 3.0.x and brace-expansion 1.x are pinned by postcss-url@10.1.3
+#     (last published 2021, unmaintained) which vite-plugin-monkey still pulls.
+#   - tmp 0.0.33 / 0.1.0 are pinned by external-editor@3.1.0 (last published
+#     2018) under @lhci/cli@0.15.1 → inquirer@6.5.2.
+#
+# ignoreUntil = 2026-08-14 (≈ 3 months from triage date) forces a re-review;
+# remove individual entries when upstream publishes a fix that lands in our
+# locked tree, or when the parent package gets replaced.
+
+[[IgnoredVulns]]
+id = "CVE-2026-33671"
+ignoreUntil = 2026-08-14
+reason = "picomatch ReDoS via extglob quantifiers. Build-only via vite/unplugin/tinyglobby. No upstream fix published yet (4.0.4 is latest)."
+
+[[IgnoredVulns]]
+id = "CVE-2026-33672"
+ignoreUntil = 2026-08-14
+reason = "picomatch method injection in POSIX character classes. Build-only via vite/unplugin/tinyglobby. No upstream fix published yet (4.0.4 is latest)."
+
+[[IgnoredVulns]]
+id = "CVE-2026-27903"
+ignoreUntil = 2026-08-14
+reason = "minimatch ReDoS via multiple non-adjacent GLOBSTAR. Build-only via vite-plugin-monkey → postcss-url@10.1.3 (unmaintained) → glob → minimatch@3.x."
+
+[[IgnoredVulns]]
+id = "CVE-2026-26996"
+ignoreUntil = 2026-08-14
+reason = "minimatch ReDoS via repeated wildcards. Same chain as CVE-2026-27903."
+
+[[IgnoredVulns]]
+id = "CVE-2026-27904"
+ignoreUntil = 2026-08-14
+reason = "minimatch ReDoS via nested *() extglobs. Same chain as CVE-2026-27903."
+
+[[IgnoredVulns]]
+id = "CVE-2026-33750"
+ignoreUntil = 2026-08-14
+reason = "brace-expansion zero-step sequence hang. Transitive under minimatch@3.x in the same vite-plugin-monkey → postcss-url chain. No reachable input path for malicious patterns at build time."
+
+[[IgnoredVulns]]
+id = "CVE-2025-54798"
+ignoreUntil = 2026-08-14
+reason = "tmp arbitrary write via symlink in `dir` parameter. Build-only via @lhci/cli → inquirer@6.5.2 → external-editor@3.1.0 (last published 2018). We don't pass user input as `dir`."

@@ -57,19 +57,19 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
-    "pinyin-pro": "^3.28.1",
     "@laplace.live/internal": "^1.3.13",
     "@lhci/cli": "^0.15.1",
     "@preact/preset-vite": "^2.10.5",
     "@size-limit/file": "^12.1.0",
-    "@types/bun": "^1.3.13",
+    "@types/bun": "^1.3.14",
     "autocannon": "^8.0.0",
     "fast-check": "^4.8.0",
     "happy-dom": "^20.9.0",
+    "pinyin-pro": "^3.28.1",
     "size-limit": "^12.1.0",
     "typescript": "^6.0.3",
     "unocss": "^66.6.8",
-    "vite": "^7.3.3",
-    "vite-plugin-monkey": "^7.1.9"
+    "vite": "^8.0.13",
+    "vite-plugin-monkey": "^8.0.5"
   }
 }
