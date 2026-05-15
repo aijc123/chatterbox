@@ -357,17 +357,52 @@ describe('FetchCache — LRU eviction order and boundary', () => {
     let aCalls = 0
     let bCalls = 0
     let cCalls = 0
-    await cache.get({ key: 'a', ttlMs: 100000, fetcher: async () => { aCalls++; return 'a' } })
-    await cache.get({ key: 'b', ttlMs: 100000, fetcher: async () => { bCalls++; return 'b' } })
+    await cache.get({
+      key: 'a',
+      ttlMs: 100000,
+      fetcher: async () => {
+        aCalls++
+        return 'a'
+      },
+    })
+    await cache.get({
+      key: 'b',
+      ttlMs: 100000,
+      fetcher: async () => {
+        bCalls++
+        return 'b'
+      },
+    })
     // 'a' is now LRU-oldest; inserting 'c' should evict 'a'.
-    await cache.get({ key: 'c', ttlMs: 100000, fetcher: async () => { cCalls++; return 'c' } })
+    await cache.get({
+      key: 'c',
+      ttlMs: 100000,
+      fetcher: async () => {
+        cCalls++
+        return 'c'
+      },
+    })
     expect(cache._sizeForTests).toBe(2)
     // Verify 'b' is still cached BEFORE we touch 'a' (re-fetching 'a' would
     // itself trigger another eviction that could remove 'b').
-    await cache.get({ key: 'b', ttlMs: 100000, fetcher: async () => { bCalls++; return 'b2' } })
+    await cache.get({
+      key: 'b',
+      ttlMs: 100000,
+      fetcher: async () => {
+        bCalls++
+        return 'b2'
+      },
+    })
     expect(bCalls).toBe(1) // still cached — fetcher not invoked
     // Now verify 'a' was evicted by the 'c' insert.
-    await cache.get({ key: 'a', ttlMs: 100000, fetcher: async () => { aCalls++; return 'a2' } })
+    await cache.get({
+      key: 'a',
+      ttlMs: 100000,
+      fetcher: async () => {
+        aCalls++
+        return 'a2'
+      },
+    })
     expect(aCalls).toBe(2) // re-fetched after eviction
     expect(cCalls).toBe(1) // 'c' was never re-requested
   })
