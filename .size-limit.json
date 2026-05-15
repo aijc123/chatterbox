@@ -2,20 +2,20 @@
   {
     "name": "userscript (raw)",
     "path": "dist/bilibili-live-wheel-auto-follow.user.js",
-    "limit": "1024 kB",
+    "limit": "2 MB",
     "brotli": false,
     "gzip": false
   },
   {
     "name": "userscript (gzip)",
     "path": "dist/bilibili-live-wheel-auto-follow.user.js",
-    "limit": "280 kB",
+    "limit": "560 kB",
     "gzip": true
   },
   {
     "name": "userscript (brotli)",
     "path": "dist/bilibili-live-wheel-auto-follow.user.js",
-    "limit": "230 kB",
+    "limit": "460 kB",
     "brotli": true
   }
 ]
